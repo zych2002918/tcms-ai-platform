@@ -1,94 +1,139 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type Stats } from "../api";
+import { Panel, StatCard, Tag, StatusDot } from "../components/ui";
 
 export function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [kb, setKb] = useState<{ graph: { nodes: number; edges: number }; vector: { docs: number } } | null>(null);
-  const [funcs, setFuncs] = useState<{ fid: string; name: string; description: string }[]>([]);
+  const [health, setHealth] = useState<{ status: string; version: string } | null>(null);
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    api
-      .stats()
-      .then(setStats)
-      .catch((e) => setErr(String(e)));
-    api
-      .kbStats()
-      .then(setKb)
-      .catch(() => undefined);
-    api
-      .functions()
-      .then(setFuncs)
-      .catch(() => undefined);
+    api.stats().then(setStats).catch((e) => setErr(String(e)));
+    api.health().then(setHealth).catch(() => undefined);
   }, []);
 
+  // 从这里开始 —— 三个主行动（用户探索的锚点）
+  const actions = [
+    {
+      to: "/scenarios",
+      icon: "▶",
+      tone: "text-info border-info/30 bg-info/10",
+      title: "跑一个故障场景",
+      desc: "选「车门故障级联」等真实场景，看 TCMS 引擎如何处置、断言是否通过。",
+      cta: "去执行场景",
+    },
+    {
+      to: "/graph",
+      icon: "◈",
+      tone: "text-vio border-vio/30 bg-vio/10",
+      title: "问 TCMS 领域知识",
+      desc: "输入「车门故障不能发车」这类问题，返回带证据链的答案，小白也能看懂。",
+      cta: "去知识图谱",
+    },
+    {
+      to: "/agent",
+      icon: "✦",
+      tone: "text-ok border-ok/30 bg-ok/10",
+      title: "指挥 AI 测试 Agent",
+      desc: "给 Agent 一个真实任务（如验证紧急制动处置），它自主检索、执行并汇报轨迹。",
+      cta: "去 Agent 工作台",
+    },
+  ];
+
   return (
-    <div>
-      <h1 className="page-title">TCMS × AI 测试平台</h1>
-      <p className="page-sub">
-        列车控制软件测试平台：真实资产模型 + 知识底座（图谱/向量）+ 真实引擎执行。数据全部派生自
-        tcms-can-test 上游资产，数字机器自证。
-      </p>
-      {err && <div className="err">⚠ {err}</div>}
+    <div className="space-y-5 max-w-[1200px]">
+      {err && (
+        <div className="panel border-bad/40 bg-bad/10 px-4 py-2.5 text-sm text-bad">⚠ 无法连接后端：{err}</div>
+      )}
 
-      <div className="grid grid-4" style={{ marginBottom: 18 }}>
-        <div className="stat">
-          <div className="num">{stats?.messages ?? "–"}</div>
-          <div className="lbl">报文 (DBC)</div>
+      {/* 系统状态条 */}
+      <Panel title="系统状态" bodyClass="py-3">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px]">
+          <span className="flex items-center gap-2">
+            <StatusDot tone={health?.status === "ok" ? "ok" : "bad"} pulse />
+            <span>
+              {health?.status === "ok" ? "上游引擎就绪" : "上游引擎离线"} · v
+              {stats?.version ?? "–"}
+            </span>
+          </span>
+          <span className="text-ink-dim">
+            资产源：<span className="kbd-mono">{stats?.source_upstream ?? "…"}</span>
+          </span>
+          <span className="ml-auto text-ink-faint text-xs" title="所有数字由真实资产加载派生，机器自证">
+            数字机器自证 ✓
+          </span>
         </div>
-        <div className="stat">
-          <div className="num">{stats?.signals ?? "–"}</div>
-          <div className="lbl">信号</div>
-        </div>
-        <div className="stat">
-          <div className="num">{stats?.faults ?? "–"}</div>
-          <div className="lbl">故障 (FMEA)</div>
-        </div>
-        <div className="stat">
-          <div className="num">{stats?.scenarios ?? "–"}</div>
-          <div className="lbl">场景</div>
-        </div>
-        <div className="stat">
-          <div className="num">{stats?.req_ids ?? "–"}</div>
-          <div className="lbl">安全需求 (RTM)</div>
-        </div>
-        <div className="stat">
-          <div className="num">{stats?.functions ?? "–"}</div>
-          <div className="lbl">被测功能</div>
-        </div>
-        <div className="stat">
-          <div className="num">{kb?.graph.nodes ?? "–"}</div>
-          <div className="lbl">图谱节点</div>
-        </div>
-        <div className="stat">
-          <div className="num">{kb?.vector.docs ?? "–"}</div>
-          <div className="lbl">向量语料</div>
+      </Panel>
+
+      {/* 资产速览（保留少量关键统计，去重去噪） */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <StatCard value={stats?.messages ?? "–"} label="报文 (DBC)" tone="info" hint="DBC 协议库定义的报文数" />
+        <StatCard value={stats?.signals ?? "–"} label="信号" tone="vio" hint="报文内含的信号数" />
+        <StatCard value={stats?.faults ?? "–"} label="故障 (FMEA)" tone="warn" hint="可注入的故障字典条目" />
+        <StatCard value={stats?.scenarios ?? "–"} label="场景" tone="ok" hint="可真实执行的故障场景" />
+        <StatCard value={stats?.req_ids ?? "–"} label="安全需求" tone="info" hint="RTM 追溯矩阵需求数" />
+        <StatCard value={stats?.functions ?? "–"} label="被测功能" tone="ok" hint="列车视角功能聚合" />
+      </div>
+
+      {/* 从这里开始 —— 行动入口 */}
+      <div>
+        <div className="section-title mb-2 px-1">从这里开始</div>
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {actions.map((a) => (
+            <Link key={a.to} to={a.to} className="panel panel-hover block p-4 group">
+              <div className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border text-lg ${a.tone}`}>
+                {a.icon}
+              </div>
+              <div className="mt-3 font-medium text-ink text-[14px]">{a.title}</div>
+              <div className="mt-1 text-xs text-ink-dim leading-5">{a.desc}</div>
+              <div className="mt-3 text-xs text-info flex items-center gap-1 opacity-80 group-hover:opacity-100 group-hover:gap-2 transition-all">
+                {a.cta} <span>→</span>
+              </div>
+            </Link>
+          ))}
         </div>
       </div>
 
-      <div className="card">
-        <h3>被测功能（列车视角的测试对象）</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>功能</th>
-              <th>描述</th>
-            </tr>
-          </thead>
-          <tbody>
-            {funcs.map((f) => (
-              <tr key={f.fid}>
-                <td>
-                  <code>{f.fid}</code>
-                </td>
-                <td style={{ fontWeight: 600 }}>{f.name}</td>
-                <td className="muted">{f.description}</td>
+      {/* 资产健康度明细（原被测功能表下沉，带说明） */}
+      <Panel
+        title="被测功能（列车视角的测试对象）"
+        right={<Tag tone="dim">F-EBM / F-ATP / F-DOOR / F-NET</Tag>}
+        bodyClass="p-0"
+      >
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th className="th">功能</th>
+                <th className="th">一句话</th>
+                <th className="th">关联</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {[
+                { id: "F-EBM", name: "紧急制动管理", d: "模式×原因矩阵触发紧急制动，SIL2/4 双通道表决" },
+                { id: "F-ATP", name: "超速防护", d: "速度监督阈值 EBI/SBI 分级干预" },
+                { id: "F-DOOR", name: "车门联锁与级联", d: "门状态联锁发车许可，故障级联降级" },
+                { id: "F-NET", name: "网络管理与完整性", d: "心跳监督 / CRC / 错误状态机" },
+              ].map((f) => (
+                <tr key={f.id} className="tr-hover">
+                  <td className="td">
+                    <code className="kbd-mono">{f.id}</code>{" "}
+                    <span className="ml-1 font-medium text-ink">{f.name}</span>
+                  </td>
+                  <td className="td text-ink-dim">{f.d}</td>
+                  <td className="td">
+                    <Link to={`/graph?focus=${f.id}`} className="text-info text-xs hover:underline">
+                      在图谱中查看 →
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
     </div>
   );
 }

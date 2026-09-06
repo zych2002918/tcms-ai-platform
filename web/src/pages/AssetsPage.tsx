@@ -1,304 +1,341 @@
-import { useEffect, useState } from "react";
-import {
-  api,
-  type FaultInfo,
-  type FunctionInfo,
-  type MessageInfo,
-  type RequirementRow,
-  type SignalInfo,
-} from "../api";
+import { useEffect, useMemo, useState } from "react";
+import { api, type FaultInfo, type MessageInfo, type RequirementRow, type SignalInfo } from "../api";
+import { Panel, Tag, SkeletonRows, Explain, EmptyState } from "../components/ui";
+import { KIND_META } from "../lib/explanations";
 
-const LEVEL_CLASS: Record<string, string> = {
-  info: "level-info",
-  minor: "level-minor",
-  major: "level-major",
-  critical: "level-critical",
+type Tab = "messages" | "signals" | "faults" | "requirements";
+
+const LEVEL_TONE: Record<string, "ok" | "warn" | "bad" | "info"> = {
+  info: "info",
+  minor: "info",
+  major: "warn",
+  critical: "bad",
 };
-
-type Tab = "messages" | "signals" | "faults" | "functions" | "requirements";
 
 export function AssetsPage() {
   const [tab, setTab] = useState<Tab>("messages");
   const [messages, setMessages] = useState<MessageInfo[]>([]);
   const [signals, setSignals] = useState<SignalInfo[]>([]);
   const [faults, setFaults] = useState<FaultInfo[]>([]);
-  const [functions, setFunctions] = useState<FunctionInfo[]>([]);
   const [reqs, setReqs] = useState<RequirementRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selFault, setSelFault] = useState<FaultInfo | null>(null);
-  const [selMsg, setSelMsg] = useState<{ name: string; frame_id: string; node: string; cycle_ms: number | null; send_type: string; signals: SignalInfo[] } | null>(null);
+  const [q, setQ] = useState("");
 
   useEffect(() => {
-    api.messages().then(setMessages).catch(() => undefined);
-    api.signals().then(setSignals).catch(() => undefined);
-    api.faults().then(setFaults).catch(() => undefined);
-    api.functions().then(setFunctions).catch(() => undefined);
-    api.requirements().then(setReqs).catch(() => undefined);
+    setLoading(true);
+    Promise.all([api.messages(), api.signals(), api.faults(), api.requirements()])
+      .then(([m, s, f, r]) => {
+        setMessages(m);
+        setSignals(s);
+        setFaults(f);
+        setReqs(r);
+      })
+      .catch(() => undefined)
+      .finally(() => setLoading(false));
   }, []);
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "messages", label: `报文 ${messages.length}` },
-    { id: "signals", label: `信号 ${signals.length}` },
-    { id: "faults", label: `故障 ${faults.length}` },
-    { id: "functions", label: `功能 ${functions.length}` },
-    { id: "requirements", label: `需求 ${reqs.length}` },
+  const tabs: { id: Tab; label: string; n: number; what: string }[] = [
+    { id: "messages", label: "报文", n: messages.length, what: "设备间互发的 CAN 消息" },
+    { id: "signals", label: "信号", n: signals.length, what: "报文里的数值/状态" },
+    { id: "faults", label: "故障", n: faults.length, what: "可注入的异常及其处置" },
+    { id: "requirements", label: "安全需求", n: reqs.length, what: "必须满足的安全要求" },
   ];
 
-  return (
-    <div>
-      <h1 className="page-title">测试资产</h1>
-      <p className="page-sub">列车视角的真实资产：从 DBC / FMEA / 场景 / RTM 派生。</p>
+  const kw = q.trim().toLowerCase();
 
-      <div className="toolbar">
+  // 统一关键词过滤
+  const filter = (arr: unknown[], fields: string[]) =>
+    !kw
+      ? arr
+      : arr.filter((row) => fields.some((f) => String((row as Record<string, unknown>)[f] ?? "").toLowerCase().includes(kw)));
+
+  const filteredMessages = useMemo(() => filter(messages, ["name", "node", "send_type"]) as MessageInfo[], [messages, kw]);
+  const filteredSignals = useMemo(() => filter(signals, ["name", "message", "unit"]) as SignalInfo[], [signals, kw]);
+  const filteredFaults = useMemo(() => filter(faults, ["fid", "key", "name", "subsystem", "action"]) as FaultInfo[], [faults, kw]);
+
+  return (
+    <div className="space-y-4 max-w-[1200px]">
+      {/* 类型切换 = 左对齐 tab 组 */}
+      <div className="flex items-center gap-1 border-b border-line-soft overflow-x-auto pb-0">
         {tabs.map((t) => (
-          <button key={t.id} className={tab === t.id ? "" : "ghost"} onClick={() => setTab(t.id)}>
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-3.5 py-2 text-[13px] whitespace-nowrap border-b-2 transition-colors ${
+              tab === t.id ? "border-info text-ink font-medium" : "border-transparent text-ink-dim hover:text-ink"
+            }`}
+            title={t.what}
+          >
             {t.label}
+            <span className="ml-1 text-[11px] text-ink-faint num">{t.n}</span>
           </button>
         ))}
+        <div className="ml-auto w-56 min-w-40 pb-1">
+          <input className="input !py-1.5 text-[12px]" placeholder="筛选… 如 overspeed" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
       </div>
 
-      {tab === "messages" && (
-        <div className="card">
-          <h3>报文列表（双击行查看图谱邻接）</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>报文</th>
-                <th>ID</th>
-                <th>节点</th>
-                <th>周期</th>
-                <th>类型</th>
-                <th>信号</th>
-              </tr>
-            </thead>
-            <tbody>
-              {messages.map((m) => (
-                <tr
-                  key={m.name}
-                  style={{ cursor: "pointer" }}
-                  onClick={() => {
-                    api.kbNode(`message:${m.name}`).then((n) => {
-                      setSelMsg({
-                        name: m.name,
-                        frame_id: m.frame_id,
-                        node: m.node,
-                        cycle_ms: m.cycle_ms,
-                        send_type: m.send_type,
-                        signals: n.neighbors
-                          .filter((x) => x.kind === "signal")
-                          .map((x) => ({ name: x.label, message: m.name, unit: "", choices: [] })),
-                      });
-                    });
-                  }}
-                >
-                  <td style={{ fontWeight: 600 }}>{m.name}</td>
-                  <td className="mono">{m.frame_id}</td>
-                  <td>{m.node}</td>
-                  <td>{m.cycle_ms ? `${m.cycle_ms}ms` : "event"}</td>
-                  <td>{m.send_type}</td>
-                  <td className="muted">{m.signals.slice(0, 5).join(", ")}{m.signals.length > 5 ? "…" : ""}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {loading ? (
+        <Panel>
+          <SkeletonRows rows={6} cols={4} />
+        </Panel>
+      ) : (
+        <>
+          {/* 报文 */}
+          {tab === "messages" && (
+            <Panel
+              title="报文"
+              right={<Tag tone="dim">DBC 协议库</Tag>}
+              bodyClass="p-0"
+            >
+              <Explain text="报文 = 车上设备之间定时互发的消息。点一行可看它含哪些信号（在图谱中定位）。" />
+              <div className="table-scroll mt-1">
+                <table>
+                  <thead>
+                    <tr>
+                      <th className="th">报文</th>
+                      <th className="th">ID</th>
+                      <th className="th">发送方</th>
+                      <th className="th">周期</th>
+                      <th className="th">信号数</th>
+                      <th className="th">动作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredMessages.map((m) => (
+                      <tr key={m.name} className="tr-hover">
+                        <td className="td font-medium text-ink">{m.name}</td>
+                        <td className="td kbd-mono">{m.frame_id}</td>
+                        <td className="td">
+                          <Tag tone="dim">{m.node}</Tag>
+                        </td>
+                        <td className="td num">{m.cycle_ms ? `${m.cycle_ms} ms` : <Tag tone="warn">事件</Tag>}</td>
+                        <td className="td num">{m.signals.length}</td>
+                        <td className="td">
+                          <button className="btn-ghost btn-sm" title={`在图谱中查看 ${m.name} 的关联`} onClick={() => (window.location.href = `/graph?focus=${m.name}`)}>
+                            图谱 →
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredMessages.length === 0 && (
+                      <tr>
+                        <td colSpan={6}>
+                          <EmptyState icon="?" title="无匹配报文" desc="换个关键词试试" />
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          )}
 
-      {selMsg && (
-        <div className="card">
-          <h3>
-            {selMsg.name} <span className="muted mono">{selMsg.frame_id}</span>
-          </h3>
-          <div className="muted" style={{ marginBottom: 8 }}>
-            节点 {selMsg.node} · 周期 {selMsg.cycle_ms ? `${selMsg.cycle_ms}ms` : "事件"} · {selMsg.send_type}
-          </div>
-          <div>
-            {selMsg.signals.length === 0 && <span className="muted">（无信号邻接，点其他报文试试）</span>}
-            {selMsg.signals.map((s) => (
-              <span key={s.name} className="pill">
-                ⚡ {s.name}
-              </span>
-            ))}
-          </div>
-          <div className="toolbar" style={{ marginTop: 10 }}>
-            <button className="ghost" onClick={() => setSelMsg(null)}>
-              关闭
-            </button>
-          </div>
-        </div>
-      )}
+          {/* 信号 */}
+          {tab === "signals" && (
+            <Panel title="信号" right={<Tag tone="dim">{signals.length} 个</Tag>} bodyClass="p-0">
+              <Explain text="信号 = 报文里携带的单个数值/状态。枚举型信号会列出它的取值含义（如 0=关、1=开、2=故障）。" />
+              <div className="table-scroll mt-1">
+                <table>
+                  <thead>
+                    <tr>
+                      <th className="th">信号</th>
+                      <th className="th">所属报文</th>
+                      <th className="th">单位</th>
+                      <th className="th">取值含义</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredSignals.map((s) => (
+                      <tr key={s.name} className="tr-hover">
+                        <td className="td font-medium text-ink">{s.name}</td>
+                        <td className="td kbd-mono">{s.message}</td>
+                        <td className="td">{s.unit || "—"}</td>
+                        <td className="td">
+                          {s.choices.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {s.choices.map((c) => (
+                                <Tag key={c.value} tone="vio">
+                                  {c.value}={c.label}
+                                </Tag>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-ink-faint text-xs">数值型</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredSignals.length === 0 && (
+                      <tr>
+                        <td colSpan={4}>
+                          <EmptyState icon="?" title="无匹配信号" desc="换个关键词试试" />
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          )}
 
-      {tab === "signals" && (
-        <div className="card">
-          <h3>信号列表（含枚举）</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>信号</th>
-                <th>报文</th>
-                <th>单位</th>
-                <th>取值</th>
-              </tr>
-            </thead>
-            <tbody>
-              {signals.map((s) => (
-                <tr key={s.name}>
-                  <td style={{ fontWeight: 600 }}>{s.name}</td>
-                  <td>{s.message}</td>
-                  <td>{s.unit || "–"}</td>
-                  <td className="muted">
-                    {s.choices.length > 0
-                      ? s.choices.map((c) => `${c.value}=${c.label}`).join(" · ")
-                      : "数值"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {tab === "faults" && (
-        <div className="grid grid-2">
-          <div className="card">
-            <h3>故障字典（FMEA）</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>名称</th>
-                  <th>等级</th>
-                  <th>处置</th>
-                </tr>
-              </thead>
-              <tbody>
-                {faults.map((f) => (
-                  <tr key={f.key} style={{ cursor: "pointer" }} onClick={() => setSelFault(f)}>
-                    <td className="mono muted">{f.fid}</td>
-                    <td style={{ fontWeight: 600 }}>{f.name}</td>
-                    <td>
-                      <span className={`pill ${LEVEL_CLASS[f.level] ?? ""}`}>{f.level}</span>
-                    </td>
-                    <td className="mono muted">{f.action}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {selFault && (
-            <div className="card">
-              <h3>
-                {selFault.fid} · {selFault.name}
-              </h3>
-              <p>{selFault.desc}</p>
-              <table>
-                <tbody>
-                  <tr>
-                    <td className="muted">子系统</td>
-                    <td>{selFault.subsystem}</td>
-                    <td className="muted">注入层</td>
-                    <td>{selFault.layer}</td>
-                  </tr>
-                  <tr>
-                    <td className="muted">等级</td>
-                    <td>{selFault.level}</td>
-                    <td className="muted">SIL</td>
-                    <td>{selFault.sil}</td>
-                  </tr>
-                  <tr>
-                    <td className="muted">处置</td>
-                    <td colSpan={3}>{selFault.action}</td>
-                  </tr>
-                  <tr>
-                    <td className="muted">检测</td>
-                    <td colSpan={3}>{selFault.detect}</td>
-                  </tr>
-                  <tr>
-                    <td className="muted">注入</td>
-                    <td colSpan={3}>{selFault.inject}</td>
-                  </tr>
-                  <tr>
-                    <td className="muted">恢复</td>
-                    <td colSpan={3}>{selFault.recovery}</td>
-                  </tr>
-                </tbody>
-              </table>
-              <div className="toolbar" style={{ marginTop: 12 }}>
-                <button className="ghost" onClick={() => setSelFault(null)}>
-                  关闭
-                </button>
+          {/* 故障 */}
+          {tab === "faults" && (
+            <div className="grid lg:grid-cols-5 gap-4 items-start">
+              <div className="lg:col-span-3">
+                <Panel title="故障字典（FMEA）" right={<Tag tone="dim">22 条 · 全部可注入</Tag>} bodyClass="p-0">
+                  <Explain text="故障 = 可注入的异常。每条都规定了：什么等级（信号灯颜色）、系统该做什么处置。点一行看细节。" />
+                  <div className="table-scroll mt-1">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th className="th">故障</th>
+                          <th className="th">子系统</th>
+                          <th className="th">等级</th>
+                          <th className="th">处置</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredFaults.map((f) => (
+                          <tr key={f.key} className={`tr-hover cursor-pointer ${selFault?.key === f.key ? "!bg-info/5" : ""}`} onClick={() => setSelFault(f)}>
+                            <td className="td">
+                              <div className="font-medium text-ink">{f.name}</div>
+                              <div className="kbd-mono text-[11px]">
+                                {f.fid} · {f.key}
+                              </div>
+                            </td>
+                            <td className="td">
+                              <Tag tone="dim">{f.subsystem}</Tag>
+                            </td>
+                            <td className="td">
+                              <Tag tone={LEVEL_TONE[f.level] ?? "info"}>{f.level}</Tag>
+                            </td>
+                            <td className="td kbd-mono">{f.action}</td>
+                          </tr>
+                        ))}
+                        {filteredFaults.length === 0 && (
+                          <tr>
+                            <td colSpan={4}>
+                              <EmptyState icon="?" title="无匹配故障" desc="换个关键词试试" />
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </Panel>
+              </div>
+              {/* 详情侧栏 */}
+              <div className="lg:col-span-2">
+                {selFault ? (
+                  <Panel
+                    title={
+                      <>
+                        <Tag tone={LEVEL_TONE[selFault.level] ?? "info"}>{selFault.level}</Tag> {selFault.name}
+                      </>
+                    }
+                    right={
+                      <button className="btn-ghost btn-sm" onClick={() => setSelFault(null)}>
+                        ✕
+                      </button>
+                    }
+                  >
+                    <div className="kbd-mono text-[11px] mb-2">
+                      {selFault.fid} · {selFault.key}
+                    </div>
+                    <dl className="space-y-2 text-[13px]">
+                      <div>
+                        <dt className="text-ink-faint text-[11px]">描述</dt>
+                        <dd className="text-ink leading-5">{selFault.desc}</dd>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <dt className="text-ink-faint text-[11px]">子系统</dt>
+                          <dd>{selFault.subsystem}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-ink-faint text-[11px]">安全等级 SIL</dt>
+                          <dd>
+                            <Tag tone={Number(selFault.sil) >= 3 ? "bad" : Number(selFault.sil) >= 2 ? "warn" : "dim"}>
+                              {selFault.sil}
+                            </Tag>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-ink-faint text-[11px]">处置动作</dt>
+                          <dd className="kbd-mono">{selFault.action}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-ink-faint text-[11px]">注入层</dt>
+                          <dd>{selFault.layer}</dd>
+                        </div>
+                      </div>
+                      <div>
+                        <dt className="text-ink-faint text-[11px]">如何检测</dt>
+                        <dd className="leading-5">{selFault.detect}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-ink-faint text-[11px]">如何注入</dt>
+                        <dd className="leading-5">{selFault.inject}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-ink-faint text-[11px]">如何恢复</dt>
+                        <dd className="leading-5">{selFault.recovery}</dd>
+                      </div>
+                    </dl>
+                    <div className="mt-3 flex gap-2">
+                      <button className="btn btn-sm" onClick={() => (window.location.href = `/graph?focus=fault:${selFault.key}`)}>
+                        在图谱中查看 →
+                      </button>
+                    </div>
+                  </Panel>
+                ) : (
+                  <Panel>
+                    <EmptyState icon="☝" title="点左侧任一故障" desc="这里会显示它的等级、处置、检测与恢复方式。" />
+                  </Panel>
+                )}
               </div>
             </div>
           )}
-        </div>
-      )}
 
-      {tab === "functions" && (
-        <div className="card">
-          <h3>被测功能（列车视角聚合）</h3>
-          {functions.map((f) => (
-            <div key={f.fid} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid var(--border)" }}>
-              <div style={{ fontWeight: 700 }}>
-                <code>{f.fid}</code> {f.name}
+          {/* 需求 */}
+          {tab === "requirements" && (
+            <Panel title="需求追溯矩阵 (RTM)" right={<Tag tone="dim">SR-01 ~ SR-18</Tag>} bodyClass="p-0">
+              <Explain text="每条安全需求都被实现模块与测试用例覆盖。这是“我测的东西有依据”的证明。" />
+              <div className="table-scroll mt-1">
+                <table>
+                  <thead>
+                    <tr>
+                      <th className="th">需求</th>
+                      <th className="th">实现模块</th>
+                      <th className="th">验证用例</th>
+                      <th className="th">覆盖的行为</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reqs.flatMap((r) =>
+                      r.rows.map((row, i) => (
+                        <tr key={`${r.req_id}-${i}`} className="tr-hover">
+                          <td className="td">
+                            <code className="kbd-mono">{r.req_id}</code>
+                          </td>
+                          <td className="td kbd-mono">{row.module}</td>
+                          <td className="td kbd-mono">{row.test_file}</td>
+                          <td className="td text-ink-dim">{row.verifies}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
-              <div className="muted" style={{ margin: "4px 0" }}>
-                {f.description}
-              </div>
-              <div>
-                {f.messages.map((m) => (
-                  <span key={m} className="pill">
-                    📨 {m}
-                  </span>
-                ))}
-                {f.signals.map((s) => (
-                  <span key={s} className="pill">
-                    ⚡ {s}
-                  </span>
-                ))}
-                {f.fault_keys.map((k) => (
-                  <span key={k} className="pill warn">
-                    ⚠ {k}
-                  </span>
-                ))}
-                {f.requirements.map((r) => (
-                  <span key={r} className="pill good">
-                    ☑ {r}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {tab === "requirements" && (
-        <div className="card">
-          <h3>需求追溯矩阵（RTM）</h3>
-          <table>
-            <thead>
-              <tr>
-                <th>需求</th>
-                <th>实现模块</th>
-                <th>验证用例</th>
-                <th>覆盖行为</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reqs.flatMap((r) =>
-                r.rows.map((row, i) => (
-                  <tr key={`${r.req_id}-${i}`}>
-                    <td>
-                      <code>{r.req_id}</code>
-                    </td>
-                    <td className="mono muted">{row.module}</td>
-                    <td className="mono muted">{row.test_file}</td>
-                    <td>{row.verifies}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+            </Panel>
+          )}
+        </>
       )}
     </div>
   );
 }
+
+// 供类型引用避免未使用告警
+void KIND_META;
