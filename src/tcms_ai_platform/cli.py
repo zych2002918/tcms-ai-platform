@@ -17,13 +17,18 @@ _failures: list[str] = []
 
 
 def _check(name: str, ok: bool, detail: str = "") -> None:
-    mark = "✓" if ok else "✗"
-    print(f"  {mark} {name}" + (f"  — {detail}" if detail else ""))
+    mark = "[OK]" if ok else "[!!]"
+    print(f"  {mark} {name}" + (f"  - {detail}" if detail else ""))
     if not ok:
         _failures.append(name)
 
 
 def doctor() -> int:
+    # 兼容 GBK/非 UTF-8 控制台：避免 ✓/emoji 等符号触发 UnicodeEncodeError
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:  # noqa: BLE001 - 重配失败不影响主流程
+        pass
     print("\n=== tcms-ai-platform 自检 ===\n")
 
     # Python
