@@ -34,3 +34,6 @@ web/*.tsbuildinfo
 e2e/node_modules/
 e2e/package*.json
 
+
+# 本地预览截图(不入库,供人工查看)
+docs/preview/
