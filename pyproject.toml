@@ -25,6 +25,7 @@ dependencies = [
     "python-can>=4.0",
     "cantools>=39.0",
     "pyyaml>=6.0",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
