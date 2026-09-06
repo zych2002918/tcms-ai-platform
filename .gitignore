@@ -26,3 +26,6 @@ Thumbs.db
 # 前端截图临时
 web/shot-*.png
 web/node_modules/
+
+# TS build cache
+web/*.tsbuildinfo
