@@ -19,7 +19,7 @@ fi
 PYV=".venv/bin/python"
 
 # 2. 依赖
-if ! "$PYV" -c "import fastapi, uvicorn, cantools, yaml, numpy" >/dev/null 2>&1; then
+if ! "$PYV" -c "import tcms_ai_platform, fastapi, uvicorn, cantools, yaml, numpy" >/dev/null 2>&1; then
   echo "  [2/4] 安装依赖（首次较慢）..."
   "$PYV" -m pip install --upgrade pip -q
   "$PYV" -m pip install -e . -q
