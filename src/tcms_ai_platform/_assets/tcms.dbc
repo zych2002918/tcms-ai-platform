@@ -1,0 +1,121 @@
+VERSION "1.0.0"
+
+
+NS_ :
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: TCMS VCU BMS BOGIE BCU
+
+BO_ 256 TCMS_Heartbeat: 8 TCMS
+ SG_ NodeStatus : 0|8@1+ (1,0) [0|3] "" VCU
+ SG_ RunMode : 8|8@1+ (1,0) [0|4] "" VCU
+ SG_ HeartbeatCounter : 16|8@1+ (1,0) [0|255] "" VCU
+
+BO_ 512 VehicleSpeed: 8 VCU
+ SG_ SpeedKmh : 0|16@1+ (0.1,0) [0|200] "km/h" TCMS
+ SG_ SpeedValid : 16|1@1+ (1,0) [0|1] "" TCMS
+ SG_ SpeedSource : 17|2@1+ (1,0) [0|3] "" TCMS
+
+BO_ 768 TractionBrakeHandle: 8 TCMS
+ SG_ HandlePosition : 0|8@1+ (1,0) [0|16] "" VCU
+ SG_ Direction : 8|2@1+ (1,0) [0|3] "" VCU
+ SG_ TractionActive : 16|1@1+ (1,0) [0|1] "" VCU
+ SG_ BrakeActive : 17|1@1+ (1,0) [0|1] "" VCU
+
+BO_ 1024 DoorControl: 8 BOGIE
+ SG_ Door1State : 0|2@1+ (1,0) [0|3] "" VCU
+ SG_ Door2State : 2|2@1+ (1,0) [0|3] "" VCU
+ SG_ Door3State : 4|2@1+ (1,0) [0|3] "" VCU
+ SG_ Door4State : 6|2@1+ (1,0) [0|3] "" VCU
+ SG_ AllDoorsClosed : 8|1@1+ (1,0) [0|1] "" VCU
+ SG_ DoorOpenPermit : 9|1@1+ (1,0) [0|1] "" VCU
+
+BO_ 1280 AlarmEvent: 8 VCU
+ SG_ AlarmCode : 0|8@1+ (1,0) [0|255] "" TCMS
+ SG_ AlarmLevel : 8|4@1+ (1,0) [0|15] "" TCMS
+ SG_ Overspeed : 16|1@1+ (1,0) [0|1] "" TCMS
+ SG_ DoorNotClosed : 17|1@1+ (1,0) [0|1] "" TCMS
+ SG_ FireAlarm : 18|1@1+ (1,0) [0|1] "" TCMS
+ SG_ PantographDrop : 19|1@1+ (1,0) [0|1] "" TCMS
+ SG_ Reserved1 : 20|4@1+ (1,0) [0|15] "" TCMS
+
+BO_ 1536 PantographStatus: 8 BCU
+ SG_ PantographUp : 0|1@1+ (1,0) [0|1] "" TCMS
+ SG_ PantographFault : 1|1@1+ (1,0) [0|1] "" TCMS
+ SG_ LineVoltage : 8|16@1+ (1,0) [0|30000] "V" TCMS
+ SG_ PantographPressure : 24|8@1+ (0.1,0) [0|10] "bar" TCMS
+
+BO_ 1792 BrakeSystem: 8 BCU
+ SG_ BrakeCylinderPressure : 0|16@1+ (0.1,0) [0|1000] "kPa" TCMS
+ SG_ EmergencyBrakeActive : 16|1@1+ (1,0) [0|1] "" TCMS
+ SG_ BrakeFault : 17|1@1+ (1,0) [0|1] "" TCMS
+ SG_ ReservePressureLow : 18|1@1+ (1,0) [0|1] "" TCMS
+
+BO_ 1920 EnergyStatus: 8 BMS
+ SG_ SocPercent : 0|8@1+ (1,0) [0|100] "%" TCMS
+ SG_ BatteryVoltage : 8|16@1+ (0.1,0) [0|1000] "V" TCMS
+ SG_ BatteryCurrent : 24|16@1+ (0.1,-1000) [-1000|1000] "A" TCMS
+ SG_ BatteryTemp : 40|8@1+ (1,-40) [-40|120] "degC" TCMS
+ SG_ ChargeState : 48|2@1+ (1,0) [0|3] "" TCMS
+
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
+BA_DEF_ BO_ "GenMsgSendType" STRING ;
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+BA_DEF_DEF_ "GenMsgSendType" "none";
+
+BA_ "GenMsgCycleTime" BO_ 256 100;
+BA_ "GenMsgCycleTime" BO_ 512 100;
+BA_ "GenMsgCycleTime" BO_ 768 50;
+BA_ "GenMsgCycleTime" BO_ 1024 100;
+BA_ "GenMsgCycleTime" BO_ 1280 0;
+BA_ "GenMsgCycleTime" BO_ 1536 500;
+BA_ "GenMsgCycleTime" BO_ 1792 100;
+BA_ "GenMsgCycleTime" BO_ 1920 500;
+
+BA_ "GenMsgSendType" BO_ 1280 "event";
+BA_ "GenMsgSendType" BO_ 256 "cyclic";
+BA_ "GenMsgSendType" BO_ 512 "cyclic";
+BA_ "GenMsgSendType" BO_ 768 "cyclic";
+BA_ "GenMsgSendType" BO_ 1024 "cyclic";
+BA_ "GenMsgSendType" BO_ 1536 "cyclic";
+BA_ "GenMsgSendType" BO_ 1792 "cyclic";
+BA_ "GenMsgSendType" BO_ 1920 "cyclic";
+
+VAL_ 256 NodeStatus 0 "PowerOff" 1 "Standby" 2 "Active" 3 "Fault" ;
+VAL_ 256 RunMode 0 "Offline" 1 "Manual" 2 "ATO" 3 "Shunting" 4 "Emergency" ;
+VAL_ 768 Direction 0 "Neutral" 1 "Forward" 2 "Reverse" 3 "Invalid" ;
+VAL_ 1024 Door1State 0 "Closed" 1 "Open" 2 "Fault" 3 "Unknown" ;
+VAL_ 1024 Door2State 0 "Closed" 1 "Open" 2 "Fault" 3 "Unknown" ;
+VAL_ 1024 Door3State 0 "Closed" 1 "Open" 2 "Fault" 3 "Unknown" ;
+VAL_ 1024 Door4State 0 "Closed" 1 "Open" 2 "Fault" 3 "Unknown" ;
+VAL_ 1280 AlarmLevel 0 "Info" 1 "Warning" 2 "Severe" 3 "Emergency" ;
+VAL_ 1920 ChargeState 0 "Idle" 1 "Charging" 2 "Discharging" 3 "Fault" ;

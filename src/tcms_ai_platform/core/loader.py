@@ -300,20 +300,58 @@ def load_asset_model(
     upstream_root: str | Path,
     platform_version: str = "0.1.0",
 ) -> AssetModel:
-    """从上游 tcms-can-test 根目录加载完整 L1 资产模型。"""
+    """从上游 tcms-can-test 根目录加载完整 L1 资产模型（开发/测试用）。"""
     root = Path(upstream_root)
     if not root.is_dir():
         raise AssetLoadError(f"上游目录不存在: {root}")
 
-    tcms_pkg = root / "tcms"
-    msgs_path = tcms_pkg / "tcms.dbc"
-    faults_path = tcms_pkg / "faults.yaml"
+    msgs_path = root / "tcms" / "tcms.dbc"
+    faults_path = root / "tcms" / "faults.yaml"
     scenarios_dir = root / "scenarios"
     rtm_path = root / "tests" / "rtm.csv"
+    return _load_from_paths(
+        msgs_path=msgs_path,
+        faults_path=faults_path,
+        scenarios_dir=scenarios_dir,
+        rtm_path=rtm_path,
+        source_upstream=str(root),
+        platform_version=platform_version,
+    )
 
-    missing = [p for p in (msgs_path, faults_path, scenarios_dir, rtm_path) if not p.exists()]
+
+def load_from_source(source, platform_version: str = "0.1.0") -> AssetModel:
+    """从解析出的资产源加载（支持活上游 / 内置快照，见 core/sources.py）。"""
+    return _load_from_paths(
+        msgs_path=source.dbc,
+        faults_path=source.faults,
+        scenarios_dir=source.scenarios_dir,
+        rtm_path=source.rtm,
+        source_upstream=str(source.root) if source.root else f"bundled:{source.mode}",
+        platform_version=platform_version,
+    )
+
+
+def _load_from_paths(
+    msgs_path: Path,
+    faults_path: Path,
+    scenarios_dir: Path,
+    rtm_path: Path,
+    source_upstream: str,
+    platform_version: str,
+) -> AssetModel:
+    """共享的资产加载核心：从四个数据文件路径构建 AssetModel。"""
+    msgs_path = Path(msgs_path)
+    faults_path = Path(faults_path)
+    scenarios_dir = Path(scenarios_dir)
+    rtm_path = Path(rtm_path)
+
+    missing = [
+        str(p)
+        for p in (msgs_path, faults_path, scenarios_dir, rtm_path)
+        if not p.exists()
+    ]
     if missing:
-        raise AssetLoadError(f"上游资产缺失: {[str(m) for m in missing]}")
+        raise AssetLoadError(f"上游资产缺失: {missing}")
 
     stats: dict = {"bad": [], "ok": []}
 
@@ -363,7 +401,7 @@ def load_asset_model(
 
     return AssetModel(
         version=platform_version,
-        source_upstream=str(root),
+        source_upstream=source_upstream,
         messages=messages,
         signals=signals,
         devices=devices,
@@ -376,10 +414,10 @@ def load_asset_model(
     )
 
 
-# 便捷：定位上游根（默认与本平台同工作区 objects/ 相邻）
-_DEFAULT_UPSTREAM = Path(__file__).resolve().parents[4] / "tcms-can-test"
+# 便捷：按环境解析资产源（活上游 / 兄弟目录 / 内置快照）
+def load_default(platform_version: str = "0.1.0") -> AssetModel:
+    """按环境自动解析资产源并加载（新人 clone 即可用，无需手工配置）。"""
+    from .sources import resolve_asset_source
 
-
-def load_default() -> AssetModel:
-    """加载默认上游 tcms-can-test（与本仓库同级的兄弟目录）。"""
-    return load_asset_model(_DEFAULT_UPSTREAM)
+    source = resolve_asset_source()
+    return load_from_source(source, platform_version=platform_version)

@@ -1,0 +1,318 @@
+# TCMS 统一故障字典（Fault Dictionary / FMEA 注册表）
+#
+# 对标轨道交通系统级测试的故障字典实践：整车/子系统测试先建立
+# 故障注册表，每个故障一条记录——来源（子系统/注入层）、注入方法、
+# 检测手段、期望系统响应、恢复方法、SIL 关联。
+#
+# 字段说明：
+#   fid        故障 ID（F-TCMS-xxx，测试用例与场景按此引用）
+#   key        英文键名（与 faultlevel.FAULTS / 场景 YAML 的 fault 字段对齐）
+#   name       中文名
+#   subsystem  所属子系统（牵引/制动/车门/能源/受电弓/VCU/网络…）
+#   layer      注入层：application=应用逻辑 / signal=信号值 / frame=报文帧
+#              / bus=总线 / node=节点
+#   level      后果等级（对齐 tcms.faultlevel：info/minor/major/critical）
+#   action     默认处置（对齐 tcms.faultlevel：none/warning/derate/emergency_brake/shutdown）
+#   sil        关联安全完整性等级（0=非安全功能；对标 IEC 61508/EN 50129 分级思想）
+#   detect     检测手段（对应 tcms 实现模块：协议范围/CRC/看门狗/表决/联锁/回放…）
+#   inject     注入方法（对应注入器：仿真器 set_*/帧破坏/总线故障/节点失活…）
+#   recovery   恢复方法
+#   desc       故障描述
+#
+# 一致性约束（由 tcms/faultdb.py 校验，tests/test_faultdb.py 断言）：
+#   - fid / key 全局唯一
+#   - level ∈ faultlevel.VALID_LEVELS，action ∈ faultlevel 处置动作
+#   - 与 faultlevel.FAULTS 重名的条目，level/desc 必须一致（防双源漂移）
+
+schema_version: 1
+faults:
+  # ---- 轻微（info）：仅记录提示 ----
+  - fid: F-TCMS-001
+    key: soc_low
+    name: SOC 偏低
+    subsystem: 能源
+    layer: application
+    level: info
+    action: none
+    sil: "0"
+    desc: SOC 低于阈值，建议充电
+    detect: EnergyStatus.SocPercent 阈值监测（interlocks.soc_low_charge_guard）
+    inject: 仿真器注入 EnergyStatus 帧 SocPercent 低值
+    recovery: 充电至阈值以上自动恢复
+
+  - fid: F-TCMS-002
+    key: temp_high
+    name: 电池温度偏高
+    subsystem: 能源
+    layer: application
+    level: info
+    action: none
+    sil: "0"
+    desc: 电池温度接近上限，监控中
+    detect: EnergyStatus.BatteryTemp 阈值监测
+    inject: 注入 EnergyStatus 帧 BatteryTemp 高值
+    recovery: 温度回落后自动恢复
+
+  # ---- 一般（minor）：告警，可继续运行 ----
+  - fid: F-TCMS-003
+    key: door_sensor_noise
+    name: 车门传感器偶发噪声
+    subsystem: 车门
+    layer: signal
+    level: minor
+    action: warning
+    sil: "1"
+    desc: 车门状态信号瞬时跳变（噪声）
+    detect: 状态稳定性/时序检查（seqcheck 乱序/跳变检测）
+    inject: 注入单帧异常 DoorControl 状态
+    recovery: 连续有效帧确认后恢复
+
+  - fid: F-TCMS-004
+    key: speed_sensor_drift
+    name: 速度传感器轻微漂移
+    subsystem: 牵引
+    layer: signal
+    level: minor
+    action: warning
+    sil: "1"
+    desc: 速度信号缓慢漂移偏离真实值
+    detect: 2oo3 表决不一致（voting.SpeedVoter2oo3）/ 变化率监测
+    inject: 仿真器 set_speed 注入慢变偏移
+    recovery: 漂移消失且多通道一致后恢复
+
+  - fid: F-TCMS-005
+    key: door_fault
+    name: 车门故障（按未关处理）
+    subsystem: 车门
+    layer: signal
+    level: major
+    action: derate
+    sil: "2"
+    desc: 车门状态不可信（Fault/Unknown），禁止发车
+    detect: DoorControl 状态枚举检查（DOOR_STATE=2/3）
+    inject: 注入 DoorControl 帧门状态为 Fault/Unknown
+    recovery: 车门状态恢复正常且联锁通过
+
+  # ---- 严重（major）：影响安全，降级/限速 ----
+  - fid: F-TCMS-006
+    key: traction_loss
+    name: 牵引丢失
+    subsystem: 牵引
+    layer: application
+    level: major
+    action: derate
+    sil: "2"
+    desc: 牵引系统失效，降级运行
+    detect: TractionBrakeHandle.TractionActive 与速度矛盾检查
+    inject: 注入牵引不可用状态
+    recovery: 牵引恢复请求后重建
+
+  - fid: F-TCMS-007
+    key: overspeed
+    name: 超速
+    subsystem: 牵引
+    layer: application
+    level: major
+    action: derate
+    sil: "2"
+    desc: 速度超过限速（默认 160 km/h），需限速处置
+    detect: ATP 速度监督（atp.SpeedSupervisor：Warning/SBI/EBI）
+    inject: 仿真器 set_speed 越过限速
+    recovery: 速度回落后按 ATP 曲线缓解
+
+  - fid: F-TCMS-008
+    key: heartbeat_loss_vcu
+    name: VCU 心跳丢失
+    subsystem: VCU
+    layer: node
+    level: major
+    action: derate
+    sil: "2"
+    desc: 主控节点心跳超时（周期 100ms × 丢失阈值），判定节点离线
+    detect: 看门狗健康表（watchdogs.NodeHealthTable 超时/丢帧判定）
+    inject: 节点停止发送心跳（simulator 停发 / multinode disable_node）
+    recovery: 心跳恢复且连续有效后重新激活（迟滞恢复）
+
+  - fid: F-TCMS-009
+    key: crc_error_frame
+    name: 报文 CRC 校验错误
+    subsystem: 网络
+    layer: frame
+    level: major
+    action: warning
+    sil: "3"
+    desc: 帧数据被破坏导致 CRC-8 校验失败（完整性机制检出）
+    detect: 应用层 CRC-8（faults.compute_crc8/verify_crc8），错误帧丢弃并计数
+    inject: 位翻转/字节损坏注入（faults.flip_bit/corrupt_byte）
+    recovery: 连续校验通过帧后恢复
+
+  - fid: F-TCMS-010
+    key: node_restart_storm
+    name: 节点重启风暴
+    subsystem: 网络
+    layer: node
+    level: major
+    action: derate
+    sil: "2"
+    desc: 节点反复复位（上下电振荡），周期性失活
+    detect: 健康表反复 fault/active 翻转计数
+    inject: 周期 disable/enable 节点（multinode）
+    recovery: 重启平息且稳定运行 N 周期后重新投入
+
+  # ---- 灾难（critical）：危及安全，立即紧急制动/停车 ----
+  - fid: F-TCMS-011
+    key: eb_failure
+    name: 紧急制动执行失败
+    subsystem: 制动
+    layer: application
+    level: critical
+    action: emergency_brake
+    sil: "4"
+    desc: EB 命令发出但执行回路无响应
+    detect: 执行反馈闭环（exec_feedback：压力+回执+牵引切除三重证据）
+    inject: 注入 EB 执行回路故障（ebr 断点/回执缺失）
+    recovery: 冗余回路缓解 + 人工复位
+
+  - fid: F-TCMS-012
+    key: traction_brake_conflict
+    name: 牵引制动冲突
+    subsystem: 制动
+    layer: application
+    level: critical
+    action: emergency_brake
+    sil: "4"
+    desc: 牵引与制动同时施加（方向/手柄矛盾）
+    detect: 联锁（interlocks.traction_brake_conflict）
+    inject: 注入手柄牵引+制动同时激活
+    recovery: 冲突消失（手柄回零）后缓解
+
+  - fid: F-TCMS-013
+    key: pantograph_arc
+    name: 受电弓拉弧风险
+    subsystem: 受电弓
+    layer: signal
+    level: critical
+    action: emergency_brake
+    sil: "4"
+    desc: 受电弓升起但网压异常（拉弧风险），需降弓停车
+    detect: 联锁（interlocks.pantograph_arc_risk：弓状态×网压）
+    inject: 注入 PantographStatus 弓升起 + 网压低值
+    recovery: 降弓或网压恢复后复位
+
+  - fid: F-TCMS-014
+    key: bus_short
+    name: 总线短路
+    subsystem: 网络
+    layer: bus
+    level: critical
+    action: shutdown
+    sil: "3"
+    desc: CAN 总线物理短路（持续显性），全节点错误帧
+    detect: 错误状态机 Bus-Off（errstate）+ 总线故障注入观察
+    inject: busfault 短路注入（全体发送失败）
+    recovery: 短路移除 + 节点自动恢复（Bus-Off 恢复序列）
+
+  # ---- 扩展：信号/帧级真实机制 ----
+  - fid: F-TCMS-015
+    key: rolling_counter_gap
+    name: 滚动计数器跳变
+    subsystem: 网络
+    layer: frame
+    level: minor
+    action: warning
+    sil: "2"
+    desc: 报文 alive/rolling counter 跳变（丢帧或注入），接收端检测
+    detect: 计数器连续性检查（seqcheck 序列/丢帧检测）
+    inject: 修改帧 counter 字节（corrupt_byte）
+    recovery: counter 恢复连续后解除
+
+  - fid: F-TCMS-016
+    key: bit_flip_frame
+    name: 单比特翻转
+    subsystem: 网络
+    layer: frame
+    level: major
+    action: warning
+    sil: "3"
+    desc: 随机单比特翻转（EMI/硬件），由完整性机制兜底
+    detect: CRC-8 校验失败（faults.compute_crc8）或值域检查
+    inject: 位翻转注入（faults.flip_bit）
+    recovery: 错误帧丢弃，后续正确帧恢复
+
+  - fid: F-TCMS-017
+    key: sensor_stuck
+    name: 传感器卡死
+    subsystem: 信号
+    layer: signal
+    level: minor
+    action: warning
+    sil: "1"
+    desc: 传感器输出恒值不随工况变化（卡死），变化率检测
+    detect: 信号变化率/新鲜度检查（jitter/seqcheck 定时分析）
+    inject: 仿真器信号冻结为恒值
+    recovery: 信号恢复变化且有效后解除
+
+  - fid: F-TCMS-018
+    key: bus_open_circuit
+    name: 总线断路
+    subsystem: 网络
+    layer: bus
+    level: major
+    action: derate
+    sil: "3"
+    desc: 总线断路（无 ACK），发送节点 TEC 上升至 passive
+    detect: 错误状态机（errstate Error-Passive）+ ACK 失败计数
+    inject: busfault 断路注入（发送侧错误累加）
+    recovery: 断路恢复后自动恢复
+
+  - fid: F-TCMS-019
+    key: bus_noise_burst
+    name: 总线噪声突发
+    subsystem: 网络
+    layer: bus
+    level: minor
+    action: warning
+    sil: "1"
+    desc: 随机位错误突发（电磁干扰），接收错误计数上升
+    detect: REC/TEC 统计（errstate）+ CRC 失败计数
+    inject: busfault 噪声注入（随机位错误）
+    recovery: 噪声停止后按 ISO 11898-1 错误计数器衰减恢复
+
+  - fid: F-TCMS-020
+    key: brake_actuator_stuck
+    name: 制动执行器卡滞
+    subsystem: 制动
+    layer: application
+    level: major
+    action: derate
+    sil: "2"
+    desc: 制动阀/执行器响应迟缓或卡滞，EBR 断点诊断检出
+    detect: EBR 硬线回路断点诊断（ebr）+ 执行反馈超时
+    inject: 注入 EBR 回路断点/执行器无响应
+    recovery: 维护复位 + 冗余通道投入
+
+  - fid: F-TCMS-021
+    key: arbitration_error
+    name: 仲裁错误
+    subsystem: 网络
+    layer: bus
+    level: minor
+    action: warning
+    sil: "1"
+    desc: 总线仲裁阶段错误（位错误），发送重试
+    detect: 错误状态机仲裁错误计数（errstate）
+    inject: 仲裁位错误注入（errstate 注入器）
+    recovery: 错误计数衰减后自动恢复
+
+  - fid: F-TCMS-022
+    key: short_frame
+    name: 短帧（DLC 不足）
+    subsystem: 网络
+    layer: frame
+    level: minor
+    action: warning
+    sil: "1"
+    desc: 报文数据长度不足，信号不完整
+    detect: DLC 校验（canlog/parser 长度检查）
+    inject: 注入 DLC 不足的短帧
+    recovery: 完整帧到达后恢复

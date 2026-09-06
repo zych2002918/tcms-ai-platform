@@ -34,18 +34,34 @@ test = [
     "httpx>=0.27",
 ]
 lint = ["ruff>=0.5"]
+# 真实引擎（场景执行/Agent 需要；不装则资产浏览/知识图谱仍可用）
+upstream = [
+    "tcms-can-test @ git+https://github.com/zych2002918/tcms-can-test.git",
+]
 
 [project.scripts]
 tcms-platform = "tcms_ai_platform.server.app:main"
+tcms-platform-doctor = "tcms_ai_platform.cli:doctor"
 
 [tool.setuptools]
+package-dir = { "" = "src" }
 packages = [
     "tcms_ai_platform",
+    "tcms_ai_platform._assets",
+    "tcms_ai_platform._assets.scenarios",
+    "tcms_ai_platform._assets.tests",
     "tcms_ai_platform.core",
     "tcms_ai_platform.knowledge",
     "tcms_ai_platform.agent",
     "tcms_ai_platform.server",
 ]
+
+[tool.setuptools.package-data]
+# 内置资产快照随 wheel 分发：新人 clone 即可加载，无需手工配置上游。
+# 键 = 包名，值 = 该包目录内的文件模式。
+"tcms_ai_platform._assets" = ["*.dbc", "*.yaml"]
+"tcms_ai_platform._assets.scenarios" = ["*.yaml"]
+"tcms_ai_platform._assets.tests" = ["*.csv"]
 
 [tool.setuptools.dynamic]
 version = { attr = "tcms_ai_platform._version.__version__" }

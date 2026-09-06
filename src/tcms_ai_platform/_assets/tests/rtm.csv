@@ -1,0 +1,28 @@
+# TCMS-CAN-Test 需求追溯矩阵（RTM）
+# 机读追溯：SR（安全需求）→ 实现模块 → 验证测试文件 → 覆盖行为 → 状态
+# 用法：tests/test_rtm.py 校验本表（每行文件必须存在、SR 必须被引用）
+# 同步源：docs/safety_case.md（人类可读版）—— 改需求先改 safety_case，再同步本表
+req_id,module,test_file,verifies,status
+SR-01,tcms/ebm.py,tests/test_ebm.py,模式×原因矩阵：SIL4 任一原因触发即制动,covered
+SR-02,tcms/ebm.py,tests/test_ebm.py,双通道表决：SIL2 一致才制动,covered
+SR-03,tcms/ebm.py,tests/test_ebm.py,缓解闭环：零速+原因消失+有效速度,covered
+SR-04,tcms/interlocks.py,tests/test_interlocks.py,门-车联锁：移动中开门/门故障即违规,covered
+SR-05,tcms/atp.py,tests/test_atp.py,EBI 阈值触发紧急制动干预,covered
+SR-06,tcms/atp.py,tests/test_atp.py,SBI 先于 EBI 的常用制动干预,covered
+SR-07,tcms/watchdogs.py,tests/test_watchdogs.py,心跳丢失 N 周期判离线 + 迟滞恢复,covered
+SR-07,tcms/nmt.py,tests/test_nmt.py,CANopen 心跳生产者/消费者监督,covered
+SR-08,tcms/errstate.py,tests/test_errstate.py,TEC/REC 迁移与 Bus-Off 退避,covered
+SR-09,tcms/schedulability.py,tests/test_schedulability.py,WCRT ≤ 截止期可调度分析,covered
+SR-09,tcms/busload.py,tests/test_busload.py,位级帧模型总线负载率,covered
+SR-10,tcms/recorder.py,tests/test_recorder.py,事件记录 + 事故冻结窗口（黑匣子）,covered
+SR-11,tcms/faultlife.py,tests/test_faultlife.py,故障五阶段生命周期台账,covered
+SR-11,tcms/scenarios.py,tests/test_scenario_registry.py,YAML 场景注册表执行（故障键经 faultdb 校验）,covered
+SR-12,tcms/replay.py,tests/test_replay.py,.asc 回放驱动业务逻辑响应,covered
+SR-13,tcms/ebm.py,tests/test_ebm.py,自愈限 1 次超限转 FAULT,covered
+SR-14,tcms/interlocks.py,tests/test_interlocks.py,牵引制动互锁,covered
+SR-15,tcms/timebase.py,tests/test_timebase.py,统一虚拟时间源确定性推进,covered
+SR-16,tcms/faultdb.py,tests/test_faultdb.py,统一故障字典 FMEA（ID/级别/处置/SIL）+ 与 faultlevel 对齐校验,covered
+SR-16,tcms/faults.yaml,tests/test_faultdb.py,22 条故障条目（键名/子系统/检测/注入手段）,covered
+SR-17,tests/rtm.csv,tests/test_rtm.py,需求追溯矩阵自证（SR→模块→测试文件双向覆盖）,covered
+SR-18,tests/conftest.py,tests/test_failure_export.py,失败现场自动导出（crash_site hook）,covered
+SR-18,pyproject.toml,tests/test_badges.py,smoke/safety 分层 marker 与 CI 门禁,covered

@@ -15,6 +15,10 @@ from pydantic import BaseModel
 
 from .._version import __version__
 from ..core import AssetModel, load_asset_model
+from ..core.sources import (
+    ensure_engine_importable,
+    resolve_asset_source,
+)
 from ..knowledge import (
     GraphSink,
     HybridRetriever,
@@ -66,15 +70,40 @@ class AgentRunRequest(BaseModel):
 
 
 def create_app(asset_model: AssetModel | None = None, upstream: str | Path | None = None) -> FastAPI:
-    """应用工厂。asset_model 缺省时按 upstream 加载；都缺省 → 默认上游。"""
+    """应用工厂。
+
+    资产源解析（新人友好，无需配置）：
+    - upstream 显式传入 → 用它（测试/开发）
+    - 否则按环境解析：TCMS_UPSTREAM_DIR → 兄弟目录 → 平台内置快照
+    """
     global _app_model, _app_upstream
 
+    # 场景目录（真实引擎从这里读场景 YAML；bundled 模式用平台快照）
+    scenario_dir: Path
     if asset_model is None:
-        if upstream is None:
-            upstream = Path(__file__).resolve().parents[4] / "tcms-can-test"
-        asset_model = load_asset_model(upstream)
+        if upstream is not None:
+            asset_model = load_asset_model(upstream)
+            scenario_dir = Path(upstream) / "scenarios"
+            # 显式上游（开发/测试）：把其根加入 sys.path 使 tcms 引擎可 import
+            import sys as _sys
+
+            root = Path(upstream)
+            if str(root) not in _sys.path:
+                _sys.path.insert(0, str(root))
+        else:
+            source = resolve_asset_source()
+            from ..core.loader import load_from_source
+
+            asset_model = load_from_source(source)
+            ensure_engine_importable(source)
+            scenario_dir = source.scenarios_dir
+    else:
+        # 显式传入 asset_model（测试）：场景目录取上游根，无则退回内置
+        src_root = Path(str(asset_model.source_upstream))
+        candidate = src_root / "scenarios"
+        scenario_dir = candidate if candidate.is_dir() else Path(__file__).resolve().parents[2] / "_assets" / "scenarios"
     _app_model = asset_model
-    _app_upstream = Path(str(asset_model.source_upstream))
+    _app_upstream = scenario_dir
 
     # 知识底座（P2）：图谱 + 向量 + 混合检索（同一 app 实例内单例）
     graph = build_knowledge_graph(asset_model)
@@ -352,21 +381,18 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         except KeyError:
             raise HTTPException(404, f"场景不存在: {req.scenario}") from None
 
-        # 动态导入上游引擎（与本平台 venv 同依赖，探针已验证可导入）
-        import sys
-
-        upstream = str(_app_upstream)
-        if upstream not in sys.path:
-            sys.path.insert(0, upstream)
+        # 引擎已在 create_app 中 ensure_engine_importable（活上游入 path 或已安装）
         try:
             import tcms.scenarios as sc  # noqa: PLC0415
-        except ImportError as e:  # pragma: no cover - 环境缺失时给明确错误
+        except ImportError as e:  # 引擎缺失 → 明确引导（新人可读）
             raise HTTPException(
-                500, f"上游引擎不可导入（需 tcms-can-test 在 PYTHONPATH）: {e}"
+                503,
+                f"TCMS 引擎不可用：场景执行需要 tcms-can-test。请 pip install tcms-can-test，"
+                f"或设置 TCMS_UPSTREAM_DIR 指向其目录。({e})",
             ) from None
 
         try:
-            rep = sc.run_yaml(str(_app_upstream / "scenarios" / req.scenario))
+            rep = sc.run_yaml(str(_app_upstream / req.scenario))
         except Exception as e:  # 上游引擎异常 → 500 含信息
             raise HTTPException(500, f"场景执行失败: {e}") from None
         # 沉淀闭环：执行结果写回知识库（组织记忆）
@@ -390,22 +416,17 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
     @app.post("/api/run/scenarios")
     def run_scenarios(req: RunScenariosRequest) -> dict:
         """批量执行全部 13 场景（真实引擎，逐场景独立台账）。"""
-        import sys
-
-        upstream = str(_app_upstream)
-        if upstream not in sys.path:
-            sys.path.insert(0, upstream)
         try:
             import tcms.scenarios as sc  # noqa: PLC0415
-        except ImportError as e:  # pragma: no cover
+        except ImportError as e:  # pragma: no cover - 引擎缺失引导
             raise HTTPException(
-                500, f"上游引擎不可导入: {e}"
+                503, f"TCMS 引擎不可用：请 pip install tcms-can-test 或设置 TCMS_UPSTREAM_DIR。({e})"
             ) from None
 
         results = []
         total_pass = total_fail = 0
         for file in asset_model.scenarios:
-            rep = sc.run_yaml(str(_app_upstream / "scenarios" / file))
+            rep = sc.run_yaml(str(_app_upstream / file))
             total_pass += rep.get("passed", 0)
             total_fail += rep.get("failed", 0)
             results.append(
@@ -476,10 +497,29 @@ app = create_app()
 
 
 def main() -> None:
-    """uvicorn 启动入口（python -m tcms_ai_platform.server.app）。"""
+    """启动入口：python -m tcms_ai_platform.server.app 或 tcms-platform。"""
+    import os
+    import threading
+
     import uvicorn
 
-    uvicorn.run("tcms_ai_platform.server.app:app", host="127.0.0.1", port=8000, reload=False)
+    port = int(os.environ.get("PORT", "8000"))
+    # 延迟自动开浏览器（仅本地非 headless 环境）
+    def _open_browser() -> None:
+        import time
+
+        time.sleep(1.6)
+        try:
+            import webbrowser
+
+            webbrowser.open(f"http://127.0.0.1:{port}")
+        except Exception:  # noqa: BLE001 - 开浏览器失败不影响服务
+            pass
+
+    if not os.environ.get("DSH_NO_BROWSER"):
+        threading.Thread(target=_open_browser, daemon=True).start()
+
+    uvicorn.run("tcms_ai_platform.server.app:app", host="127.0.0.1", port=port, reload=False)
 
 
 if __name__ == "__main__":

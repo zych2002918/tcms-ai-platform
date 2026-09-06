@@ -27,12 +27,17 @@ NEEDS_UPSTREAM = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def harness():
+    # 使 tcms 引擎可 import（真实执行）
+    import sys
+
+    if str(UPSTREAM) not in sys.path:
+        sys.path.insert(0, str(UPSTREAM))
     m = load_asset_model(UPSTREAM)
     g = build_knowledge_graph(m)
     store = VectorStore()
     store.add_many(build_docs_from_asset(m))
     retriever = HybridRetriever(store, g)
-    return AgentHarness(m, retriever, UPSTREAM, backend=MockAgentBackend())
+    return AgentHarness(m, retriever, UPSTREAM / "scenarios", backend=MockAgentBackend())
 
 
 @NEEDS_UPSTREAM

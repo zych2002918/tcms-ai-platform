@@ -120,12 +120,12 @@ class AgentHarness:
         self,
         model: AssetModel,
         retriever: HybridRetriever,
-        upstream_root: str | Path,
+        scenario_dir: str | Path,
         backend: AgentBackend | None = None,
     ) -> None:
         self.model = model
         self.retriever = retriever
-        self.upstream = Path(upstream_root)
+        self.scenario_dir = Path(scenario_dir)
         self.backend = backend or MockAgentBackend()
 
     def _scenario_index(self) -> list[dict]:
@@ -140,14 +140,9 @@ class AgentHarness:
         ]
 
     def _run_scenario(self, file: str) -> dict:
-        import sys
-
-        up = str(self.upstream)
-        if up not in sys.path:
-            sys.path.insert(0, up)
         import tcms.scenarios as sc  # noqa: PLC0415
 
-        return sc.run_yaml(str(self.upstream / "scenarios" / file))
+        return sc.run_yaml(str(self.scenario_dir / file))
 
     def run_task(self, task: TaskDef) -> TaskRun:
         run = TaskRun(task_id=task.task_id, fault=task.target_fault, expected_action=task.expected_action)
