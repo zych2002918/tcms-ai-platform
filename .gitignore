@@ -1,7 +1,7 @@
 # 平台包
 *.egg-info/
 build/
-dist/
+# 注意: 不忽略 web/dist —— 前端构建产物入库，保证一键启动出界面（P3 决策）
 
 # Python
 __pycache__/
@@ -29,3 +29,8 @@ web/node_modules/
 
 # TS build cache
 web/*.tsbuildinfo
+
+# e2e node deps
+e2e/node_modules/
+e2e/package*.json
+
