@@ -30,13 +30,21 @@ MAX_RETRY = 1
 
 
 def _api_key() -> str | None:
-    """环境变量优先；其次读 ~/.dsh/.credentials.yaml 的 refs.ALIYUN_API_KEY
-    （本地可信源；key 永不写入仓库/日志）。
-    测试可用 DSH_CREDENTIALS_FILE 指向临时文件来隔离真实凭据。"""
+    """Key 解析优先级：环境变量 → 本地 settings(~/.tcms-ai-platform/settings.json,
+    前端引导页写入) → DSH 凭据文件(~/.dsh/.credentials.yaml refs.ALIYUN_API_KEY)。
+    Key 永不写入仓库/日志；测试可用 DSH_CREDENTIALS_FILE 指向临时文件隔离。"""
     for k in ("DASH_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY"):
         v = os.environ.get(k)
         if v:
             return v
+    try:
+        from ..core.settings import llm_api_key  # 本地设置层(前端可写)
+
+        v = llm_api_key()
+        if v:
+            return v
+    except Exception:  # noqa: BLE001 - 设置层故障不阻塞
+        pass
     try:
         import yaml
 
@@ -65,8 +73,22 @@ class LLMAgentBackend(AgentBackend):
         model: str | None = None,
         fallback: AgentBackend | None = None,
     ) -> None:
-        self.base_url = base_url or os.environ.get("LLM_BASE_URL") or DEFAULT_BASE
-        self.model = model or os.environ.get("LLM_MODEL") or DEFAULT_MODEL
+        # 解析 base_url/model：显式参数 → 环境变量 → 本地 settings(前端引导页) → 默认
+        try:
+            from ..core.settings import llm_config
+
+            _cfg = llm_config()
+            _s_base = (_cfg.get("base_url") or "").strip()
+            _s_model = (_cfg.get("model") or "").strip()
+        except Exception:  # noqa: BLE001
+            _s_base, _s_model = "", ""
+        self.base_url = (
+            base_url
+            or os.environ.get("LLM_BASE_URL")
+            or _s_base
+            or DEFAULT_BASE
+        )
+        self.model = model or os.environ.get("LLM_MODEL") or _s_model or DEFAULT_MODEL
         self.fallback = fallback or MockAgentBackend()
         self.used_llm = False  # 本次是否真的用了 LLM（供 trace/自证）
 

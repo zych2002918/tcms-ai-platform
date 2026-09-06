@@ -26,7 +26,7 @@ function nearestPoint(curve: FaultLabCurvePoint[], t: number): FaultLabCurvePoin
 }
 
 /** 简化的列车侧视动画：车体 + 车门灯 + 轴 + 受电弓/心跳/总线状态 */
-function TrainGlyph({ pt }: { pt: FaultLabCurvePoint }) {
+function TrainGlyph({ pt, derateSpeed }: { pt: FaultLabCurvePoint; derateSpeed: number }) {
   const moving = pt.speed_kmh > 0.5;
   const ebActive = pt.eb === 1;
   const derate = pt.action === "derate";
@@ -94,7 +94,7 @@ function TrainGlyph({ pt }: { pt: FaultLabCurvePoint }) {
         )}
         {derate && !ebActive && (
           <text x="260" y="25" textAnchor="middle" fill="#f5b84c" fontSize="12">
-            降级运行（限速 {90} km/h）
+            降级运行（限速 {derateSpeed} km/h）
           </text>
         )}
       </svg>
@@ -121,7 +121,7 @@ function MiniStat({ label, ok, text, tone }: { label: string; ok?: boolean; text
   );
 }
 
-function Curves({ curve, t }: { curve: FaultLabCurvePoint[]; t: number }) {
+function Curves({ curve, t, limitKmh }: { curve: FaultLabCurvePoint[]; t: number; limitKmh: number }) {
   const W = 640;
   const H = 130;
   const maxT = curve.length ? curve[curve.length - 1].t : 1;
@@ -140,9 +140,9 @@ function Curves({ curve, t }: { curve: FaultLabCurvePoint[]; t: number }) {
           <text x={2} y={ySpeed(v) + 3} fill="#5d6f8f" fontSize="9">{v}</text>
         </g>
       ))}
-      {/* 160 限速参考线 */}
-      <line x1="28" y1={ySpeed(160)} x2={W - 14} y2={ySpeed(160)} stroke="#f5b84c" strokeWidth="1" strokeDasharray="4 3" />
-      <text x={W - 60} y={ySpeed(160) - 3} fill="#f5b84c" fontSize="9">160 限速</text>
+      {/* 限速参考线（后端真实阈值） */}
+      <line x1="28" y1={ySpeed(limitKmh)} x2={W - 14} y2={ySpeed(limitKmh)} stroke="#f5b84c" strokeWidth="1" strokeDasharray="4 3" />
+      <text x={W - 60} y={ySpeed(limitKmh) - 3} fill="#f5b84c" fontSize="9">{limitKmh} 限速</text>
       <path d={speedPath} fill="none" stroke="#4ca6ff" strokeWidth="2" />
       <path d={kpaPath} fill="none" stroke="#2dd4a0" strokeWidth="1.6" />
       {/* 游标 */}
@@ -275,12 +275,12 @@ export function FaultLabPage() {
 
           {/* 列车动画 */}
           <Panel bodyClass="p-3">
-            <TrainGlyph pt={currentPt} />
+            <TrainGlyph pt={currentPt} derateSpeed={data.demo.params.derate_speed} />
           </Panel>
 
           {/* 速度/压力曲线 */}
           <Panel title="速度与制动缸压力（示意回放）" bodyClass="p-2">
-            <Curves curve={data.curve} t={t} />
+            <Curves curve={data.curve} t={t} limitKmh={data.demo.params.limit_kmh} />
             {/* 控制条 */}
             <div className="mt-2 flex items-center gap-2 flex-wrap">
               <button className="btn-ghost btn-sm" onClick={() => { setPlaying((p) => !p); if (!playing && t >= dur) seek(0); }} disabled={!data}>

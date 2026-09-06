@@ -6,7 +6,8 @@ import { AssetsPage } from "./pages/AssetsPage";
 import { ScenariosPage } from "./pages/ScenariosPage";
 import { AgentPage } from "./pages/AgentPage";
 import { FaultLabPage } from "./pages/FaultLabPage";
-import { api } from "./api";
+import { SettingsPage } from "./pages/SettingsPage";
+import { api, type SettingsView } from "./api";
 import { StatusDot } from "./components/ui";
 
 const NAV = [
@@ -16,6 +17,7 @@ const NAV = [
   { to: "/faultlab", label: "故障演示", icon: "⚙", hint: "故障发生过程动画演示" },
   { to: "/graph", label: "知识图谱", icon: "◈", hint: "检索领域知识" },
   { to: "/agent", label: "AI Agent", icon: "✦", hint: "指挥测试 Agent" },
+  { to: "/settings", label: "设置 / 引导", icon: "⚙", hint: "资产源 · API · 新手引导" },
 ];
 
 const TITLES: Record<string, { t: string; s: string }> = {
@@ -25,6 +27,7 @@ const TITLES: Record<string, { t: string; s: string }> = {
   "/faultlab": { t: "故障演示", s: "把真实故障场景变成可播放的动画：注入 → 检测 → 处置 → 恢复" },
   "/graph": { t: "知识图谱", s: "用自然语言检索 TCMS 领域知识，结果附证据链" },
   "/agent": { t: "AI Agent 工作台", s: "给 Agent 一个真实测试任务，看它自主完成" },
+  "/settings": { t: "设置 / 新手引导", s: "资产源 · AI/API · 引擎 · 外接配置" },
 };
 
 type SysStatus = {
@@ -38,17 +41,20 @@ type SysStatus = {
 export default function App() {
   const [collapsed, setCollapsed] = useState(false);
   const [sys, setSys] = useState<SysStatus | null>(null);
+  const [settings, setSettings] = useState<SettingsView | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const loc = useLocation();
   const meta = TITLES[loc.pathname] ?? TITLES["/"];
 
   useEffect(() => {
     api.systemStatus().then(setSys).catch(() => undefined);
+    api.settingsGet().then(setSettings).catch(() => undefined);
   }, []);
 
   const engineOk = sys?.engine.ok ?? true; // 未知时不打扰
   const needsEngine = !engineOk;
   const showBanner = needsEngine && !bannerDismissed;
+  const onboardingPending = settings ? !settings.onboarding_done : false;
 
   return (
     <div className="flex h-full">
@@ -143,6 +149,16 @@ export default function App() {
           </div>
         )}
 
+        {/* 新手引导提示（首次使用，可进设置完成） */}
+        {onboardingPending && !showBanner && (
+          <div className="border-b border-info/25 bg-info/8 px-6 py-2 shrink-0 flex items-center gap-3">
+            <span className="text-[12px] text-info">第一次用？花 1 分钟走一遍引导（可选：接入自己的 AI/API 与资产）。</span>
+            <NavLink to="/settings" className="btn btn-sm shrink-0">
+              去设置 / 引导 →
+            </NavLink>
+          </div>
+        )}
+
         {/* topbar */}
         <header className="flex items-baseline gap-3 px-6 pt-5 pb-1 shrink-0">
           <h1 className="text-[17px] font-semibold text-ink">{meta.t}</h1>
@@ -156,6 +172,7 @@ export default function App() {
             <Route path="/faultlab" element={<FaultLabPage />} />
             <Route path="/graph" element={<GraphWorkspace />} />
             <Route path="/agent" element={<AgentPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </div>
       </main>

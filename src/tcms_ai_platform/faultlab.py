@@ -383,6 +383,13 @@ def build_demo(
         "duration": duration,
         "sample_s": SAMPLE_S,
         "events": [e.to_dict() for e in sorted(events, key=lambda e: e.t)],
+        # 档位参数：前端动画据此显示（derate 限速等，避免前端硬编码漂移）
+        "params": {
+            "limit_kmh": 160.0,  # 真实线路限速（atp.DEFAULT_LIMIT_KMH）
+            "derate_speed": _DERATE_SPEED,  # 降级限速目标（示意演示档）
+            "cruise_kmh": CRUISE_KMH,  # 正常巡航（示意）
+            "eb_kpa": _EB_KPA,  # EB 制动缸压力基准
+        },
         "honesty": (
             "事件时刻来自真实场景 YAML；处置结果来自真实引擎断言（若已执行）或故障字典；"
             "通道波形为事件级示意重建（依据真实阈值/枚举），非逐周期总线回放。"

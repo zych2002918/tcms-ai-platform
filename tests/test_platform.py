@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -336,3 +337,59 @@ def test_faultlab_demo_overspeed(client):
 def test_faultlab_demo_404(client):
     r = client.post("/api/faultlab/demo", json={"scenario": "nope.yaml"})
     assert r.status_code == 404
+
+
+# ---- 设置层 / 新手引导 API（外部可配置接口；key 永不外泄）----
+
+
+def test_settings_get_no_key_leak(client, monkeypatch, tmp_path):
+    """读取设置不应暴露 api_key（响应只含 has_key 布尔）。"""
+    monkeypatch.setenv("TCMS_AI_HOME", str(tmp_path))
+    # 先写一个带 key 的设置（直接经 API，隔离到 tmp）
+    r = client.post("/api/settings", json={"llm_provider": "aliyun", "llm_api_key": "sk-secret-abc", "llm_model": "m"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["llm"]["has_key"] is True
+    assert "api_key" not in json.dumps(body)  # 响应当中绝无 key
+    # GET 同
+    g = client.get("/api/settings").json()
+    assert g["llm"]["has_key"] is True
+    assert "sk-secret-abc" not in json.dumps(g)
+
+
+def test_settings_save_and_clear(client, monkeypatch, tmp_path):
+    """保存(provider/model)与清除 key 往返。"""
+    monkeypatch.setenv("TCMS_AI_HOME", str(tmp_path))
+    client.post("/api/settings", json={"llm_provider": "deepseek", "llm_model": "deepseek-chat", "llm_api_key": "sk-d-1"})
+    g = client.get("/api/settings").json()
+    assert g["llm"]["provider"] == "deepseek"
+    assert g["llm"]["model"] == "deepseek-chat"
+    # 清除 key
+    client.post("/api/settings/clear-api-key")
+    g2 = client.get("/api/settings").json()
+    assert g2["llm"]["has_key"] is False
+
+
+def test_settings_asset_dir_invalid_raises(client, monkeypatch, tmp_path):
+    """无效 asset_dir 保存后,resolve_asset_source 应抛错引导(而非静默回退)。"""
+    from tcms_ai_platform.core.sources import resolve_asset_source
+
+    monkeypatch.setenv("TCMS_AI_HOME", str(tmp_path))
+    r = client.post("/api/settings", json={"asset_dir": "Z:/no/such/tcms"})
+    assert r.status_code == 200
+
+    with pytest.raises(FileNotFoundError):
+        resolve_asset_source()
+    # 清空恢复
+    client.post("/api/settings", json={"asset_dir": ""})
+    resolve_asset_source()  # 不再抛
+
+
+def test_faultlab_demo_has_params(client):
+    """FaultLab demo 输出应带档位参数(limit/derate/cruise/eb),前端不再硬编码。"""
+    r = client.post("/api/faultlab/demo", json={"scenario": "overspeed_derate.yaml"})
+    assert r.status_code == 200
+    p = r.json()["demo"]["params"]
+    assert p["limit_kmh"] == 160.0
+    assert p["derate_speed"] > 0
+    assert p["eb_kpa"] > 0

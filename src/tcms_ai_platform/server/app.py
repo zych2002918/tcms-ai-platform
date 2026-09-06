@@ -75,6 +75,17 @@ class FaultLabRequest(BaseModel):
     scenario: str  # 场景文件名（含 .yaml）
 
 
+class SettingsUpdateRequest(BaseModel):
+    """设置保存请求（前端「设置/引导」页写入；key 只落本机文件）。"""
+
+    llm_provider: str | None = None
+    llm_base_url: str | None = None
+    llm_model: str | None = None
+    llm_api_key: str | None = None  # 允许空串 = 清除
+    asset_dir: str | None = None  # 空串 = 清空(回到自动)
+    onboarding_done: bool | None = None
+
+
 def create_app(asset_model: AssetModel | None = None, upstream: str | Path | None = None) -> FastAPI:
     """应用工厂。
 
@@ -138,8 +149,9 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
     sink = GraphSink(graph)
     _run_counter = {"n": 0}
 
-    # Agent Harness：后端可插拔——有 LLM key(env 或 ~/.dsh/.credentials.yaml)
-    # 用 LLM 决策(失败自动落回 Mock)，否则 Mock 确定性（离线可复现）
+    # Agent Harness：后端可插拔——有 LLM key(env / 本地设置 / 凭据文件)
+    # 用 LLM 决策(失败自动落回 Mock)，否则 Mock 确定性（离线可复现）。
+    # 注意：设置页可在运行期改 key/provider → 用闭包每次现取（懒构建）。
     from ..agent import (
         AgentHarness,
         LLMAgentBackend,
@@ -148,13 +160,15 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         llm_available,
     )
 
-    _agent_backend_mode = "llm" if llm_available() else "mock"
-    if _agent_backend_mode == "llm":
-        harness = AgentHarness(
-            asset_model, retriever, _app_upstream, backend=LLMAgentBackend()
-        )
-    else:
-        harness = AgentHarness(
+    def _current_backend_mode() -> str:
+        return "llm" if llm_available() else "mock"
+
+    def _make_harness() -> AgentHarness:
+        if _current_backend_mode() == "llm":
+            return AgentHarness(
+                asset_model, retriever, _app_upstream, backend=LLMAgentBackend()
+            )
+        return AgentHarness(
             asset_model, retriever, _app_upstream, backend=MockAgentBackend()
         )
 
@@ -188,7 +202,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         return {
             "engine": eng,
             "llm_key": has_key,
-            "agent_backend": _agent_backend_mode,  # mock(离线) / llm(已配 key)
+            "agent_backend": _current_backend_mode(),  # mock(离线) / llm(已配 key)
             "asset_mode": asset_model.source_upstream,
             "capabilities": {
                 "browse_assets": True,
@@ -211,11 +225,59 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
                     if has_key
                     else [
                         "当前 Agent 使用离线 Mock 后端，无需 key 即可演示全流程。",
-                        "如需真 LLM 生成/规划，配置 DASH_API_KEY 或 DEEPSEEK_API_KEY（见 .env.example）",
+                        "如需真 LLM 生成/规划，到「设置」页配置 API（阿里云/DeepSeek/OpenAI 兼容），或设 DASH_API_KEY（见 .env.example）",
                     ]
                 ),
             },
         }
+
+    # ---- 设置（外部可配置接口：新手引导页读写本地 settings，key 永不外泄）----
+
+    @app.get("/api/settings")
+    def settings_get() -> dict:
+        """读取非敏感设置（含 provider 预设与当前状态，绝不含 api_key）。"""
+        from ..core import settings as _settings
+
+        view = _settings.public_view()
+        view["providers"] = _settings.PROVIDER_PRESETS
+        return view
+
+    @app.post("/api/settings")
+    def settings_update(req: SettingsUpdateRequest) -> dict:
+        """保存设置（写入 ~/.tcms-ai-platform/settings.json；key 只落本机文件）。"""
+        from ..core import settings as _settings
+
+        patch: dict = {}
+        if req.llm_provider is not None:
+            patch.setdefault("llm", {})["provider"] = req.llm_provider
+        if req.llm_base_url is not None:
+            patch.setdefault("llm", {})["base_url"] = req.llm_base_url.strip()
+        if req.llm_model is not None:
+            patch.setdefault("llm", {})["model"] = req.llm_model.strip()
+        if req.llm_api_key is not None:
+            patch.setdefault("llm", {})["api_key"] = req.llm_api_key.strip()
+        if req.asset_dir is not None:
+            patch["asset_dir"] = req.asset_dir.strip()
+        if req.onboarding_done is not None:
+            patch["onboarding_done"] = bool(req.onboarding_done)
+        if not patch:
+            raise HTTPException(400, "无有效设置字段")
+        try:
+            _settings.save(patch)
+        except RuntimeError as e:
+            raise HTTPException(500, str(e)) from e
+        return _settings.public_view()
+
+    @app.post("/api/settings/clear-api-key")
+    def settings_clear_api_key() -> dict:
+        """清除已保存的 API key（不留本机文件）。"""
+        from ..core import settings as _settings
+
+        try:
+            _settings.save({"llm": {"api_key": ""}})
+        except RuntimeError as e:
+            raise HTTPException(500, str(e)) from e
+        return _settings.public_view()
 
     # ---- 知识底座（P2）----
 
@@ -601,10 +663,19 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             tasks = [t for t in tasks if t.task_id == req.task_id]
             if not tasks:
                 raise HTTPException(404, f"任务不存在: {req.task_id}")
-        return harness.run_tasks(tasks)
+        # 每次现取后端（设置页改 key/provider 后无需重启即生效）
+        return _make_harness().run_tasks(tasks)
 
     # ---- 前端静态托管（P3）：生产构建 dist/ 挂到根路径 ----
-    _web_dist = Path(__file__).resolve().parents[3] / "web" / "dist"
+    # 路径解析：PyInstaller 打包(frozen)时静态资源在 sys._MEIPASS/web/dist；
+    # 源码运行时在仓库 web/dist。
+    import sys as _sys
+
+    if getattr(_sys, "frozen", False):
+        _bundle = Path(getattr(_sys, "_MEIPASS", Path(__file__).resolve().parent))
+        _web_dist = _bundle / "web" / "dist"
+    else:
+        _web_dist = Path(__file__).resolve().parents[3] / "web" / "dist"
     if _web_dist.is_dir():
         from fastapi.responses import FileResponse
         from fastapi.staticfiles import StaticFiles

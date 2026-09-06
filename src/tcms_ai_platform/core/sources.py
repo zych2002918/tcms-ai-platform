@@ -70,7 +70,42 @@ def _engine_importable(extra_path: Path | None = None) -> bool:
 
 
 def resolve_asset_source() -> AssetSource:
-    """解析当前环境的资产源（供 loader 与 server 使用）。"""
+    """解析当前环境的资产源（供 loader 与 server 使用）。
+
+    优先级：
+    0. 用户本地设置 ~/.tcms-ai-platform/settings.json 的 asset_dir（现场人员经设置页写入，
+       可指向自定义的 tcms-can-test：加自己的故障/场景/用例）→ mode="user-settings"
+    1. 显式环境变量 TCMS_UPSTREAM_DIR
+    2. 兄弟目录（开发态：与 tcms-can-test 相邻 clone）
+    3. 内置快照（默认，随 wheel 分发）
+    """
+    # 0. 用户设置的自定义资产目录（外接实际资产/用例/故障）
+    try:
+        from .settings import asset_dir as _settings_asset_dir
+
+        _usr = _settings_asset_dir()
+    except Exception:  # noqa: BLE001 - 设置层不可用跳过
+        _usr = None
+    if _usr:
+        root = Path(_usr).expanduser()
+        dbc = root / DBC_REL
+        if dbc.is_file():
+            return AssetSource(
+                root=root,
+                mode="user-settings",
+                dbc=dbc,
+                faults=root / FAULTS_REL,
+                scenarios_dir=root / SCENARIOS_REL,
+                rtm=root / RTM_REL,
+                engine_available=_engine_importable(root),
+                engine_hint=f"用户设置资产目录 → {root}",
+            )
+        # 用户配了但路径无效：不静默降级，抛错让 UI 引导修正
+        raise FileNotFoundError(
+            f"用户设置的自定义资产目录无效: {root}（缺 {DBC_REL.name}）。"
+            "请到「设置」页重新选择 tcms-can-test 目录，或清空资产目录设置。"
+        )
+
     # 1. 显式环境变量
     env_dir = os.environ.get("TCMS_UPSTREAM_DIR")
     if env_dir:

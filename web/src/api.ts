@@ -159,6 +159,7 @@ export interface FaultLabResp {
     duration: number;
     sample_s: number;
     events: FaultLabEvent[];
+    params: { limit_kmh: number; derate_speed: number; cruise_kmh: number; eb_kpa: number };
     honesty: string;
   };
   curve: FaultLabCurvePoint[];
@@ -210,6 +211,10 @@ export const api = {
     req<{ task_id: string; title: string; goal: string; target_fault: string; expected_action: string }[]>("/agent/tasks"),
   agentRun: (taskId?: string) =>
     req<AgentRunResp>("/agent/run", { method: "POST", body: JSON.stringify({ task_id: taskId ?? null }) }),
+  settingsGet: () => req<SettingsView>("/settings"),
+  settingsSave: (patch: Record<string, string | boolean>) =>
+    req<SettingsView>("/settings", { method: "POST", body: JSON.stringify(patch) }),
+  settingsClearApiKey: () => req<SettingsView>("/settings/clear-api-key", { method: "POST", body: JSON.stringify({}) }),
 };
 
 export interface AgentRunResp {
@@ -242,4 +247,13 @@ export interface AgentRunResp {
     }[];
     trace: { step: string; detail: string; t: number }[];
   }[];
+}
+
+export interface SettingsView {
+  dir: string;
+  llm: { provider: string; base_url: string; model: string; has_key: boolean };
+  asset_dir: string;
+  port: number;
+  onboarding_done: boolean;
+  providers: Record<string, { label: string; base_url: string; model: string }>;
 }
