@@ -212,10 +212,17 @@ class AgentHarness:
     def run_tasks(self, tasks: list[TaskDef]) -> dict:
         runs = [self.run_task(t) for t in tasks]
         achieved = sum(1 for r in runs if r.achieved)
+        # 评审（evaluator-optimizer 的真实规则视角，见 reviewer.py）
+        from .reviewer import RuleReviewer
+
+        reviewer = RuleReviewer(self.model, self.retriever)
+        reviews = reviewer.review_runs(tasks, runs)
+        review_ok = sum(1 for rv in reviews if rv["passed"])
         return {
             "total": len(runs),
             "achieved": achieved,
             "success_rate": round(achieved / len(runs), 3) if runs else 0.0,
+            "review_passed": review_ok,
             "runs": [
                 {
                     "task_id": r.task_id,
@@ -227,8 +234,9 @@ class AgentHarness:
                     "scenario": r.plan.chosen_scenario if r.plan else None,
                     "duration_ms": r.duration_ms,
                     "score": r.score(),
+                    "review": reviews[i],
                     "trace": r.trace,
                 }
-                for r in runs
+                for i, r in enumerate(runs)
             ],
         }

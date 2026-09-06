@@ -18,6 +18,15 @@ const STEP_META: Record<string, { label: string; tone: "info" | "ok" | "warn" | 
   report: { label: "汇报", tone: "ok" },
 };
 
+const DIM_LABELS: Record<string, string> = {
+  result_grounded: "真实断言",
+  evidence_used: "证据使用",
+  threshold_aware: "阈值感知",
+  domain_aware: "领域语义",
+  requirement_trace: "需求追溯",
+  honesty: "诚实性",
+};
+
 export function AgentPage() {
   const [tasks, setTasks] = useState<{ task_id: string; title: string; goal: string; target_fault: string; expected_action: string }[]>([]);
   const [sel, setSel] = useState("");
@@ -193,6 +202,39 @@ export function AgentPage() {
                     <div className="text-[10px] text-ink-dim">执行场景</div>
                   </div>
                 </div>
+                {/* 评审（真实领域语义, evaluator-optimizer） */}
+                {run.review && (
+                  <div className="px-4 pt-2 pb-3 border-t border-line-soft">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="text-[11px] text-ink-faint font-medium uppercase tracking-wide">真实语义评审</span>
+                      {run.review.passed ? <Tag tone="ok">通过</Tag> : <Tag tone="bad">未过</Tag>}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {Object.entries(run.review.dimensions).map(([dim, st]) => (
+                        <span
+                          key={dim}
+                          className={`tag ${
+                            st === "pass"
+                              ? "text-ok border-ok/30 bg-ok/5"
+                              : st === "warn"
+                                ? "text-warn border-warn/30 bg-warn/10"
+                                : "text-bad border-bad/30 bg-bad/10"
+                          }`}
+                          title={DIM_LABELS[dim] ?? dim}
+                        >
+                          {st === "pass" ? "✓" : st === "warn" ? "△" : "✗"} {DIM_LABELS[dim] ?? dim}
+                        </span>
+                      ))}
+                    </div>
+                    {run.review.issues.length > 0 && (
+                      <ul className="mt-1.5 space-y-0.5">
+                        {run.review.issues.map((iss, k) => (
+                          <li key={k} className="text-[11px] text-warn leading-4">· {iss}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </Panel>
             );
           })}

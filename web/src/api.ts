@@ -170,6 +170,7 @@ export interface AgentRunResp {
   total: number;
   achieved: number;
   success_rate: number;
+  review_passed: number;
   runs: {
     task_id: string;
     fault: string;
@@ -180,6 +181,12 @@ export interface AgentRunResp {
     scenario: string | null;
     duration_ms: number;
     score: { score: number; achieved: boolean; evidence_count: number; exec_passed: boolean; reflected: boolean };
+    review: {
+      task_id: string;
+      passed: boolean;
+      dimensions: Record<string, string>;
+      issues: string[];
+    };
     trace: { step: string; detail: string; t: number }[];
   }[];
 }

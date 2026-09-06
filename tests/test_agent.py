@@ -93,3 +93,23 @@ def test_mock_backend_picks_covering_scenario():
     # 所选场景确实覆盖 overspeed
     scen = next(s for s in scenarios if s["file"] == plan.chosen_scenario)
     assert "overspeed" in scen["fault_keys"]
+
+
+@NEEDS_UPSTREAM
+def test_run_tasks_include_review(harness):
+    """run_tasks 输出应含基于真实领域知识的评审（evaluator-optimizer）。"""
+    res = harness.run_tasks(default_tasks(harness.model))
+    assert res["review_passed"] == res["total"]  # 真实任务应全过评审
+    for r in res["runs"]:
+        assert "review" in r
+        rv = r["review"]
+        assert rv["passed"] is True
+        # 6 个评审维度都在
+        assert set(rv["dimensions"].keys()) >= {
+            "result_grounded",
+            "evidence_used",
+            "threshold_aware",
+            "domain_aware",
+            "requirement_trace",
+            "honesty",
+        }
