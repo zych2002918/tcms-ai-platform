@@ -24,6 +24,22 @@ bash start.sh
 脚本会自动：建虚拟环境 → 装依赖 → 启动服务 → 自动打开浏览器。
 **首次较慢（装依赖），之后秒开。**
 
+### 免安装：Windows exe（给现场 / 不会配环境的人）
+
+> 打包方法见 `packaging/README.md`；发布产物即整个 `dist/tcms-ai-platform/` 目录，
+> 双击 `tcms-ai-platform.exe` 即可（免 Python、免引擎、前端已内置，自动开浏览器）。
+
+## 新手引导 + 外部可配置接口（设置页）
+
+打开后右上/导航「**设置 / 引导**」有 4 步新手向导：资产源 → 接入 AI → 检查引擎 → 完成。
+
+- **资产源**：默认用内置快照可直接开始；也可填自己的 tcms-can-test 目录
+  （往 `tcms/faults.yaml` 加故障、往 `scenarios/` 加场景 = 自定义用例/故障/情景）。
+- **接入 AI（可选）**：阿里云百炼 / DeepSeek 官方 / 任意 OpenAI 兼容端点。
+  不填也能用（Agent 离线 Mock 全流程可演示）。
+- **API key 安全**：只写入本机 `~/.tcms-ai-platform/settings.json`（gitignore 之外），
+  响应/日志/仓库绝不含 key；「清除 key」一键删除。
+
 ### 手动启动（可选）
 
 ```bash
@@ -56,6 +72,7 @@ python -m tcms_ai_platform.server.app   # → http://127.0.0.1:8000
 ## 界面与功能
 
 - **总览** — 系统状态 + 从这里开始（看故障演示 / 跑场景 / 问图谱 / 指挥 Agent）
+- **设置 / 引导** — 新手向导 + 外部可配置接口（自定义资产 / API / key 本机安全存储）
 - **测试资产** — 报文 · 信号（枚举）· 故障（FMEA 详情）· 安全需求（RTM），可筛选
 - **场景执行** — 在真实 TCMS 引擎上运行故障场景，逐步流程 + 断言证据
 - **故障演示（FaultLab）** — 把真实故障场景变成**可播放的动画**：注入 → 检测 →
@@ -78,7 +95,12 @@ python -m tcms_ai_platform.cli      # 或: tcms-platform-doctor
 见 `.env.example`。核心变量：
 - `PORT` — 端口，默认 8000
 - `TCMS_UPSTREAM_DIR` — 用活的上游 tcms-can-test 目录（可选，默认内置快照）
-- `DASH_API_KEY` / `DEEPSEEK_API_KEY` / `LLM_API_KEY` — 未来真 LLM 用（可选）
+- `DASH_API_KEY` / `DEEPSEEK_API_KEY` / `LLM_API_KEY` — 真 LLM 用（可选）
+
+### 配置优先级
+
+环境变量 > 设置文件（`~/.tcms-ai-platform/settings.json`，经「设置/引导」页写入）> 内置默认。
+用设置文件最省事：不用碰终端、不泄漏到仓库、exe 同样支持。
 
 ## 架构
 
@@ -97,7 +119,7 @@ python -m tcms_ai_platform.cli      # 或: tcms-platform-doctor
 ## 测试 / 门禁
 
 ```bash
-python -m pytest tests -q            # 49 tests（含真实资产冒烟）
+python -m pytest tests -q            # 53 tests（含真实资产冒烟）
 python -m ruff check src tests
 python -m pytest tests -q --cov=tcms_ai_platform --cov-fail-under=80
 ```

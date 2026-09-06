@@ -1,8 +1,5 @@
-# 平台包
 *.egg-info/
-build/
-# 注意: 不忽略 web/dist —— 前端构建产物入库，保证一键启动出界面（P3 决策）
-
+# 娉ㄦ剰: 涓嶅拷鐣?web/dist 鈥斺€?鍓嶇鏋勫缓浜х墿鍏ュ簱锛屼繚璇佷竴閿惎鍔ㄥ嚭鐣岄潰锛圥3 鍐崇瓥锛?
 # Python
 __pycache__/
 *.py[cod]
@@ -13,17 +10,17 @@ __pycache__/
 htmlcov/
 coverage.json
 
-# 本地运行产物
+# 鏈湴杩愯浜х墿
 reports/
 *.log
 
-# 编辑器/系统
+# 缂栬緫鍣?绯荤粺
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
 
-# 前端截图临时
+# 鍓嶇鎴浘涓存椂
 web/shot-*.png
 web/node_modules/
 
@@ -35,5 +32,12 @@ e2e/node_modules/
 e2e/package*.json
 
 
-# 本地预览截图(不入库,供人工查看)
+# 鏈湴棰勮鎴浘(涓嶅叆搴?渚涗汉宸ユ煡鐪?
 docs/preview/
+
+# PyInstaller 打包产物
+dist/
+build/
+tcms-ai-platform.spec
+!packaging/tcms-ai-platform.spec
+# packaging/ 下的 spec 与打包说明入库,勿删

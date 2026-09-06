@@ -698,14 +698,15 @@ app = create_app()
 
 
 def main() -> None:
-    """启动入口：python -m tcms_ai_platform.server.app 或 tcms-platform。"""
+    """启动入口：python -m tcms_ai_platform.server.app / tcms-platform / 打包后的 exe。"""
     import os
+    import sys as _sys
     import threading
 
     import uvicorn
 
     port = int(os.environ.get("PORT", "8000"))
-    # 延迟自动开浏览器（仅本地非 headless 环境）
+    # 延迟自动开浏览器（仅本地非 headless 环境；exe 内也开）
     def _open_browser() -> None:
         import time
 
@@ -720,7 +721,11 @@ def main() -> None:
     if not os.environ.get("DSH_NO_BROWSER"):
         threading.Thread(target=_open_browser, daemon=True).start()
 
-    uvicorn.run("tcms_ai_platform.server.app:app", host="127.0.0.1", port=port, reload=False)
+    if getattr(_sys, "frozen", False):
+        # 打包态：直接跑已构建的 app 对象，避免按 import 字符串二次解析
+        uvicorn.run(app, host="127.0.0.1", port=port, reload=False)
+    else:
+        uvicorn.run("tcms_ai_platform.server.app:app", host="127.0.0.1", port=port, reload=False)
 
 
 if __name__ == "__main__":
