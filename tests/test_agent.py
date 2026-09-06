@@ -48,9 +48,22 @@ def test_default_tasks_anchored_real_faults():
     """任务库全部锚定真实故障字典且期望处置一致（漂移即失败）。"""
     m = load_asset_model(UPSTREAM)
     tasks = default_tasks(m)
-    assert len(tasks) == 4
+    assert len(tasks) == 8
     ids = {t.task_id for t in tasks}
-    assert ids == {"T-EBM", "T-DOOR", "T-OVERSPEED", "T-CONFLICT"}
+    assert ids == {
+        "T-EBM",
+        "T-DOOR",
+        "T-OVERSPEED",
+        "T-CONFLICT",
+        "T-HEARTBEAT",
+        "T-BUS",
+        "T-CRC",
+        "T-STORM",
+    }
+    # 每个任务的目标故障必须真实存在且期望处置与故障字典一致
+    for t in tasks:
+        f = m.faults_by_key[t.target_fault]
+        assert f.action == t.expected_action
 
 
 @NEEDS_UPSTREAM
@@ -75,8 +88,8 @@ def test_harness_full_suite(harness):
     """全部任务跑通（mock 后端确定性 → 全达成）。"""
     tasks = default_tasks(harness.model)
     res = harness.run_tasks(tasks)
-    assert res["total"] == 4
-    assert res["achieved"] == 4
+    assert res["total"] == 8
+    assert res["achieved"] == 8
     assert res["success_rate"] == 1.0
     for r in res["runs"]:
         assert r["achieved"] is True

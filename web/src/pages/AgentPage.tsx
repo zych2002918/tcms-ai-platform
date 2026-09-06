@@ -202,6 +202,27 @@ export function AgentPage() {
                     <div className="text-[10px] text-ink-dim">执行场景</div>
                   </div>
                 </div>
+                {/* 证据链（RAG 检索到哪些知识 → 供 Agent 决策） */}
+                {run.evidence && run.evidence.length > 0 && (
+                  <div className="px-4 py-2.5 border-t border-line-soft">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="text-[11px] text-ink-faint font-medium uppercase tracking-wide">检索证据 · GraphRAG</span>
+                      <span className="text-[10px] text-ink-faint num">{run.evidence.length} 条命中</span>
+                    </div>
+                    <div className="space-y-1">
+                      {run.evidence.slice(0, 3).map((h, i) => (
+                        <div key={i} className="flex items-start gap-2 text-[11.5px] leading-4 bg-surface-2/40 rounded-lg px-2.5 py-1.5">
+                          <code className="kbd-mono shrink-0">{h.doc_id}</code>
+                          <span className="text-ink-dim min-w-0 flex-1 line-clamp-1" title={h.text}>{h.text}</span>
+                          <span className="text-ink-faint num shrink-0">{(h.score * 100).toFixed(0)}%</span>
+                        </div>
+                      ))}
+                      {run.evidence.length > 3 && (
+                        <div className="text-[10px] text-ink-faint pl-1">+{run.evidence.length - 3} 条…</div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 {/* 评审（真实领域语义, evaluator-optimizer） */}
                 {run.review && (
                   <div className="px-4 pt-2 pb-3 border-t border-line-soft">

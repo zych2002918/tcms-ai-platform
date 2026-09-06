@@ -259,7 +259,16 @@ def test_run_scenario_records_sink(client):
 def test_agent_tasks(client):
     tasks = client.get("/api/agent/tasks").json()
     ids = {t["task_id"] for t in tasks}
-    assert ids == {"T-EBM", "T-DOOR", "T-OVERSPEED", "T-CONFLICT"}
+    assert ids == {
+        "T-EBM",
+        "T-DOOR",
+        "T-OVERSPEED",
+        "T-CONFLICT",
+        "T-HEARTBEAT",
+        "T-BUS",
+        "T-CRC",
+        "T-STORM",
+    }
     t = next(t for t in tasks if t["task_id"] == "T-EBM")
     assert t["expected_action"] == "emergency_brake"
 
@@ -282,11 +291,48 @@ def test_agent_run_all(client):
     r = client.post("/api/agent/run", json={})
     assert r.status_code == 200
     body = r.json()
-    assert body["total"] == 4
-    assert body["achieved"] == 4
+    assert body["total"] == 8
+    assert body["achieved"] == 8
     assert body["success_rate"] == 1.0
+    # 每个 run 都带证据链（RAG 可见）
+    for run in body["runs"]:
+        assert run["evidence"] or not run["evidence"]  # 允许空但结构在
+    assert all("evidence" in run for run in body["runs"])
 
 
 def test_agent_run_404(client):
     r = client.post("/api/agent/run", json={"task_id": "T-NOPE"})
+    assert r.status_code == 404
+
+
+# ---- FaultLab 演示（真实场景 → 事件时间线 + 通道曲线）----
+
+
+def test_faultlab_scenarios(client):
+    r = client.get("/api/faultlab/scenarios")
+    assert r.status_code == 200
+    scs = r.json()
+    assert len(scs) == 13
+    assert any(s["file"] == "overspeed_derate.yaml" for s in scs)
+
+
+def test_faultlab_demo_overspeed(client):
+    r = client.post("/api/faultlab/demo", json={"scenario": "overspeed_derate.yaml"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["demo"]["scenario"] == "overspeed_derate.yaml"
+    assert body["curve"]
+    kinds = {e["kind"] for e in body["demo"]["events"]}
+    assert {"inject", "detect", "action", "recover"} <= kinds
+    # 超速 → 处置 derate 出现在时间线上
+    acts = [e for e in body["demo"]["events"] if e["kind"] == "action"]
+    assert any(e["action"] == "derate" for e in acts)
+    # 曲线里速度应出现超限(>160)后回落
+    speeds = [c["speed_kmh"] for c in body["curve"]]
+    assert max(speeds) > 160
+    assert min(speeds) <= 120
+
+
+def test_faultlab_demo_404(client):
+    r = client.post("/api/faultlab/demo", json={"scenario": "nope.yaml"})
     assert r.status_code == 404

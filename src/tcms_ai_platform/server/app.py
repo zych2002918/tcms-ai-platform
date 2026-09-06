@@ -69,6 +69,12 @@ class AgentRunRequest(BaseModel):
     task_id: str | None = None  # None = 全跑
 
 
+class FaultLabRequest(BaseModel):
+    """FaultLab 演示请求：选一个真实场景。"""
+
+    scenario: str  # 场景文件名（含 .yaml）
+
+
 def create_app(asset_model: AssetModel | None = None, upstream: str | Path | None = None) -> FastAPI:
     """应用工厂。
 
@@ -412,6 +418,55 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
                 }
                 for st in s.steps
             ],
+        }
+
+    # ---- FaultLab：故障演示（真实场景 + 事件时间线 + 通道曲线）----
+
+    @app.get("/api/faultlab/scenarios")
+    def faultlab_scenarios() -> list[dict]:
+        """可演示的场景清单（全部真实资产场景）。"""
+        return [
+            {
+                "file": s.file,
+                "name": s.name,
+                "steps": len(s.steps),
+                "fault_keys": sorted(s.fault_keys),
+                "duration_hint": max((st.at for st in s.steps), default=0) + 4,
+            }
+            for s in asset_model.scenarios.values()
+        ]
+
+    @app.post("/api/faultlab/demo")
+    def faultlab_demo(req: FaultLabRequest) -> dict:
+        """重建一个场景的演示时间线（事件 + 曲线一次返回）。
+
+        引擎可用时先真实执行该场景，用真实断言作为处置来源；
+        引擎不可用时退化为故障字典 action（诚实标注 derived）。
+        """
+        try:
+            asset_model.scenario(req.scenario)
+        except KeyError:
+            raise HTTPException(404, f"场景不存在: {req.scenario}") from None
+
+        from ..faultlab import build_curve, build_demo
+
+        run_result: dict | None = None
+        engine_ok = _probe_engine()["ok"]
+        if engine_ok:
+            try:
+                import tcms.scenarios as sc  # noqa: PLC0415
+
+                run_result = sc.run_yaml(str(_app_upstream / req.scenario))
+            except Exception:  # noqa: BLE001 - 引擎失败退化为字典来源（诚实标注）
+                run_result = None
+
+        demo = build_demo(asset_model, req.scenario, run_result)
+        curve = build_curve(asset_model, demo)
+        return {
+            "demo": demo,
+            "curve": curve,
+            "engine_asserted": run_result is not None,
+            "honesty_note": demo["honesty"],
         }
 
     # ---- 资产：需求 / 功能 ----

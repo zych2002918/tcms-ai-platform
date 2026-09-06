@@ -46,6 +46,26 @@ TASK_KB_ANCHORS: dict[str, dict] = {
         "keywords": ["牵引", "制动", "冲突", "联锁"],
         "sr": ["SR-14"],
     },
+    "T-HEARTBEAT": {
+        "thresholds": ["100"],
+        "keywords": ["心跳", "看门狗", "watchdogs", "离线"],
+        "sr": ["SR-07"],
+    },
+    "T-BUS": {
+        "thresholds": ["256", "128"],
+        "keywords": ["总线", "短路", "Bus-Off", "errstate", "错误状态机"],
+        "sr": ["SR-08"],
+    },
+    "T-CRC": {
+        "thresholds": [],
+        "keywords": ["CRC", "crc", "校验", "错误帧", "完整性"],
+        "sr": ["SR-08", "SR-16"],
+    },
+    "T-STORM": {
+        "thresholds": ["100"],
+        "keywords": ["重启", "健康表", "心跳", "watchdogs"],
+        "sr": ["SR-07", "SR-11"],
+    },
 }
 
 

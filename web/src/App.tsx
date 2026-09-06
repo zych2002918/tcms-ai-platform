@@ -5,6 +5,7 @@ import { GraphWorkspace } from "./pages/GraphWorkspace";
 import { AssetsPage } from "./pages/AssetsPage";
 import { ScenariosPage } from "./pages/ScenariosPage";
 import { AgentPage } from "./pages/AgentPage";
+import { FaultLabPage } from "./pages/FaultLabPage";
 import { api } from "./api";
 import { StatusDot } from "./components/ui";
 
@@ -12,6 +13,7 @@ const NAV = [
   { to: "/", label: "总览", icon: "◫", hint: "系统状态与入口" },
   { to: "/assets", label: "测试资产", icon: "▤", hint: "报文 · 信号 · 故障 · 需求" },
   { to: "/scenarios", label: "场景执行", icon: "▶", hint: "跑真实故障场景" },
+  { to: "/faultlab", label: "故障演示", icon: "⚙", hint: "故障发生过程动画演示" },
   { to: "/graph", label: "知识图谱", icon: "◈", hint: "检索领域知识" },
   { to: "/agent", label: "AI Agent", icon: "✦", hint: "指挥测试 Agent" },
 ];
@@ -20,6 +22,7 @@ const TITLES: Record<string, { t: string; s: string }> = {
   "/": { t: "总览", s: "系统状态与从这里开始" },
   "/assets": { t: "测试资产", s: "列车视角的真实资产：DBC 报文 / FMEA 故障 / RTM 需求" },
   "/scenarios": { t: "场景执行", s: "在真实 TCMS 引擎上运行故障场景，看断言证据" },
+  "/faultlab": { t: "故障演示", s: "把真实故障场景变成可播放的动画：注入 → 检测 → 处置 → 恢复" },
   "/graph": { t: "知识图谱", s: "用自然语言检索 TCMS 领域知识，结果附证据链" },
   "/agent": { t: "AI Agent 工作台", s: "给 Agent 一个真实测试任务，看它自主完成" },
 };
@@ -150,6 +153,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/assets" element={<AssetsPage />} />
             <Route path="/scenarios" element={<ScenariosPage />} />
+            <Route path="/faultlab" element={<FaultLabPage />} />
             <Route path="/graph" element={<GraphWorkspace />} />
             <Route path="/agent" element={<AgentPage />} />
           </Routes>

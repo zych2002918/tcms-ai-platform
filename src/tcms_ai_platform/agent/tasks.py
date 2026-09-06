@@ -63,6 +63,39 @@ def default_tasks(m: AssetModel) -> list[TaskDef]:
             expected_action="emergency_brake",
             kb_query="牵引 制动 冲突 联锁",
         ),
+        # ---- 扩展：把更多真实故障纳入 Agent 验证面（贴近真实测试任务范围）----
+        TaskDef(
+            task_id="T-HEARTBEAT",
+            title="验证 VCU 心跳丢失降级",
+            goal="验证 heartbeat_loss_vcu（VCU 心跳丢失，节点判离线）必须触发 derate 处置。",
+            target_fault="heartbeat_loss_vcu",
+            expected_action="derate",
+            kb_query="心跳丢失 看门狗 离线 降级",
+        ),
+        TaskDef(
+            task_id="T-BUS",
+            title="验证总线短路停车",
+            goal="验证 bus_short（CAN 总线短路，持续显性 → Bus-Off）必须触发 shutdown 处置。",
+            target_fault="bus_short",
+            expected_action="shutdown",
+            kb_query="总线短路 Bus-Off 错误状态机 停车",
+        ),
+        TaskDef(
+            task_id="T-CRC",
+            title="验证报文 CRC 错误告警",
+            goal="验证 crc_error_frame（报文 CRC-8 校验错误）必须触发 warning 处置（错误帧丢弃并计数）。",
+            target_fault="crc_error_frame",
+            expected_action="warning",
+            kb_query="报文 CRC 校验 错误帧 丢弃",
+        ),
+        TaskDef(
+            task_id="T-STORM",
+            title="验证节点重启风暴降级",
+            goal="验证 node_restart_storm（节点反复复位，健康表 fault/active 翻转）必须触发 derate 处置。",
+            target_fault="node_restart_storm",
+            expected_action="derate",
+            kb_query="节点重启 心跳中断 健康表 降级",
+        ),
     ]
     # 校验所有锚定真实（防需求漂移——数字机器自证纪律）
     for t in specs:

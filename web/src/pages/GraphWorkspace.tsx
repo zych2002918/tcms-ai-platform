@@ -18,7 +18,12 @@ export function GraphWorkspace() {
   const [selNode, setSelNode] = useState<{ id: string; kind: string; label: string; props?: Record<string, unknown>; neighbors?: KbNode[] } | null>(null);
   const [err, setErr] = useState("");
   const [activeKind, setActiveKind] = useState<string>("all");
+  const [kbStats, setKbStats] = useState<{ graph: { nodes: number; edges: number; by_kind: Record<string, number> }; vector: { docs: number } } | null>(null);
   const didFocus = useRef(false);
+
+  useEffect(() => {
+    api.kbStats().then(setKbStats).catch(() => undefined);
+  }, []);
 
   const focus = useCallback(async (seedId: string) => {
     setErr("");
@@ -85,6 +90,20 @@ export function GraphWorkspace() {
 
   return (
     <div className="space-y-4 max-w-[1200px]">
+      {/* KB 索引概览（图谱+向量规模：让人一眼看到知识底座的深度） */}
+      {kbStats && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-[11px] text-ink-dim">
+          <span className="font-medium text-ink">
+            知识底座
+          </span>
+          <span className="num">图谱 <b className="text-info">{kbStats.graph.nodes}</b> 节点 / <b className="text-info">{kbStats.graph.edges}</b> 边</span>
+          <span className="num">向量索引 <b className="text-vio">{kbStats.vector.docs}</b> 条文档</span>
+          <span className="text-ink-faint">
+            实体类型：{Object.keys(kbStats.graph.by_kind).length} 种（资产 + 领域知识：驾驶模式 / 联锁 / 阈值 / 危害…）
+          </span>
+        </div>
+      )}
+
       {/* 检索区 */}
       <Panel bodyClass="p-3">
         <div className="flex flex-col sm:flex-row gap-2">

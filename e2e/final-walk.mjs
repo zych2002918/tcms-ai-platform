@@ -31,16 +31,30 @@ assert("资产:故障详情侧栏(检测/恢复/处置)", body.includes("恢复"
 await p.goto(BASE + "/scenarios", { waitUntil: "networkidle" });
 await p.selectOption("select", "eb_failure_eb.yaml");
 await p.click("button:has-text('运行此场景')");
-// 运行中步骤条应短暂出现
-await p.waitForTimeout(700);
-const runningText = await p.locator("body").innerText();
-assert("场景:运行中出现步骤条", runningText.includes("正在真实引擎上执行"));
+// 引擎执行 <20ms，瞬态「执行中」状态难稳定采样 —— 改为断言完成流程（更稳）
 await p.waitForSelector("text=运行完成", { timeout: 12000 });
 body = await p.locator("body").innerText();
-assert("场景:完成后 PASS+断言", body.includes("PASS") && body.includes("emergency_brake"));
+assert("场景:运行完成 + PASS+断言", body.includes("PASS") && body.includes("emergency_brake") && body.includes("TCMS 引擎"));
+
+// 3b. 故障演示 —— 动画回放流程感
+await p.goto(BASE + "/faultlab", { waitUntil: "networkidle" });
+await p.selectOption("select", "overspeed_derate.yaml");
+await p.click("button:has-text('演示此场景')");
+await p.waitForTimeout(900);
+body = await p.locator("body").innerText();
+assert("FaultLab:事件时间线(注入/检测/处置/恢复)", body.includes("注入故障") && body.includes("处置") && body.includes("恢复") && body.includes("检测到异常"));
+assert("FaultLab:诚实标注", body.includes("诚实性标注"));
+// 播放中画面推进（超速在 10s 注入，等播放推进）
+await p.waitForTimeout(6000);
+body = await p.locator("body").innerText();
+assert("FaultLab:自动播放推进到事件后", body.includes("降级运行") || body.includes("超速"));
+await p.screenshot({ path: "docs/preview/faultlab-playing.png" });
 
 // 4. 图谱 —— 分类检索
 await p.goto(BASE + "/graph", { waitUntil: "networkidle" });
+await p.waitForTimeout(600);
+body = await p.locator("body").innerText();
+assert("图谱:KB 索引概览(节点/向量)", body.includes("知识底座") && body.includes("向量索引"));
 await p.fill("input[placeholder*='大白话']", "车门故障");
 await p.click("button:has-text('检索')");
 await p.waitForTimeout(1800);
@@ -59,10 +73,11 @@ await p.click("button:has-text('执行此任务')");
 await p.waitForSelector("text=评分", { timeout: 15000 });
 body = await p.locator("body").innerText();
 assert("Agent:任务达成+轨迹(证据/评分)", body.includes("达成") && body.includes("评分") && body.includes("证据"));
+assert("Agent:检索证据链(GraphRAG)", body.toLowerCase().includes("检索证据") && body.toLowerCase().includes("graphrag"));
 
 // 6. 窄屏无横向溢出
 const narrow = await b.newPage({ viewport: { width: 860, height: 900 } });
-for (const path of ["/", "/assets", "/scenarios", "/graph", "/agent"]) {
+for (const path of ["/", "/assets", "/scenarios", "/faultlab", "/graph", "/agent"]) {
   await narrow.goto(BASE + path, { waitUntil: "networkidle" });
   await narrow.waitForTimeout(500);
   const overflow = await narrow.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

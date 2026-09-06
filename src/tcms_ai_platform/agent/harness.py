@@ -153,9 +153,13 @@ class AgentHarness:
         # 1. retrieve evidence
         if task.kb_query:
             try:
-                r = self.retriever.retrieve(task.kb_query, k=3)
+                r = self.retriever.retrieve(task.kb_query, k=5)
                 run.evidence = r["hits"]
-                run.log("retrieve", f"知识底座命中 {len(r['hits'])} 条证据")
+                # 把命中的来源 doc_id 记进轨迹（RAG 证据链对用户可见）
+                srcs = ", ".join(
+                    f"{h.get('doc_id')}({round(h.get('score', 0), 2)})" for h in r["hits"][:5]
+                )
+                run.log("retrieve", f"知识底座命中 {len(r['hits'])} 条证据：{srcs}")
             except Exception as e:  # 检索失败不阻塞（诚实记录）
                 run.notes.append(f"retrieve 失败: {e}")
                 run.log("retrieve", f"检索失败: {e}")
@@ -268,6 +272,19 @@ class AgentHarness:
                     "duration_ms": r.duration_ms,
                     "score": r.score(),
                     "review": reviews[i],
+                    "evidence": [
+                        {
+                            "doc_id": h.get("doc_id"),
+                            "kind": h.get("kind"),
+                            "score": h.get("score"),
+                            "text": (h.get("text") or "")[:200],
+                            "neighbors": [
+                                {"id": nb.get("id"), "label": nb.get("label"), "kind": nb.get("kind"), "via": nb.get("via")}
+                                for nb in (h.get("graph_neighbors") or [])[:4]
+                            ],
+                        }
+                        for h in r.evidence[:5]
+                    ],
                     "trace": r.trace,
                 }
                 for i, r in enumerate(runs)

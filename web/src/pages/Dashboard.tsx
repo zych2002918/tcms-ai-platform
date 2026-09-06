@@ -16,6 +16,14 @@ export function Dashboard() {
   // 从这里开始 —— 三个主行动（用户探索的锚点）
   const actions = [
     {
+      to: "/faultlab",
+      icon: "⚙",
+      tone: "text-warn border-warn/30 bg-warn/10",
+      title: "看故障如何发生",
+      desc: "选一个真实故障场景，用动画看它如何被检测、系统如何处置——不是花哨动效，每个事件都可溯源。",
+      cta: "去故障演示",
+    },
+    {
       to: "/scenarios",
       icon: "▶",
       tone: "text-info border-info/30 bg-info/10",
@@ -79,7 +87,7 @@ export function Dashboard() {
       {/* 从这里开始 —— 行动入口 */}
       <div>
         <div className="section-title mb-2 px-1">从这里开始</div>
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
           {actions.map((a) => (
             <Link key={a.to} to={a.to} className="panel panel-hover block p-4 group">
               <div className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border text-lg ${a.tone}`}>

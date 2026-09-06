@@ -124,6 +124,48 @@ export interface RunScenarioResult {
   run_id?: string;
 }
 
+export interface FaultLabEvent {
+  t: number;
+  kind: "inject" | "detect" | "action" | "recover" | "note";
+  fault: string;
+  label: string;
+  detail: string;
+  level: string;
+  action: string;
+  derived: boolean;
+}
+
+export interface FaultLabCurvePoint {
+  t: number;
+  speed_kmh: number;
+  brake_kpa: number;
+  eb: number;
+  doors_open: number;
+  door_fault_count: number;
+  heartbeat_ok: boolean;
+  bus_ok: boolean;
+  pantograph_ok: boolean;
+  soc: number;
+  action: string;
+  alarms: string[];
+}
+
+export interface FaultLabResp {
+  demo: {
+    scenario: string;
+    scenario_name: string;
+    faults: string[];
+    steps: number;
+    duration: number;
+    sample_s: number;
+    events: FaultLabEvent[];
+    honesty: string;
+  };
+  curve: FaultLabCurvePoint[];
+  engine_asserted: boolean;
+  honesty_note: string;
+}
+
 export const api = {
   stats: () => req<Stats>("/stats"),
   health: () => req<{ status: string; version: string }>("/health"),
@@ -160,6 +202,10 @@ export const api = {
     ),
   runScenario: (scenario: string) =>
     req<RunScenarioResult>("/run/scenario", { method: "POST", body: JSON.stringify({ scenario }) }),
+  faultlabScenarios: () =>
+    req<{ file: string; name: string; steps: number; fault_keys: string[]; duration_hint: number }[]>("/faultlab/scenarios"),
+  faultlabDemo: (scenario: string) =>
+    req<FaultLabResp>("/faultlab/demo", { method: "POST", body: JSON.stringify({ scenario }) }),
   agentTasks: () =>
     req<{ task_id: string; title: string; goal: string; target_fault: string; expected_action: string }[]>("/agent/tasks"),
   agentRun: (taskId?: string) =>
@@ -187,6 +233,13 @@ export interface AgentRunResp {
       dimensions: Record<string, string>;
       issues: string[];
     };
+    evidence: {
+      doc_id: string;
+      kind: string;
+      score: number;
+      text: string;
+      neighbors: { id: string; kind: string; label: string; via: string }[];
+    }[];
     trace: { step: string; detail: string; t: number }[];
   }[];
 }

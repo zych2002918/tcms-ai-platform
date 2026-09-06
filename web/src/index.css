@@ -148,3 +148,59 @@ body {
   outline: 2px solid var(--color-info);
   outline-offset: 1px;
 }
+
+/* ===== FaultLab 演示动效（克制、语义化）===== */
+@keyframes wheel-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.wheel-spin line {
+  animation: wheel-spin 0.9s linear infinite;
+  transform-box: fill-box;
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.pulse-glow {
+  animation: pulse-glow 0.8s ease-in-out infinite;
+}
+
+/* range 滑条（暗色驾驶台） */
+.faultlab-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: #233152;
+  outline: none;
+}
+.faultlab-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #4ca6ff;
+  border: 2px solid #070b16;
+  cursor: pointer;
+  box-shadow: 0 0 0 3px #4ca6ff33;
+}
+.faultlab-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #4ca6ff;
+  border: 2px solid #070b16;
+  cursor: pointer;
+}

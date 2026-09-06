@@ -321,6 +321,53 @@ def inject_safety(g: KnowledgeGraph, store: VectorStore | None, data: dict) -> i
     return count
 
 
+def _link_faults_to_safety(g: KnowledgeGraph) -> int:
+    """把故障(真实)连到真实危害/需求/功能（依据危害 related_sr 与标题语义）。
+
+    纯程序化：遍历已注入的 hazard 节点，按其 title/description 关键词 + related_sr
+    把相关 fault 关联过去 —— 每条边都可在 hazard 条目中溯源（机器自证）。
+    """
+    count = 0
+    # 危害标题/描述 → 故障键（与 hazards 文本一致的关键词映射）
+    _haz_kw: dict[str, list[str]] = {
+        "超速": ["overspeed"],
+        "车门打开": ["door_fault", "door_sensor_noise"],
+        "门状态故障": ["door_fault"],
+        "牵引与制动同时施加": ["traction_brake_conflict"],
+        "通信网络故障": ["heartbeat_loss_vcu", "node_restart_storm", "bus_short", "bus_open_circuit", "crc_error_frame"],
+        "节点失活": ["heartbeat_loss_vcu"],
+        "心跳丢失": ["heartbeat_loss_vcu", "node_restart_storm"],
+        "制动执行层失效": ["eb_failure"],
+        "请求未落地": ["eb_failure"],
+        "速度传感器冗余表决失效": ["speed_sensor_drift", "sensor_stuck"],
+        "2oo3": ["speed_sensor_drift"],
+        "维护开关误置": ["node_restart_storm"],
+        "火灾": [],
+        "轨道障碍物": [],
+        "EBR 硬线回路": ["brake_actuator_stuck"],
+        "紧急制动被不当缓解": [],
+        "ATP 超速防护故障": ["overspeed"],
+        "ATO": [],
+    }
+    for n in g.nodes.values():
+        if n.kind != "hazard":
+            continue
+        blob = (n.label + " " + str(n.props.get("description", "")) + " " + str(n.props.get("mitigation", "")))
+        for kw, fks in _haz_kw.items():
+            if kw in blob:
+                for fk in fks:
+                    fid = f"fault:{fk}"
+                    if fid in g.nodes:
+                        # 边带语义：fault -exposes-> hazard（该故障是此危害的诱因之一）
+                        for e in g.edges:
+                            if e.src == fid and e.dst == n.id and e.kind == "exposes":
+                                break
+                        else:
+                            g.add_edge_raw(fid, n.id, "exposes")
+                            count += 1
+    return count
+
+
 def enrich_graph(g: KnowledgeGraph, store: VectorStore | None = None) -> dict:
     """注入全部可用领域知识。返回注入统计（files: {name: count}）。"""
     report: dict = {"files": {}}
@@ -332,4 +379,6 @@ def enrich_graph(g: KnowledgeGraph, store: VectorStore | None = None) -> dict:
         data = load_domain_json(fname)
         if data:
             report["files"][fname.replace("domain_", "").replace(".json", "")] = fn(g, store, data)
+    # 故障 → 危害 深连（在全部注入完成后，确保 hazard/fault 都已存在）
+    report["fault_hazard_links"] = _link_faults_to_safety(g)
     return report
