@@ -249,3 +249,42 @@ def test_run_scenario_records_sink(client):
     client.post("/api/run/scenario", json={"scenario": "overspeed_derate.yaml"})
     nodes = client.get("/api/kb/nodes", params={"kind": "run"}).json()
     assert len(nodes) >= 1
+
+
+# ---- P4 Agent Harness API ----
+
+
+def test_agent_tasks(client):
+    tasks = client.get("/api/agent/tasks").json()
+    ids = {t["task_id"] for t in tasks}
+    assert ids == {"T-EBM", "T-DOOR", "T-OVERSPEED", "T-CONFLICT"}
+    t = next(t for t in tasks if t["task_id"] == "T-EBM")
+    assert t["expected_action"] == "emergency_brake"
+
+
+def test_agent_run_single(client):
+    r = client.post("/api/agent/run", json={"task_id": "T-DOOR"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1
+    assert body["achieved"] == 1
+    run = body["runs"][0]
+    assert run["achieved"] is True
+    assert run["fault"] == "door_fault"
+    assert run["score"]["score"] >= 60
+    steps = {t["step"] for t in run["trace"]}
+    assert {"plan", "retrieve", "exec", "verify"} <= steps
+
+
+def test_agent_run_all(client):
+    r = client.post("/api/agent/run", json={})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 4
+    assert body["achieved"] == 4
+    assert body["success_rate"] == 1.0
+
+
+def test_agent_run_404(client):
+    r = client.post("/api/agent/run", json={"task_id": "T-NOPE"})
+    assert r.status_code == 404

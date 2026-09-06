@@ -59,6 +59,12 @@ class SubgraphRequest(BaseModel):
     depth: int = 2
 
 
+class AgentRunRequest(BaseModel):
+    """Agent 任务执行请求（模块级：FastAPI 前向引用约束）。"""
+
+    task_id: str | None = None  # None = 全跑
+
+
 def create_app(asset_model: AssetModel | None = None, upstream: str | Path | None = None) -> FastAPI:
     """应用工厂。asset_model 缺省时按 upstream 加载；都缺省 → 默认上游。"""
     global _app_model, _app_upstream
@@ -77,6 +83,13 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
     retriever = HybridRetriever(store, graph)
     sink = GraphSink(graph)
     _run_counter = {"n": 0}
+
+    # Agent Harness（P4）：mock 后端确定性，真实引擎执行
+    from ..agent import AgentHarness, MockAgentBackend, default_tasks
+
+    harness = AgentHarness(
+        asset_model, retriever, _app_upstream, backend=MockAgentBackend()
+    )
 
     app = FastAPI(
         title="TCMS × AI 测试平台",
@@ -412,6 +425,32 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             "all_passed": total_fail == 0,
             "results": results,
         }
+
+    # ---- Agent Harness（P4）----
+
+    @app.get("/api/agent/tasks")
+    def agent_tasks() -> list[dict]:
+        """任务库（锚定真实故障字典）。"""
+        return [
+            {
+                "task_id": t.task_id,
+                "title": t.title,
+                "goal": t.goal,
+                "target_fault": t.target_fault,
+                "expected_action": t.expected_action,
+            }
+            for t in default_tasks(asset_model)
+        ]
+
+    @app.post("/api/agent/run")
+    def agent_run(req: AgentRunRequest) -> dict:
+        """跑 Agent 任务（真实引擎执行 + 轨迹 + 评分）。"""
+        tasks = default_tasks(asset_model)
+        if req.task_id:
+            tasks = [t for t in tasks if t.task_id == req.task_id]
+            if not tasks:
+                raise HTTPException(404, f"任务不存在: {req.task_id}")
+        return harness.run_tasks(tasks)
 
     # ---- 前端静态托管（P3）：生产构建 dist/ 挂到根路径 ----
     _web_dist = Path(__file__).resolve().parents[3] / "web" / "dist"

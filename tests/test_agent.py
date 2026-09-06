@@ -1,0 +1,90 @@
+"""P4 测试：Agent 任务库 + Harness 工作流 + 评分（真实引擎执行）。"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from tcms_ai_platform.agent import (
+    AgentHarness,
+    MockAgentBackend,
+    default_tasks,
+)
+from tcms_ai_platform.core import load_asset_model
+from tcms_ai_platform.knowledge import (
+    HybridRetriever,
+    VectorStore,
+    build_docs_from_asset,
+    build_knowledge_graph,
+)
+
+UPSTREAM = Path(__file__).resolve().parents[2] / "tcms-can-test"
+NEEDS_UPSTREAM = pytest.mark.skipif(
+    not UPSTREAM.is_dir(), reason=f"上游不存在: {UPSTREAM}"
+)
+
+
+@pytest.fixture(scope="module")
+def harness():
+    m = load_asset_model(UPSTREAM)
+    g = build_knowledge_graph(m)
+    store = VectorStore()
+    store.add_many(build_docs_from_asset(m))
+    retriever = HybridRetriever(store, g)
+    return AgentHarness(m, retriever, UPSTREAM, backend=MockAgentBackend())
+
+
+@NEEDS_UPSTREAM
+def test_default_tasks_anchored_real_faults():
+    """任务库全部锚定真实故障字典且期望处置一致（漂移即失败）。"""
+    m = load_asset_model(UPSTREAM)
+    tasks = default_tasks(m)
+    assert len(tasks) == 4
+    ids = {t.task_id for t in tasks}
+    assert ids == {"T-EBM", "T-DOOR", "T-OVERSPEED", "T-CONFLICT"}
+
+
+@NEEDS_UPSTREAM
+def test_harness_runs_task_with_trace(harness):
+    """单任务完整循环：检索证据 → 计划 → 真实执行 → 验证 → 轨迹。"""
+    tasks = default_tasks(harness.model)
+    run = harness.run_task(next(t for t in tasks if t.task_id == "T-DOOR"))
+    assert run.achieved is True
+    assert run.plan is not None
+    assert run.plan.fault == "door_fault"
+    assert run.execution is not None
+    assert run.execution.get("all_passed") is True
+    assert run.evidence  # 用上了知识底座
+    assert run.trace  # 轨迹非空
+    steps = [t["step"] for t in run.trace]
+    assert "plan" in steps and "exec" in steps and "verify" in steps
+    assert run.score()["achieved"] is True
+
+
+@NEEDS_UPSTREAM
+def test_harness_full_suite(harness):
+    """全部任务跑通（mock 后端确定性 → 全达成）。"""
+    tasks = default_tasks(harness.model)
+    res = harness.run_tasks(tasks)
+    assert res["total"] == 4
+    assert res["achieved"] == 4
+    assert res["success_rate"] == 1.0
+    for r in res["runs"]:
+        assert r["achieved"] is True
+        assert r["score"]["score"] >= 60
+        assert "plan" in {t["step"] for t in r["trace"]}
+
+
+@NEEDS_UPSTREAM
+def test_mock_backend_picks_covering_scenario():
+    """Mock 后端确定性选择覆盖该故障的场景。"""
+    m = load_asset_model(UPSTREAM)
+    backend = MockAgentBackend()
+    task = next(t for t in default_tasks(m) if t.task_id == "T-OVERSPEED")
+    scenarios = [{"file": s.file, "fault_keys": list(s.fault_keys)} for s in m.scenarios.values()]
+    plan = backend.plan(task, [], scenarios)
+    assert plan.chosen_scenario
+    # 所选场景确实覆盖 overspeed
+    scen = next(s for s in scenarios if s["file"] == plan.chosen_scenario)
+    assert "overspeed" in scen["fault_keys"]

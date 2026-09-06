@@ -43,6 +43,7 @@ packages = [
     "tcms_ai_platform",
     "tcms_ai_platform.core",
     "tcms_ai_platform.knowledge",
+    "tcms_ai_platform.agent",
     "tcms_ai_platform.server",
 ]
 
