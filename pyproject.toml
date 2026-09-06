@@ -39,7 +39,12 @@ lint = ["ruff>=0.5"]
 tcms-platform = "tcms_ai_platform.server.app:main"
 
 [tool.setuptools]
-packages = ["tcms_ai_platform", "tcms_ai_platform.core", "tcms_ai_platform.server"]
+packages = [
+    "tcms_ai_platform",
+    "tcms_ai_platform.core",
+    "tcms_ai_platform.knowledge",
+    "tcms_ai_platform.server",
+]
 
 [tool.setuptools.dynamic]
 version = { attr = "tcms_ai_platform._version.__version__" }

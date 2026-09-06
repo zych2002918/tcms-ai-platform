@@ -15,6 +15,13 @@ from pydantic import BaseModel
 
 from .._version import __version__
 from ..core import AssetModel, load_asset_model
+from ..knowledge import (
+    GraphSink,
+    HybridRetriever,
+    VectorStore,
+    build_docs_from_asset,
+    build_knowledge_graph,
+)
 
 # 供 uvicorn 直接 import 的默认实例（app:main 兼容）
 _app_model: AssetModel | None = None
@@ -38,6 +45,20 @@ class RunScenariosRequest(BaseModel):
     pass
 
 
+class SearchRequest(BaseModel):
+    """GraphRAG 混合检索请求（模块级：同上 FastAPI 前向引用约束）。"""
+
+    query: str
+    k: int = 5
+
+
+class SubgraphRequest(BaseModel):
+    """图谱子图请求（seed 为 node id，如 fault:overspeed）。"""
+
+    seed: str
+    depth: int = 2
+
+
 def create_app(asset_model: AssetModel | None = None, upstream: str | Path | None = None) -> FastAPI:
     """应用工厂。asset_model 缺省时按 upstream 加载；都缺省 → 默认上游。"""
     global _app_model, _app_upstream
@@ -48,6 +69,14 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         asset_model = load_asset_model(upstream)
     _app_model = asset_model
     _app_upstream = Path(str(asset_model.source_upstream))
+
+    # 知识底座（P2）：图谱 + 向量 + 混合检索（同一 app 实例内单例）
+    graph = build_knowledge_graph(asset_model)
+    store = VectorStore()
+    store.add_many(build_docs_from_asset(asset_model))
+    retriever = HybridRetriever(store, graph)
+    sink = GraphSink(graph)
+    _run_counter = {"n": 0}
 
     app = FastAPI(
         title="TCMS × AI 测试平台",
@@ -68,6 +97,53 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
     @app.get("/api/source")
     def source() -> dict:
         return {"upstream": asset_model.source_upstream, "load": asset_model.load_stats}
+
+    # ---- 知识底座（P2）----
+
+    @app.post("/api/kb/search")
+    def kb_search(req: SearchRequest) -> dict:
+        """GraphRAG 混合检索：语义命中 + 图谱邻接证据。"""
+        return retriever.retrieve(req.query, k=req.k)
+
+    @app.post("/api/kb/subgraph")
+    def kb_subgraph(req: SubgraphRequest) -> dict:
+        """以某实体为中心的子图（图谱工作台数据源）。"""
+        return retriever.subgraph(req.seed, req.depth)
+
+    @app.get("/api/kb/stats")
+    def kb_stats() -> dict:
+        return {"graph": graph.stats(), "vector": store.stats()}
+
+    @app.get("/api/kb/nodes")
+    def kb_nodes(kind: str | None = None, q: str | None = None) -> list[dict]:
+        """节点浏览/搜索（前端下拉、图谱定位用）。kind ∈ graph.NODE_TYPES。"""
+        out = []
+        for n in graph.nodes.values():
+            if kind and n.kind != kind:
+                continue
+            if q and q.lower() not in n.label.lower() and q.lower() not in n.id.lower():
+                continue
+            out.append({"id": n.id, "kind": n.kind, "label": n.label})
+            if len(out) >= 200:
+                break
+        return out
+
+    @app.get("/api/kb/node/{node_id}")
+    def kb_node(node_id: str) -> dict:
+        """单个节点 + 其直接邻接（图谱漫游）。"""
+        if node_id not in graph.nodes:
+            raise HTTPException(404, f"节点不存在: {node_id}")
+        n = graph.nodes[node_id]
+        return {
+            "id": n.id,
+            "kind": n.kind,
+            "label": n.label,
+            "props": n.props,
+            "neighbors": [
+                {"id": nb, "label": graph.nodes[nb].label, "kind": graph.nodes[nb].kind}
+                for nb, _ in graph.neighbors(node_id)
+            ],
+        }
 
     # ---- 资产：协议 ----
 
@@ -280,6 +356,13 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             rep = sc.run_yaml(str(_app_upstream / "scenarios" / req.scenario))
         except Exception as e:  # 上游引擎异常 → 500 含信息
             raise HTTPException(500, f"场景执行失败: {e}") from None
+        # 沉淀闭环：执行结果写回知识库（组织记忆）
+        _run_counter["n"] += 1
+        sink.record_run(
+            f"run-{_run_counter['n']:03d}",
+            req.scenario,
+            {"passed": rep.get("passed"), "failed": rep.get("failed"), "all_passed": rep.get("all_passed")},
+        )
         return {
             "scenario": rep.get("scenario"),
             "steps": rep.get("steps"),
@@ -288,6 +371,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             "failed": rep.get("failed"),
             "all_passed": rep.get("all_passed"),
             "engine_version": __import__("tcms").__version__,
+            "run_id": f"run-{_run_counter['n']:03d}",
         }
 
     @app.post("/api/run/scenarios")

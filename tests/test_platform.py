@@ -195,3 +195,57 @@ def test_run_scenarios_all(client):
     assert body["scenario_count"] == 13
     assert body["all_passed"] is True
     assert body["total_fail"] == 0
+
+
+# ---- P2 知识底座 API ----
+
+
+def test_kb_stats(client):
+    s = client.get("/api/kb/stats").json()
+    # 图谱节点数 ≥ 基础 106（run 沉淀会追加 run 节点），向量文档数固定 101
+    assert s["graph"]["nodes"] >= 106
+    assert s["vector"]["docs"] == 101
+
+
+def test_kb_search(client):
+    r = client.post("/api/kb/search", json={"query": "车门故障 不能发车", "k": 3})
+    assert r.status_code == 200
+    hits = r.json()["hits"]
+    assert hits
+    assert all("graph_neighbors" in h for h in hits)
+
+
+def test_kb_subgraph(client):
+    r = client.post("/api/kb/subgraph", json={"seed": "fault:overspeed", "depth": 2})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["node_count"] >= 5
+    kinds = {n["kind"] for n in body["nodes"]}
+    assert "function" in kinds and "scenario" in kinds
+
+
+def test_kb_nodes_filter(client):
+    nodes = client.get("/api/kb/nodes", params={"kind": "fault"}).json()
+    assert len(nodes) == 22
+    assert all(n["kind"] == "fault" for n in nodes)
+
+
+def test_kb_node_detail(client):
+    r = client.get("/api/kb/node/fault:door_fault")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["kind"] == "fault"
+    nids = {n["id"] for n in body["neighbors"]}
+    assert "scenario:door_cascade.yaml" in nids
+    assert "function:F-DOOR" in nids
+
+
+def test_kb_node_404(client):
+    assert client.get("/api/kb/node/nope:xyz").status_code == 404
+
+
+def test_run_scenario_records_sink(client):
+    """执行单场景会沉淀 run 节点到知识库（组织记忆）。"""
+    client.post("/api/run/scenario", json={"scenario": "overspeed_derate.yaml"})
+    nodes = client.get("/api/kb/nodes", params={"kind": "run"}).json()
+    assert len(nodes) >= 1
