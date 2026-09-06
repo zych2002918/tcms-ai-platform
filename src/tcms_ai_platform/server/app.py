@@ -132,15 +132,17 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
     sink = GraphSink(graph)
     _run_counter = {"n": 0}
 
-    # Agent Harness：后端可插拔——配了 LLM key 用 LLM 决策(失败自动落回 Mock)，
-    # 否则 Mock 确定性（离线可复现）
-    import os as _os
+    # Agent Harness：后端可插拔——有 LLM key(env 或 ~/.dsh/.credentials.yaml)
+    # 用 LLM 决策(失败自动落回 Mock)，否则 Mock 确定性（离线可复现）
+    from ..agent import (
+        AgentHarness,
+        LLMAgentBackend,
+        MockAgentBackend,
+        default_tasks,
+        llm_available,
+    )
 
-    from ..agent import AgentHarness, LLMAgentBackend, MockAgentBackend, default_tasks
-
-    _agent_backend_mode = "llm" if _os.environ.get("DASH_API_KEY") or _os.environ.get(
-        "DEEPSEEK_API_KEY"
-    ) or _os.environ.get("OPENAI_API_KEY") else "mock"
+    _agent_backend_mode = "llm" if llm_available() else "mock"
     if _agent_backend_mode == "llm":
         harness = AgentHarness(
             asset_model, retriever, _app_upstream, backend=LLMAgentBackend()
@@ -173,13 +175,9 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
     @app.get("/api/system/status")
     def system_status() -> dict:
         """环境状态（供前端引导）：引擎 / LLM key / 资产源 / 可用能力。"""
-        import os
+        from ..agent import llm_available
 
-        has_key = bool(
-            os.environ.get("DASH_API_KEY")
-            or os.environ.get("DEEPSEEK_API_KEY")
-            or os.environ.get("LLM_API_KEY")
-        )
+        has_key = llm_available()
         eng = _probe_engine()
         return {
             "engine": eng,

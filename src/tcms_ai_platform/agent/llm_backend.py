@@ -30,10 +30,25 @@ MAX_RETRY = 1
 
 
 def _api_key() -> str | None:
+    """环境变量优先；其次读 ~/.dsh/.credentials.yaml 的 refs.ALIYUN_API_KEY
+    （本地可信源；key 永不写入仓库/日志）。
+    测试可用 DSH_CREDENTIALS_FILE 指向临时文件来隔离真实凭据。"""
     for k in ("DASH_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY"):
         v = os.environ.get(k)
         if v:
             return v
+    try:
+        import yaml
+
+        cred = os.environ.get("DSH_CREDENTIALS_FILE") or os.path.expanduser("~/.dsh/.credentials.yaml")
+        if os.path.isfile(cred):
+            d = yaml.safe_load(open(cred, encoding="utf-8"))
+            refs = d.get("refs", {}) or {}
+            key = refs.get("ALIYUN_API_KEY")
+            if isinstance(key, str) and key.strip():
+                return key.strip()
+    except Exception:  # noqa: BLE001 - 读凭据失败不阻塞（落回 mock）
+        pass
     return None
 
 

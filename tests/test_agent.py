@@ -119,16 +119,18 @@ def test_run_tasks_include_review(harness):
 
 
 def test_llm_available_false_without_key(monkeypatch):
-    """无 key 时 llm_available=False（离线确定性）。"""
+    """无 key(env 与凭据文件均无)时 llm_available=False（离线确定性）。"""
     for k in ("DASH_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY"):
         monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("DSH_CREDENTIALS_FILE", str(Path("Z:/no-cred.yaml")))
     assert llm_available() is False
 
 
 def test_llm_backend_falls_back_to_mock_without_key(monkeypatch):
-    """LLM 后端无 key → 自动落回 Mock（确定性选场景）。"""
+    """LLM 后端无 key(env 与凭据文件均无) → 自动落回 Mock（确定性选场景）。"""
     for k in ("DASH_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY"):
         monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("DSH_CREDENTIALS_FILE", str(Path("Z:/no-cred.yaml")))
     backend = LLMAgentBackend()
     task = TaskDef(
         task_id="T-X",
