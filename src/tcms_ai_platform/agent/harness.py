@@ -88,6 +88,7 @@ class TaskRun:
     started: float = field(default_factory=time.time)
     duration_ms: int = 0
     notes: list[str] = field(default_factory=list)
+    review: object | None = None  # RuleReviewer 的 ReviewVerdict（评审驱动自愈）
 
     def log(self, step: str, detail: str) -> None:
         self.trace.append({"step": step, "detail": detail, "t": round(time.time() - self.started, 3)})
@@ -207,17 +208,49 @@ class AgentHarness:
             run.log("report", f"达成: {task.target_fault} → {task.expected_action}")
         else:
             run.log("report", "未达成（见 notes）")
+
+        # 4. 评审（evaluator-optimizer）→ 发现缺口则自动修正一轮（评审驱动自愈）
+        from .reviewer import RuleReviewer
+
+        reviewer = RuleReviewer(self.model, self.retriever)
+        run.review = reviewer.review(task, run)
+        gaps = [d for d, st in run.review.dimensions.items() if st in ("warn", "fail")]
+        if gaps and not getattr(run, "_review_healed", False):
+            run._review_healed = True
+            run.reflected = True
+            run.log(
+                "reflect",
+                f"评审发现缺口 ({'/'.join(gaps)})，执行修正重试…",
+            )
+            # 修正：换一个未试过的覆盖场景重跑，期望消除执行相关缺口
+            for c in candidates:
+                if c["file"] != (run.plan.chosen_scenario if run.plan else None):
+                    try:
+                        rep = self._run_scenario(c["file"])
+                        run.execution = rep
+                        run.log("exec", f"修正重试：真实执行 {c['file']}")
+                        asserts = rep.get("assertions", [])
+                        relevant = [a for a in asserts if a.get("fault") == task.target_fault]
+                        if relevant and all(a.get("passed") for a in relevant) and any(
+                            a.get("actual") == task.expected_action for a in relevant
+                        ):
+                            run.achieved = True
+                            run.log("verify", f"修正后相关断言通过; achieved={run.achieved}")
+                        break
+                    except Exception as e:  # noqa: BLE001
+                        run.notes.append(f"修正执行 {c['file']} 失败: {e}")
+            # 复评
+            run.review = reviewer.review(task, run)
+            healed = [d for d, st in run.review.dimensions.items() if st in ("warn", "fail")]
+            run.log("report", f"修正后复评：缺口 {len(gaps)}→{len(healed)}")
         return run
 
     def run_tasks(self, tasks: list[TaskDef]) -> dict:
         runs = [self.run_task(t) for t in tasks]
         achieved = sum(1 for r in runs if r.achieved)
-        # 评审（evaluator-optimizer 的真实规则视角，见 reviewer.py）
-        from .reviewer import RuleReviewer
-
-        reviewer = RuleReviewer(self.model, self.retriever)
-        reviews = reviewer.review_runs(tasks, runs)
-        review_ok = sum(1 for rv in reviews if rv["passed"])
+        # 评审在 run_task 内完成（评审驱动自愈后复评），此处汇总
+        reviews = [r.review.to_dict() if r.review else {} for r in runs]
+        review_ok = sum(1 for rv in reviews if rv.get("passed"))
         return {
             "total": len(runs),
             "achieved": achieved,

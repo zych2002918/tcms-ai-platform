@@ -132,12 +132,23 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
     sink = GraphSink(graph)
     _run_counter = {"n": 0}
 
-    # Agent Harness（P4）：mock 后端确定性，真实引擎执行
-    from ..agent import AgentHarness, MockAgentBackend, default_tasks
+    # Agent Harness：后端可插拔——配了 LLM key 用 LLM 决策(失败自动落回 Mock)，
+    # 否则 Mock 确定性（离线可复现）
+    import os as _os
 
-    harness = AgentHarness(
-        asset_model, retriever, _app_upstream, backend=MockAgentBackend()
-    )
+    from ..agent import AgentHarness, LLMAgentBackend, MockAgentBackend, default_tasks
+
+    _agent_backend_mode = "llm" if _os.environ.get("DASH_API_KEY") or _os.environ.get(
+        "DEEPSEEK_API_KEY"
+    ) or _os.environ.get("OPENAI_API_KEY") else "mock"
+    if _agent_backend_mode == "llm":
+        harness = AgentHarness(
+            asset_model, retriever, _app_upstream, backend=LLMAgentBackend()
+        )
+    else:
+        harness = AgentHarness(
+            asset_model, retriever, _app_upstream, backend=MockAgentBackend()
+        )
 
     app = FastAPI(
         title="TCMS × AI 测试平台",
@@ -173,6 +184,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         return {
             "engine": eng,
             "llm_key": has_key,
+            "agent_backend": _agent_backend_mode,  # mock(离线) / llm(已配 key)
             "asset_mode": asset_model.source_upstream,
             "capabilities": {
                 "browse_assets": True,
