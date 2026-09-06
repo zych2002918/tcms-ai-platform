@@ -75,9 +75,26 @@ body = await p.locator("body").innerText();
 assert("Agent:任务达成+轨迹(证据/评分)", body.includes("达成") && body.includes("评分") && body.includes("证据"));
 assert("Agent:检索证据链(GraphRAG)", body.toLowerCase().includes("检索证据") && body.toLowerCase().includes("graphrag"));
 
+// 5b. 设置 / 新手引导
+await p.goto(BASE + "/settings", { waitUntil: "networkidle" });
+await p.waitForTimeout(600);
+body = await p.locator("body").innerText();
+assert("设置:新手引导向导(资产源)", body.includes("新手引导") && (body.includes("资产源") || body.includes("tcms-can-test")));
+assert("设置:外部可配置接口说明", body.includes("外部可配置接口"));
+// 走到 LLM 步骤
+await p.click("button:has-text('下一步：接入 AI')");
+await p.waitForTimeout(300);
+body = await p.locator("body").innerText();
+assert("设置:服务商预设(阿里云/DeepSeek)", body.includes("阿里云百炼") && body.includes("DeepSeek 官方"));
+assert("设置:key 只存本机提示", body.includes("绝不上传") || body.includes("只写入本机"));
+await p.click("button:has-text('下一步：检查引擎')");
+await p.waitForTimeout(300);
+body = await p.locator("body").innerText();
+assert("设置:引擎状态检查步", body.includes("TCMS 引擎") && (body.includes("可用") || body.includes("不可用")));
+
 // 6. 窄屏无横向溢出
 const narrow = await b.newPage({ viewport: { width: 860, height: 900 } });
-for (const path of ["/", "/assets", "/scenarios", "/faultlab", "/graph", "/agent"]) {
+for (const path of ["/", "/assets", "/scenarios", "/faultlab", "/graph", "/agent", "/settings"]) {
   await narrow.goto(BASE + path, { waitUntil: "networkidle" });
   await narrow.waitForTimeout(500);
   const overflow = await narrow.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
