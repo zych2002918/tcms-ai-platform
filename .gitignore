@@ -1,0 +1,24 @@
+# 平台包
+*.egg-info/
+build/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.json
+
+# 本地运行产物
+reports/
+*.log
+
+# 编辑器/系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
