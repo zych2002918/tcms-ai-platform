@@ -22,3 +22,7 @@ reports/
 .idea/
 .DS_Store
 Thumbs.db
+
+# 前端截图临时
+web/shot-*.png
+web/node_modules/

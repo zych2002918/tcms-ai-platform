@@ -413,6 +413,23 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             "results": results,
         }
 
+    # ---- 前端静态托管（P3）：生产构建 dist/ 挂到根路径 ----
+    _web_dist = Path(__file__).resolve().parents[3] / "web" / "dist"
+    if _web_dist.is_dir():
+        from fastapi.responses import FileResponse
+        from fastapi.staticfiles import StaticFiles
+
+        # 静态资源（/assets/...）
+        app.mount("/assets", StaticFiles(directory=_web_dist / "assets"), name="assets")
+
+        # SPA fallback：非 /api 的未知路径回 index.html（前端路由）
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def spa(full_path: str) -> FileResponse:
+            f = _web_dist / full_path
+            if full_path and f.is_file():
+                return FileResponse(f)
+            return FileResponse(_web_dist / "index.html")
+
     return app
 
 
