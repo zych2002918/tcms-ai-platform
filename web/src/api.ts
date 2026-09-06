@@ -152,4 +152,26 @@ export const api = {
     ),
   runScenario: (scenario: string) =>
     req<RunScenarioResult>("/run/scenario", { method: "POST", body: JSON.stringify({ scenario }) }),
+  agentTasks: () =>
+    req<{ task_id: string; title: string; goal: string; target_fault: string; expected_action: string }[]>("/agent/tasks"),
+  agentRun: (taskId?: string) =>
+    req<AgentRunResp>("/agent/run", { method: "POST", body: JSON.stringify({ task_id: taskId ?? null }) }),
 };
+
+export interface AgentRunResp {
+  total: number;
+  achieved: number;
+  success_rate: number;
+  runs: {
+    task_id: string;
+    fault: string;
+    expected: string;
+    achieved: boolean;
+    attempts: number;
+    reflected: boolean;
+    scenario: string | null;
+    duration_ms: number;
+    score: { score: number; achieved: boolean; evidence_count: number; exec_passed: boolean; reflected: boolean };
+    trace: { step: string; detail: string; t: number }[];
+  }[];
+}

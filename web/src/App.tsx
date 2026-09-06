@@ -3,6 +3,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { GraphWorkspace } from "./pages/GraphWorkspace";
 import { AssetsPage } from "./pages/AssetsPage";
 import { ScenariosPage } from "./pages/ScenariosPage";
+import { AgentPage } from "./pages/AgentPage";
 
 export default function App() {
   return (
@@ -24,6 +25,9 @@ export default function App() {
         <NavLink to="/scenarios" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
           场景执行
         </NavLink>
+        <NavLink to="/agent" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+          AI Agent 工作台
+        </NavLink>
       </nav>
       <div className="main">
         <Routes>
@@ -31,6 +35,7 @@ export default function App() {
           <Route path="/graph" element={<GraphWorkspace />} />
           <Route path="/assets" element={<AssetsPage />} />
           <Route path="/scenarios" element={<ScenariosPage />} />
+          <Route path="/agent" element={<AgentPage />} />
         </Routes>
       </div>
     </div>
