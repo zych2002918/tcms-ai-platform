@@ -202,9 +202,11 @@ def test_run_scenarios_all(client):
 
 def test_kb_stats(client):
     s = client.get("/api/kb/stats").json()
-    # 图谱节点数 ≥ 基础 106（run 沉淀会追加 run 节点），向量文档数固定 101
-    assert s["graph"]["nodes"] >= 106
-    assert s["vector"]["docs"] == 101
+    # 图谱 ≥ 基础 106 + 领域注入(~109) + run 沉淀;向量 ≥ 基础 101 + 领域文档
+    assert s["graph"]["nodes"] >= 200
+    assert s["vector"]["docs"] >= 200
+    assert "domain_enrichment" in s
+    assert s["domain_enrichment"]  # 领域注入统计非空(ebm/network/safety)
 
 
 def test_kb_search(client):

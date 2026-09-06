@@ -54,6 +54,7 @@ packages = [
     "tcms_ai_platform.core",
     "tcms_ai_platform.knowledge",
     "tcms_ai_platform.agent",
+    "tcms_ai_platform.domain",
     "tcms_ai_platform.server",
 ]
 
@@ -63,6 +64,7 @@ packages = [
 "tcms_ai_platform._assets" = ["*.dbc", "*.yaml"]
 "tcms_ai_platform._assets.scenarios" = ["*.yaml"]
 "tcms_ai_platform._assets.tests" = ["*.csv"]
+"tcms_ai_platform.domain" = ["data/*.json"]
 
 [tool.setuptools.dynamic]
 version = { attr = "tcms_ai_platform._version.__version__" }

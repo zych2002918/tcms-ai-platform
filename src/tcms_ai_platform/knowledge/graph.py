@@ -93,6 +93,18 @@ class KnowledgeGraph:
             self._adj[dst].append(src)
         self.edges.append(Edge(src=src, dst=dst, kind=kind))
 
+    def add_edge_raw(self, src_id: str, dst_id: str, kind: str) -> None:
+        """按完整 node id 加边（供领域注入用，两端必须已存在）。"""
+        if src_id not in self.nodes:
+            return
+        if dst_id not in self.nodes:
+            return
+        if dst_id not in self._adj[src_id]:
+            self._adj[src_id].append(dst_id)
+        if src_id not in self._adj[dst_id]:
+            self._adj[dst_id].append(src_id)
+        self.edges.append(Edge(src=src_id, dst=dst_id, kind=kind))
+
     # ---- 查询 ----
 
     def neighbors(self, nid: str) -> list[tuple[str, str]]:

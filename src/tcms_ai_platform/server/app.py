@@ -124,6 +124,10 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
     graph = build_knowledge_graph(asset_model)
     store = VectorStore()
     store.add_many(build_docs_from_asset(asset_model))
+    # 领域知识注入（P6）：真实列车领域知识(驾驶模式/联锁/阈值/标准/危害/概念)扩图谱
+    from ..domain import enrich_graph as _enrich
+
+    _enrich_report = _enrich(graph, store)
     retriever = HybridRetriever(store, graph)
     sink = GraphSink(graph)
     _run_counter = {"n": 0}
@@ -211,7 +215,11 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
 
     @app.get("/api/kb/stats")
     def kb_stats() -> dict:
-        return {"graph": graph.stats(), "vector": store.stats()}
+        return {
+            "graph": graph.stats(),
+            "vector": store.stats(),
+            "domain_enrichment": _enrich_report["files"],
+        }
 
     @app.get("/api/kb/nodes")
     def kb_nodes(kind: str | None = None, q: str | None = None) -> list[dict]:

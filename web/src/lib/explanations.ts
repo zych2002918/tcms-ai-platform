@@ -17,6 +17,15 @@ export const KIND_META: Record<string, KindMeta> = {
   fault: { label: "故障", what: "一种可注入的异常（如“超速”“车门故障”），测试它时看系统如何处置。", color: "warn" },
   scenario: { label: "场景", what: "一段编排好的测试：何时注入什么故障、期望系统怎么反应、何时恢复。", color: "bad" },
   run: { label: "运行记录", what: "一次真实执行的留痕：跑了哪个场景、断言是否通过。", color: "dim" },
+  // P6 领域知识节点
+  mode: { label: "驾驶模式", what: "列车驾驶模式（全自动 FAM / 受控人工 CM / 限制人工 RM）。", color: "info" },
+  state: { label: "状态", what: "安全功能状态机里的一个状态（如 EBM 的制动/缓解）。", color: "warn" },
+  interlock: { label: "联锁规则", what: "一条“必须满足否则违规”的安全约束（如移动中不能开门）。", color: "bad" },
+  threshold: { label: "关键阈值", what: "一个真实安全阈值（如超速 160km/h、制动缸 300kPa）。", color: "warn" },
+  mechanism: { label: "安全机制", what: "一种安全实现机制（如 2oo3 表决、三重证据）。", color: "vio" },
+  standard: { label: "标准", what: "引用的行业标准（EN 50128 / IEC 61508 等）。", color: "info" },
+  hazard: { label: "安全危害", what: "一种需要被防止的危险场景（H-01 起）。", color: "bad" },
+  concept: { label: "领域概念", what: "面向新人的概念解释（EBM / ATP / SIL 等）。", color: "ok" },
 };
 
 /** 给一条命中文档生成小白解释 */

@@ -381,6 +381,15 @@ function GraphCanvas({ sub, onNodeClick }: { sub: KbSubgraph; onNodeClick: (id: 
       requirement: "#2dd4a0",
       function: "#22d3ee",
       run: "#8ca0c0",
+      // P6 领域知识节点
+      mode: "#f472b6",
+      state: "#f59e0b",
+      interlock: "#f4645a",
+      threshold: "#f5b84c",
+      mechanism: "#a78bfa",
+      standard: "#60a5fa",
+      hazard: "#ef4444",
+      concept: "#34d399",
     };
     return map[kind] ?? "#8ca0c0";
   };
