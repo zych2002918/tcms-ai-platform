@@ -105,6 +105,21 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
     _app_model = asset_model
     _app_upstream = scenario_dir
 
+    # 引擎可用性探测（启动时一次；供 /api/system/status 与前端引导）
+    def _probe_engine() -> dict:
+        try:
+            import importlib.util
+
+            if importlib.util.find_spec("tcms") is None:
+                return {"ok": False, "reason": "not_installed"}
+            import tcms  # noqa: F401
+
+            return {"ok": True, "version": getattr(tcms, "__version__", "?")}
+        except ImportError as e:
+            return {"ok": False, "reason": f"import_failed:{e}"}
+
+    _engine_status = _probe_engine()
+
     # 知识底座（P2）：图谱 + 向量 + 混合检索（同一 app 实例内单例）
     graph = build_knowledge_graph(asset_model)
     store = VectorStore()
@@ -139,6 +154,48 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
     @app.get("/api/source")
     def source() -> dict:
         return {"upstream": asset_model.source_upstream, "load": asset_model.load_stats}
+
+    @app.get("/api/system/status")
+    def system_status() -> dict:
+        """环境状态（供前端引导）：引擎 / LLM key / 资产源 / 可用能力。"""
+        import os
+
+        has_key = bool(
+            os.environ.get("DASH_API_KEY")
+            or os.environ.get("DEEPSEEK_API_KEY")
+            or os.environ.get("LLM_API_KEY")
+        )
+        eng = _probe_engine()
+        return {
+            "engine": eng,
+            "llm_key": has_key,
+            "asset_mode": asset_model.source_upstream,
+            "capabilities": {
+                "browse_assets": True,
+                "knowledge_graph": True,
+                "run_scenario": eng["ok"],
+                "agent": eng["ok"],
+                "llm_generation": has_key,  # 真 LLM 写测试（可选增强）
+            },
+            "fix_hints": {
+                "engine": (
+                    []
+                    if eng["ok"]
+                    else [
+                        "pip install -e \".[upstream]\"  # 从 GitHub 安装 tcms-can-test 引擎",
+                        "或设置环境变量 TCMS_UPSTREAM_DIR 指向 tcms-can-test 目录后重启",
+                    ]
+                ),
+                "llm": (
+                    []
+                    if has_key
+                    else [
+                        "当前 Agent 使用离线 Mock 后端，无需 key 即可演示全流程。",
+                        "如需真 LLM 生成/规划，配置 DASH_API_KEY 或 DEEPSEEK_API_KEY（见 .env.example）",
+                    ]
+                ),
+            },
+        }
 
     # ---- 知识底座（P2）----
 

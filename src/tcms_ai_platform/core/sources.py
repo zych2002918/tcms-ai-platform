@@ -116,19 +116,29 @@ def resolve_asset_source() -> AssetSource:
 
 
 def ensure_engine_importable(source: AssetSource) -> bool:
-    """确保 tcms 引擎可 import（把活上游目录加入 sys.path）。返回是否成功。"""
-    if source.engine_available:
-        return True
+    """确保 tcms 引擎可 import。
+
+    活上游（TCMS_UPSTREAM_DIR / 兄弟目录）：把其根加入 sys.path 并真正 import
+    验证——engine_available 只是解析期探测，必须在这里落地。
+    无活上游（bundled）：尝试 import 已安装的 tcms（pip install tcms-can-test）。
+    返回是否真正可用。
+    """
     if source.root is not None:
-        if str(source.root) not in sys.path:
-            sys.path.insert(0, str(source.root))
+        root = str(source.root)
+        if root not in sys.path:
+            sys.path.insert(0, root)
         try:
             import tcms  # noqa: F401
 
             return True
         except ImportError:
             return False
-    return False
+    try:
+        import tcms  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
 
 
 def bundled_scenarios_fallback() -> Path | None:

@@ -24,15 +24,28 @@ const TITLES: Record<string, { t: string; s: string }> = {
   "/agent": { t: "AI Agent 工作台", s: "给 Agent 一个真实测试任务，看它自主完成" },
 };
 
+type SysStatus = {
+  engine: { ok: boolean; version?: string; reason?: string };
+  llm_key: boolean;
+  asset_mode: string;
+  capabilities: Record<string, boolean>;
+  fix_hints: { engine: string[]; llm: string[] };
+};
+
 export default function App() {
   const [collapsed, setCollapsed] = useState(false);
-  const [health, setHealth] = useState<{ status: string; version: string } | null>(null);
+  const [sys, setSys] = useState<SysStatus | null>(null);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   const loc = useLocation();
   const meta = TITLES[loc.pathname] ?? TITLES["/"];
 
   useEffect(() => {
-    api.health().then(setHealth).catch(() => undefined);
+    api.systemStatus().then(setSys).catch(() => undefined);
   }, []);
+
+  const engineOk = sys?.engine.ok ?? true; // 未知时不打扰
+  const needsEngine = !engineOk;
+  const showBanner = needsEngine && !bannerDismissed;
 
   return (
     <div className="flex h-full">
@@ -75,14 +88,30 @@ export default function App() {
             </NavLink>
           ))}
         </nav>
-        {/* 底部状态 */}
-        <div className="p-3 border-t border-line-soft shrink-0">
+        {/* 底部状态：引擎真实状态 */}
+        <div className="p-3 border-t border-line-soft shrink-0" title={sys ? `引擎 ${engineOk ? "可用" : "缺失"} · 资产源 ${sys.asset_mode}` : undefined}>
           {collapsed ? (
-            <StatusDot tone={health?.status === "ok" ? "ok" : "bad"} pulse={health?.status !== "ok"} />
+            <StatusDot tone={engineOk ? "ok" : needsEngine ? "warn" : "ok"} pulse={!engineOk} />
           ) : (
-            <div className="flex items-center gap-2 text-[11px] text-ink-dim">
-              <StatusDot tone={health?.status === "ok" ? "ok" : "bad"} pulse={health?.status !== "ok"} />
-              <span>{health?.status === "ok" ? `引擎就绪 v${health.version}` : "引擎离线"}</span>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-[11px] text-ink-dim">
+                <StatusDot tone={engineOk ? "ok" : needsEngine ? "warn" : "ok"} pulse={!engineOk} />
+                <span>
+                  {engineOk
+                    ? sys?.engine.version
+                      ? `TCMS 引擎 v${sys.engine.version}`
+                      : "TCMS 引擎就绪"
+                    : "TCMS 引擎未启用"}
+                </span>
+              </div>
+              {sys && !engineOk && (
+                <button
+                  className="text-[10px] text-warn hover:underline"
+                  onClick={() => setBannerDismissed(false)}
+                >
+                  ⚠ 如何启用引擎 →
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -90,7 +119,28 @@ export default function App() {
 
       {/* 主区 */}
       <main className="flex-1 min-w-0 flex flex-col">
-        {/* topbar：页名 + 副题（非大横幅） */}
+        {/* 全局引导横幅（引擎缺失时，可关闭） */}
+        {showBanner && sys && (
+          <div className="border-b border-warn/30 bg-warn/10 px-6 py-2.5 flex items-start gap-3 shrink-0">
+            <div className="flex-1 text-[12px] leading-5">
+              <span className="font-semibold text-warn">场景执行与 Agent 需要 TCMS 引擎</span>
+              <span className="text-ink-dim">
+                {" "}
+                — 当前只启用了资产浏览与知识图谱。启用方法（任选其一）：
+              </span>
+              <div className="mt-1 text-ink font-mono text-[11px] space-y-0.5">
+                {sys.fix_hints.engine.map((h, i) => (
+                  <div key={i}>· {h}</div>
+                ))}
+              </div>
+            </div>
+            <button className="btn-ghost btn-sm shrink-0" onClick={() => setBannerDismissed(true)}>
+              知道了
+            </button>
+          </div>
+        )}
+
+        {/* topbar */}
         <header className="flex items-baseline gap-3 px-6 pt-5 pb-1 shrink-0">
           <h1 className="text-[17px] font-semibold text-ink">{meta.t}</h1>
           <span className="text-xs text-ink-faint hidden sm:inline truncate">{meta.s}</span>

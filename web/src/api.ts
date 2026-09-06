@@ -127,6 +127,14 @@ export interface RunScenarioResult {
 export const api = {
   stats: () => req<Stats>("/stats"),
   health: () => req<{ status: string; version: string }>("/health"),
+  systemStatus: () =>
+    req<{
+      engine: { ok: boolean; version?: string; reason?: string };
+      llm_key: boolean;
+      asset_mode: string;
+      capabilities: Record<string, boolean>;
+      fix_hints: { engine: string[]; llm: string[] };
+    }>("/system/status"),
   messages: () => req<MessageInfo[]>("/messages"),
   signals: () => req<SignalInfo[]>("/signals"),
   faults: () => req<FaultInfo[]>("/faults"),

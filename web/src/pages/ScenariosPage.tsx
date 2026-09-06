@@ -1,20 +1,14 @@
 import { useEffect, useState } from "react";
 import { api, type RunScenarioResult, type ScenarioInfo } from "../api";
-import { Panel, Tag, StepFlow, EmptyState, StatusDot } from "../components/ui";
-
-interface Phase {
-  name: string;
-  detail: string;
-}
+import { Panel, Tag, EmptyState, SkeletonRows } from "../components/ui";
 
 export function ScenariosPage() {
   const [scenarios, setScenarios] = useState<ScenarioInfo[]>([]);
   const [sel, setSel] = useState("");
+  const [sys, setSys] = useState<{ engine: { ok: boolean; version?: string } } | null>(null);
   const [phase, setPhase] = useState<"idle" | "running" | "done" | "error">("idle");
-  const [step, setStep] = useState(0); // 当前流程阶段
   const [result, setResult] = useState<RunScenarioResult | null>(null);
   const [err, setErr] = useState("");
-  const [timeline, setTimeline] = useState<Phase[]>([]);
 
   useEffect(() => {
     api
@@ -24,29 +18,21 @@ export function ScenariosPage() {
         if (s.length) setSel(s[0].file);
       })
       .catch((e) => setErr(String(e)));
+    api.systemStatus().then(setSys).catch(() => undefined);
   }, []);
 
   const current = scenarios.find((s) => s.file === sel);
+  const engineOk = sys?.engine.ok ?? true;
 
   const run = async () => {
     if (!sel || phase === "running") return;
+    if (!engineOk) {
+      setErr("engine_missing");
+      return;
+    }
     setPhase("running");
     setResult(null);
     setErr("");
-    // 流程感：逐步点亮执行阶段（真实引擎在这些阶段之间确实在做对应的事）
-    const steps = [
-      "装载场景与资产",
-      "初始化仿真时钟",
-      "注入故障 · 推进时间线",
-      "断言期望处置",
-      "生成报告 · 沉淀知识库",
-    ];
-    setTimeline([]);
-    for (let i = 0; i < steps.length; i++) {
-      setStep(i);
-      await new Promise((r) => setTimeout(r, 240 + Math.random() * 200));
-      setTimeline((t) => [...t, { name: steps[i]!, detail: "" }]);
-    }
     try {
       const r = await api.runScenario(sel);
       setResult(r);
@@ -55,13 +41,6 @@ export function ScenariosPage() {
       setErr(String(e));
       setPhase("error");
     }
-  };
-
-  const stepState = (i: number) => {
-    if (phase === "running" && i < timeline.length && i < step) return "done" as const;
-    if (phase === "running" && i === step) return "active" as const;
-    if (phase === "done" || phase === "error") return "done" as const;
-    return "todo" as const;
   };
 
   return (
@@ -98,31 +77,42 @@ export function ScenariosPage() {
         )}
       </Panel>
 
-      {/* 执行流程（非"预定感"：步骤逐个出现） */}
-      {phase === "running" && (
-        <Panel title="正在真实引擎上执行…" right={<StatusDot tone="info" pulse />} bodyClass="py-3">
-          <StepFlow
-            steps={[
-              { label: "装载", state: stepState(0) },
-              { label: "仿真", state: stepState(1) },
-              { label: "注入故障", state: stepState(2) },
-              { label: "断言", state: stepState(3) },
-              { label: "报告", state: stepState(4) },
-            ]}
-            active={step}
-          />
-          <div className="mt-3 space-y-1">
-            {timeline.map((t, i) => (
-              <div key={i} className="step-in flex items-center gap-2 text-[12px] text-ink-dim">
-                <span className="text-ok">✓</span> {t.name}
-              </div>
-            ))}
+      {/* 引擎缺失引导 */}
+      {sys && !engineOk && (
+        <div className="panel border-warn/30 bg-warn/5 p-4">
+          <div className="text-sm font-medium text-warn flex items-center gap-2">⚠ 运行场景需要 TCMS 引擎</div>
+          <p className="text-[12px] text-ink-dim mt-1 leading-5">
+            场景由真实 TCMS 引擎执行（资产浏览与知识图谱不需要它）。启用方法：
+          </p>
+          <div className="mt-2 text-[12px] text-ink mono space-y-0.5 bg-surface px-3 py-2 rounded-lg">
+            <div>· pip install -e ".[upstream]"  （从 GitHub 安装 tcms-can-test 引擎）</div>
+            <div>· 或设置环境变量 TCMS_UPSTREAM_DIR 指向 tcms-can-test 目录后重启服务</div>
           </div>
+        </div>
+      )}
+
+      {/* 运行中：真实引擎在工作（诚实加载态） */}
+      {phase === "running" && (
+        <Panel
+          title="TCMS 引擎执行中…"
+          right={
+            <span className="flex items-center gap-1.5 text-[11px] text-ink-dim">
+              <span className="h-1.5 w-1.5 rounded-full bg-info pulse-dot" /> 仿真 + 断言中
+            </span>
+          }
+          bodyClass="py-3"
+        >
+          <SkeletonRows rows={3} cols={4} />
+          <p className="text-[11px] text-ink-faint mt-2">
+            引擎正在：装载场景 → 初始化虚拟时钟 → 注入故障推进时间线 → 逐条断言期望处置
+          </p>
         </Panel>
       )}
 
       {phase === "error" && (
-        <div className="panel border-bad/40 bg-bad/10 px-4 py-2.5 text-sm text-bad">⚠ 执行失败：{err}</div>
+        <div className="panel border-bad/40 bg-bad/10 px-4 py-2.5 text-sm text-bad">
+          {err === "engine_missing" ? "⚠ 需要先启用 TCMS 引擎（见上方说明）" : `⚠ 执行失败：${err}`}
+        </div>
       )}
 
       {phase === "done" && result && (
@@ -196,12 +186,12 @@ export function ScenariosPage() {
         </div>
       )}
 
-      {phase === "idle" && (
+      {phase === "idle" && engineOk && (
         <Panel>
           <EmptyState
             icon="▶"
             title="选好场景后点「运行此场景」"
-            desc="每一步都会实时显示：装载 → 仿真 → 注入故障 → 断言 → 报告。结果沉淀到知识库（run 记录）。"
+            desc="引擎会真实执行：注入故障 → 推进时间线 → 断言期望处置。结果沉淀到知识库（run 记录）。"
           />
         </Panel>
       )}
