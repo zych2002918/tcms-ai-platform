@@ -12,7 +12,7 @@
 
 ## 0. 一句话总结
 
-> 从一份 777 条手写用例的 TCMS（列车网络控制系统）CAN 测试工程出发，我们依次构建了
+> 从一份 802 条手写用例的 TCMS（列车网络控制系统）CAN 测试工程出发，我们依次构建了
 > "真实资产模型 → 知识底座(图谱+向量+GraphRAG) → Agent 工作流(检索→执行→自证→沉淀) →
 > 本地 Web 平台(双主题/图谱2D+3D/故障动画/AI 编排顾问)"，并把两条独立能力线合并为一个
 > GitHub 仓库——最终交付物是"**AI 测试工程师能干活、能自证、看得见**"的可复现平台。
@@ -38,7 +38,7 @@
 ```
 真实资产(已有,不必等)  →  资产模型化(L1)   →  知识底座(L4)  →  Agent 编排(L5)  →  平台外壳(L6)
    tcms-can-test         列车视角 schema      图谱+向量+RAG     检索→执行→自证     本地 Web
-   777 用例/98%覆盖      AI/UI 共同事实面       组织记忆         6维评审/反思自愈     一屏看见价值
+   802 用例/98%覆盖      AI/UI 共同事实面       组织记忆         6维评审/反思自愈     一屏看见价值
 ```
 
 三条决策线（见仓库内 ADR 式记录）：
@@ -54,7 +54,7 @@
 
 | 阶段 | 仓库/产物 | 干了什么 | 手段 |
 |---|---|---|---|
-| 地基 | `tcms-can-test` v1.9.1 | 777 手写 pytest / 98% 覆盖 / 22 FMEA / 13 事件式 YAML 场景 / RTM SR-01~18 / 多网段拓扑 / CAN 错误状态机 | DBC+cantools+python-can+虚拟总线；数字机器自证(gen_badges 铁律) |
+| 地基 | `tcms-can-test` v1.10.0 | 802 手写 pytest / 98% 覆盖 / 26 FMEA / 25 事件式 YAML 场景 / RTM SR-01~18 / 多网段拓扑 / CAN 错误状态机 | DBC+cantools+python-can+虚拟总线；数字机器自证(gen_badges 铁律) |
 | AI 积木 | `tcms-ai-testgen` (26 commits) | 生成器→**受约束 execution DSL**→真实 pytest→变异杀毒/反思自愈/双 judge | 白名单 DSL(pydantic) + oracle 派生期望 + RAG 金标 635 条 + diff 门禁防假自愈 |
 | 平台化 | `tcms-ai-platform` (29 commits) | L1 资产模型 + FastAPI 服务层 → 知识底座 → React MVP → Agent Harness → 打磨(双主题/3D 图谱/动画资产化/AI 顾问) | FastAPI 单端口托管 dist；图谱手写力导向零依赖；HashedEmbedder 离线可复现 |
 | 收拢 | 本会话(2 commits) | **testgen 并入 platform** 为 `ai-testgen/`；README 一体叙事；双主题+图谱 2D/3D；自由 Agent 无匹配→RAG 候选 | git 子树式拷贝(去 git/venv/缓存) + 双 README 迁移指引 |
@@ -74,7 +74,7 @@
 - 图谱 2D：滚轮缩放以光标为中心、拖拽平移、双击适配；3D：费波那契球面+透视投影、拖拽旋转/自转。
 - 主题：dark/light 切换 + localStorage + 后端 theme 字段持久化 roundtrip（HTTP 200）。
 - 自由 Agent 无匹配：`POST /api/agent/free` 现返回 200 + no_match + RAG 候选(门→door_fault/door_sensor_noise)，e2e 3/3。
-- 门禁终态：platform 103 passed / ruff clean / vite build 绿；ai-testgen 119 passed(+2 数据漂移)。
+- 门禁终态：platform 111 passed / ruff clean / vite build 绿；ai-testgen 119 passed(+2 数据漂移)。
 
 ---
 
@@ -92,21 +92,21 @@
 
 ## 5. 结果（What we got：可对外主张的事实）
 
-### 5.1 资产与能力现状（2026-09 实测）
+### 5.1 资产与能力现状（2026-09-07 实测）
 
 | 资产 | 数量 | 来源 |
 |---|---|---|
-| 报文 / 信号 | 8 / 36 | DBC |
-| 故障(FMEA) / 场景 | 22 / 19 | faults.yaml / scenarios/ |
+| 报文 / 信号 | 8 / 38 | DBC |
+| 故障(FMEA) / 场景 | 26 / 25 | faults.yaml / scenarios/ |
 | 需求(RTM) / 功能 / 设备 | 18 / 4 / 5 | rtm.csv / 手工锚定 |
 | 图谱节点 / 边 | 239 / 385 | 资产 + 领域知识(EBM/网络/安全/列车系统分类) |
-| 向量文档 | 216 | 资产 + 领域(离线 HashedEmbedder) |
+| 向量文档 | 234 | 资产 + 领域(离线 HashedEmbedder) |
 | Agent 内置任务 | 8 | 真实故障锚定防漂移 |
 
 ### 5.2 工程与验证
 
-- 平台：`103 passed` / ruff clean / e2e 浏览器走查全绿；`ai-testgen/`：`119 passed`(+2 数据漂移项已定位)。
-- GitHub：`tcms-ai-platform` 29 commits(含并入)、`tcms-ai-testgen` 迁移指引 27 commits、`tcms-can-test` v1.9.1。
+- 平台：`111 passed` / ruff clean / e2e 浏览器走查全绿；`ai-testgen/`：`119 passed`(+2 数据漂移项已定位)。
+- GitHub：`tcms-ai-platform` 43 commits(含并入)、`tcms-ai-testgen` 迁移指引 28 commits、`tcms-can-test` v1.10.0。
 - 双仓库合一：独立包结构保留(`pip install -e "./ai-testgen[test]"`)，README 一体叙事。
 
 ### 5.3 简历可主张（三句话叙事，附追问弹药）

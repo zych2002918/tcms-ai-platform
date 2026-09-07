@@ -11,8 +11,8 @@ htmlcov/
 coverage.json
 .hypothesis/
 
-# 运行产物
-reports/
+# 运行产物（仅仓库根/测试运行生成的 reports；ai-testgen/docs/reports 为量化证据，有意入库）
+/reports/
 *.log
 server.log
 

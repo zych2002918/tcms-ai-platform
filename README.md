@@ -26,7 +26,7 @@
 | **平台**（tcms-ai-platform） | 本地 Web 应用：资产模型 + 知识图谱 + Agent Harness + 故障动画演示 | 仓库根 + `web/` + `src/tcms_ai_platform/` | ✅ 完整可运行 |
 | **AI 测试生成器**（原 tcms-ai-testgen） | LLM 生成测试用例的受约束 DSL 流水线 + 变异杀毒/反思自愈评测 | `ai-testgen/` | ✅ 完整可运行 |
 
-> 背景：作者先在 `tcms-can-test` 手写了 777 个 pytest（98% 覆盖），再把
+> 背景：作者先在 `tcms-can-test` 手写了 802 个 pytest（98% 覆盖），再把
 > 「AI 写测试并自证好坏」做成流水线（`ai-testgen`），最后把整套东西收进一个
 > 带界面的本地平台（`tcms-ai-platform`）——**三个仓库一个叙事**：
 > 真实核心 → AI 生成 → 平台化可视。上游引擎 `tcms-can-test` 作为依赖存在。
@@ -89,7 +89,7 @@ bash start.sh
 它回答行业难题：**LLM 生成的测试用例怎么证明是"好的"**。
 
 ```
-真实资产(DBC 8报文/36信号 + 13场景YAML) ──> 生成器(mock/真LLM) ──> execution DSL
+真实资产(DBC 8报文/38信号 + 25场景YAML) ──> 生成器(mock/真LLM) ──> execution DSL
 ──> 编译为真实 pytest ──> 在上游 tcms-can-test 执行 ──> 量化报告
         解析率 / 编译率 / 执行通过率 / 变异杀毒 kill_rate / 反思自愈 / 双 judge
 ```
@@ -172,7 +172,7 @@ RTM/故障字典（漂移即失败）、API key 永不入库/不入响应、LLM 
 
 | 仓库 | 关系 | 说明 |
 |---|---|---|
-| `tcms-can-test` | **上游引擎** | 777 手写用例 / 98% 覆盖的领域核心；平台以 `pip install -e ".[upstream]"` 依赖 |
+| `tcms-can-test` | **上游引擎** | 802 手写用例（801 passed + 1 skip）/ 98% 覆盖 / 26 FMEA / 25 场景的领域核心；平台以 `pip install -e ".[upstream]"` 依赖 |
 | `tcms-ai-platform` | **本仓库** | 平台 + 生成器（ai-testgen）合体，一个叙事 |
 | ~~tcms-ai-testgen~~ | 已并入 | 作为 `ai-testgen/` 保留独立包结构 |
 

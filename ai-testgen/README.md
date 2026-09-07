@@ -1,4 +1,4 @@
-﻿
+
 > ## 📦 本目录已并入 tcms-ai-platform
 > 原独立仓库 `tcms-ai-testgen` 现作为 **`ai-testgen/`** 目录并入
 > [tcms-ai-platform](https://github.com/zych2002918/tcms-ai-platform)。
@@ -14,7 +14,7 @@
 > 量化「AI 写的测试到底好不好」。
 >
 > 设计动机：作者此前手写了 [tcms-can-test](https://github.com/zych2002918/tcms-can-test)
-> 的 777 个 pytest 用例（语句覆盖率 98.00%）。本项目回答一个问题：
+> 的 802 个 pytest 用例（语句覆盖率 98.00%）。本项目回答一个问题：
 > **如果让 AI 来写这些用例，我们如何证明它写得"好"？**
 > —— 答案是把「质量评估」本身做成一条可复现的工程流水线，
 > 并直面行业里普遍没答案的难点：**自然语言用例 ↔ 真实可执行代码的鸿沟**。
@@ -54,7 +54,7 @@ pip install -e ".[test]"
 # 30 秒自检（离线）
 python scripts/selfcheck.py
 
-# 真实资产摘要（tcms-can-test 的 DBC 8 报文/36 信号 + 13 场景；TCMS_UPSTREAM_ROOT 可指路径）
+# 真实资产摘要（tcms-can-test 的 DBC 8 报文/38 信号 + 25 场景；TCMS_UPSTREAM_ROOT 可指路径）
 python examples/demo_assets.py
 
 # 全链路一条命令：需求 → 生成 → 真实 pytest → 量化报告（附变异杀毒）
@@ -75,7 +75,7 @@ python examples/run_multi_model.py --batches 3 --num 8 --mutation --out docs/rep
 - `models.py` — 数据契约：`GenRequest` / `GeneratedCase`（含 execution 意图）
 - `execution.py` — **execution DSL**：白名单原语（setup/expect）+ pydantic 严格校验
 - `oracle.py` — 10 故障键语义镜像（level → action），生成期期望派生源
-- `asset_loader.py` / `asset_models.py` — 真实资产（DBC 8 报文/36 信号 + 13 场景 YAML）
+- `asset_loader.py` / `asset_models.py` — 真实资产（DBC 8 报文/38 信号 + 25 场景 YAML）
 - `llm.py` — 客户端抽象：`MockLLMClient`（DSL 一致性套件）/ `OpenAICompatClient`（真实）
 - `executor_real.py` — **真实执行器**：execution DSL → 真实 pytest（上游环境跑）
 - `mutation.py` — **变异杀毒**：行为翻转 × 生成用例，精准 kill_rate
