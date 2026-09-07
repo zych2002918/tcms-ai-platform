@@ -25,7 +25,7 @@ def test_load_real_assets_counts():
     assert s["messages"] == 8
     assert s["signals"] == 36
     assert s["faults"] == 22
-    assert s["scenarios"] == 19
+    assert s["scenarios"] == 22
     assert s["req_ids"] == 18
     assert s["functions"] == 4
     assert s["devices"] == 5
@@ -155,7 +155,7 @@ def test_fault_detail(client):
 
 def test_scenarios_endpoint(client):
     scs = client.get("/api/scenarios").json()
-    assert len(scs) == 19
+    assert len(scs) == 22
     assert any(s["file"] == "door_cascade.yaml" for s in scs)
 
 
@@ -193,7 +193,7 @@ def test_run_scenarios_all(client):
     r = client.post("/api/run/scenarios", json={})
     assert r.status_code == 200
     body = r.json()
-    assert body["scenario_count"] == 19
+    assert body["scenario_count"] == 22
     assert body["all_passed"] is True
     assert body["total_fail"] == 0
 
@@ -313,7 +313,7 @@ def test_faultlab_scenarios(client):
     r = client.get("/api/faultlab/scenarios")
     assert r.status_code == 200
     scs = r.json()
-    assert len(scs) == 19
+    assert len(scs) == 22
     assert any(s["file"] == "overspeed_derate.yaml" for s in scs)
 
 

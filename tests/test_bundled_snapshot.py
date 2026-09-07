@@ -1,7 +1,7 @@
 """内置资产快照（_assets/）回归测试 —— 防「上游加资产、快照忘同步」漂移。
 
 背景（r3 审计发现）：上游 tcms-can-test 新增 6 场景后，平台内置快照仍是 13 个旧场景，
-而 README 声称「19 场景随包分发」——新人只 clone 平台仓库（bundled 模式）会看到与文档
+而 README 声称「22 场景随包分发」——新人只 clone 平台仓库（bundled 模式）会看到与文档
 不符的资产数。本测试把「快照 == 上游场景集合」固化为门禁：今后往上游加任何场景，
 必须同步进 src/tcms_ai_platform/_assets/scenarios/，否则 CI 红。
 
@@ -52,11 +52,11 @@ def test_bundled_snapshot_files_present():
     assert (ASSETS_DIR / "tests" / "rtm.csv").is_file()
 
 
-def test_bundled_snapshot_loads_19_scenarios():
-    """快照可独立加载：19 场景 + 22 故障 + 8 报文（README 口径）。"""
+def test_bundled_snapshot_loads_22_scenarios():
+    """快照可独立加载：22 场景 + 22 故障 + 8 报文（README 口径）。"""
     m = load_from_source(_bundled_source())
     s = m.stats()
-    assert s["scenarios"] == 19
+    assert s["scenarios"] == 22
     assert s["faults"] == 22
     assert s["messages"] == 8
     assert s["signals"] == 36
