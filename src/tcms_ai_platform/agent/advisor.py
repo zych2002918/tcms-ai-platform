@@ -345,8 +345,8 @@ def _rag_fault_candidates(m: AssetModel, retriever: HybridRetriever, query: str)
                         "score": score,
                         "matched_on": "rag_semantic",
                     }
-        # 领域节点邻接的故障（req/hazard/function/interlock 等文本锚定具体 token）
-        if h.get("kind") in ("requirement", "hazard", "function", "interlock", "mechanism", "concept", "state"):
+        # 领域节点邻接的故障（req/hazard/function/interlock/system 等文本锚定具体 token）
+        if h.get("kind") in ("requirement", "hazard", "function", "interlock", "mechanism", "concept", "state", "system"):
             for nb in h.get("graph_neighbors") or []:
                 nid = str(nb.get("id", ""))
                 if nid.startswith("fault:"):

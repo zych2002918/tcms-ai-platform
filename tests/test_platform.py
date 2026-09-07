@@ -24,8 +24,8 @@ def test_load_real_assets_counts():
     s = m.stats()
     assert s["messages"] == 8
     assert s["signals"] == 36
-    assert s["faults"] == 22
-    assert s["scenarios"] == 22
+    assert s["faults"] == 26
+    assert s["scenarios"] == 24
     assert s["req_ids"] == 18
     assert s["functions"] == 4
     assert s["devices"] == 5
@@ -142,7 +142,7 @@ def test_devices_endpoint(client):
 
 def test_faults_endpoint(client):
     faults = client.get("/api/faults").json()
-    assert len(faults) == 22
+    assert len(faults) == 26
     eb = next(f for f in faults if f["key"] == "eb_failure")
     assert eb["action"] == "emergency_brake"
 
@@ -155,7 +155,7 @@ def test_fault_detail(client):
 
 def test_scenarios_endpoint(client):
     scs = client.get("/api/scenarios").json()
-    assert len(scs) == 22
+    assert len(scs) == 24
     assert any(s["file"] == "door_cascade.yaml" for s in scs)
 
 
@@ -193,7 +193,7 @@ def test_run_scenarios_all(client):
     r = client.post("/api/run/scenarios", json={})
     assert r.status_code == 200
     body = r.json()
-    assert body["scenario_count"] == 22
+    assert body["scenario_count"] == 24
     assert body["all_passed"] is True
     assert body["total_fail"] == 0
 
@@ -229,7 +229,7 @@ def test_kb_subgraph(client):
 
 def test_kb_nodes_filter(client):
     nodes = client.get("/api/kb/nodes", params={"kind": "fault"}).json()
-    assert len(nodes) == 22
+    assert len(nodes) == 26
     assert all(n["kind"] == "fault" for n in nodes)
 
 
@@ -313,7 +313,7 @@ def test_faultlab_scenarios(client):
     r = client.get("/api/faultlab/scenarios")
     assert r.status_code == 200
     scs = r.json()
-    assert len(scs) == 22
+    assert len(scs) == 24
     assert any(s["file"] == "overspeed_derate.yaml" for s in scs)
 
 

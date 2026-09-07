@@ -170,7 +170,7 @@ objects/（根，gitlink 聚合 + 导航）
 
 ### 7.1 本项目已沉淀进图记忆的条目（避免重复劳动）
 
-- `tcms-platform-recon-baseline`(TASK)：2026-09 实测基线——22故障/22场景/18需求/8报文/36信号/4功能/5设备；图谱230/372(含6系统族)；向量225；8 Agent 任务硬编码防漂移；FaultLab `_profiles()` 与前端 `FAULT_SPOT_META` 双表无同步校验；testgen 的 venv editable 指向已删除 D: 路径(需 PYTHONPATH=src)。
+- `tcms-platform-recon-baseline`(TASK)：2026-09 实测基线——26故障/24场景/18需求/8报文/36信号/4功能/5设备；图谱236/377(含6系统族)；向量225；8 Agent 任务硬编码防漂移；FaultLab `_profiles()` 与前端 `FAULT_SPOT_META` 双表无同步校验；testgen 的 venv editable 指向已删除 D: 路径(需 PYTHONPATH=src)。
 - `tcms-gh-push-and-clone-verified`(EVENT)：GitHub 推送/克隆验证全链路通过的方法（git credential fill 取 token → API → push → clone 验证）。
 - 其他可复用：`glob-file-search` / `read-file-utf8-windows` / `dump-trial-traces`(SUMO 线) 等工具型 SKILL。
 

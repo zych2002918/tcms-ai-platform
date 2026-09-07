@@ -401,16 +401,20 @@ def inject_systems(g: KnowledgeGraph, store: VectorStore | None, data: dict) -> 
             )
         count += 1
     # 故障 → 系统（按故障键在 system.asset_evidence 文本中命中）
-    # 子系统名 → 系统码（完整覆盖 22 故障；比纯文本匹配更稳）
+    # 子系统名 → 系统码（完整覆盖全部故障；空调/乘客安全/走行部等新域
+    # 归列车级受控对象(SYS-TRAIN)或传感监测(SYS-SENSING)）
     _SUB_TO_SYS = {
         "VCU": "SYS-TRAIN",
         "网络": "SYS-TRAIN",
+        "空调": "SYS-TRAIN",
+        "乘客安全": "SYS-TRAIN",
         "制动": "SYS-BRAKE",
         "牵引": "SYS-TRACTION",
         "车门": "SYS-DOOR",
         "能源": "SYS-POWER",
         "受电弓": "SYS-POWER",
         "信号": "SYS-SENSING",
+        "走行部": "SYS-SENSING",
     }
     for n in g.nodes.values():
         if n.kind != "fault":

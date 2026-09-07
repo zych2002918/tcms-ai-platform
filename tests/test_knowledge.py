@@ -37,11 +37,11 @@ def kb():
 @NEEDS_UPSTREAM
 def test_graph_stats(kb):
     s = kb["graph"].stats()
-    assert s["nodes"] == 115  # 22 场景(3 新增真实运营场景)计入
+    assert s["nodes"] == 121  # 24 场景
     assert s["edges"] >= 150
-    assert s["by_kind"]["fault"] == 22
+    assert s["by_kind"]["fault"] == 26
     assert s["by_kind"]["signal"] == 36
-    assert s["by_kind"]["scenario"] == 22
+    assert s["by_kind"]["scenario"] == 24
     assert s["by_kind"]["function"] == 4
 
 
@@ -71,8 +71,8 @@ def test_graph_subgraph_overspeed(kb):
 @NEEDS_UPSTREAM
 def test_vector_store_stats(kb):
     s = kb["store"].stats()
-    assert s["docs"] == 110  # 107 + 3 新场景
-    assert s["by_kind"]["fault"] == 22
+    assert s["docs"] == 116  # 资产文档(含4新故障+2新场景)
+    assert s["by_kind"]["fault"] == 26
     assert s["by_kind"]["requirement"] == 18
 
 
@@ -189,7 +189,7 @@ def test_systems_injected_and_all_faults_linked():
     systems = {n.id for n in g.nodes.values() if n.kind == "system"}
     assert len(systems) >= 6  # SYS-TRAIN/BRAKE/TRACTION/DOOR/POWER/SENSING
     linked = {e.src for e in g.edges if e.kind == "belongs_to" and e.src.startswith("fault:")}
-    assert len(linked) == 22  # 全部故障归属系统
+    assert len(linked) == 26  # 全部故障归属系统
 
 
 @NEEDS_UPSTREAM
