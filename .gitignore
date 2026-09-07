@@ -30,6 +30,10 @@ web/*.tsbuildinfo
 # e2e node deps
 e2e/node_modules/
 e2e/package*.json
+# e2e 运行截图（不入库）
+e2e/shots-*.png
+e2e/docs/
+e2e/e2e/
 
 
 # 鏈湴棰勮鎴浘(涓嶅叆搴?渚涗汉宸ユ煡鐪?

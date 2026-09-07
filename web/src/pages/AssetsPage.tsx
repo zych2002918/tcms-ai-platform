@@ -1,9 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
-import { api, type FaultInfo, type MessageInfo, type RequirementRow, type SignalInfo } from "../api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import {
+  api,
+  type FaultInfo,
+  type FunctionInfo,
+  type MessageInfo,
+  type RequirementRow,
+  type ScenarioInfo,
+  type SignalInfo,
+} from "../api";
 import { Panel, Tag, SkeletonRows, Explain, EmptyState } from "../components/ui";
-import { KIND_META } from "../lib/explanations";
 
-type Tab = "messages" | "signals" | "faults" | "requirements";
+type Tab = "messages" | "signals" | "faults" | "requirements" | "scenarios" | "functions";
 
 const LEVEL_TONE: Record<string, "ok" | "warn" | "bad" | "info"> = {
   info: "info",
@@ -12,34 +20,92 @@ const LEVEL_TONE: Record<string, "ok" | "warn" | "bad" | "info"> = {
   critical: "bad",
 };
 
+/** 合法 tab 值（URL query 校验；未知回默认 messages） */
+const TAB_IDS: Tab[] = ["messages", "signals", "faults", "requirements", "scenarios", "functions"];
+
 export function AssetsPage() {
-  const [tab, setTab] = useState<Tab>("messages");
+  const [searchParams, setSearchParams] = useSearchParams();
+  // tab 初值来自 URL ?tab=...；此后受控于用户点击 + 同步回 URL
+  const rawTab = searchParams.get("tab");
+  const [tab, setTab] = useState<Tab>(() => (TAB_IDS.includes(rawTab as Tab) ? (rawTab as Tab) : "messages"));
   const [messages, setMessages] = useState<MessageInfo[]>([]);
   const [signals, setSignals] = useState<SignalInfo[]>([]);
   const [faults, setFaults] = useState<FaultInfo[]>([]);
   const [reqs, setReqs] = useState<RequirementRow[]>([]);
+  const [scenarios, setScenarios] = useState<ScenarioInfo[]>([]);
+  const [functions, setFunctions] = useState<FunctionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [selFault, setSelFault] = useState<FaultInfo | null>(null);
   const [q, setQ] = useState("");
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
 
+  // 一次拉全六类资产（场景/功能也一并加载，tab 切换即时）
   useEffect(() => {
     setLoading(true);
-    Promise.all([api.messages(), api.signals(), api.faults(), api.requirements()])
-      .then(([m, s, f, r]) => {
+    Promise.all([api.messages(), api.signals(), api.faults(), api.requirements(), api.scenarios(), api.functions()])
+      .then(([m, s, f, r, sc, fn]) => {
         setMessages(m);
         setSignals(s);
         setFaults(f);
         setReqs(r);
+        setScenarios(sc);
+        setFunctions(fn);
       })
       .catch(() => undefined)
       .finally(() => setLoading(false));
   }, []);
 
+  // URL 直达：?tab=&focus= → 设置 tab + 打开/高亮目标行
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (t && TAB_IDS.includes(t as Tab)) setTab(t as Tab);
+    const focus = searchParams.get("focus");
+    if (focus) {
+      setFocusId(focus);
+      // 清掉一次性 focus（replace，不留历史噪声）
+      const next = new URLSearchParams(searchParams);
+      next.delete("focus");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  // tab 切换同步回 URL（replace，不产生后退噪声）
+  const selectTab = useCallback(
+    (t: Tab) => {
+      setTab(t);
+      const next = new URLSearchParams(searchParams);
+      next.set("tab", t);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
+
+  // 目标行出现后滚动 + 短暂高亮
+  useEffect(() => {
+    if (!focusId) return;
+    const el = rowRefs.current[focusId];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      const t = setTimeout(() => setFocusId(null), 2600);
+      return () => clearTimeout(t);
+    }
+  }, [focusId, tab, loading]);
+
+  // focus 若是故障 key → 打开对应详情侧栏（等 faults 就绪后匹配）
+  useEffect(() => {
+    if (!focusId || !faults.length) return;
+    const f = faults.find((x) => x.key === focusId);
+    if (f) setSelFault(f);
+  }, [focusId, faults]);
+
   const tabs: { id: Tab; label: string; n: number; what: string }[] = [
     { id: "messages", label: "报文", n: messages.length, what: "设备间互发的 CAN 消息" },
     { id: "signals", label: "信号", n: signals.length, what: "报文里的数值/状态" },
     { id: "faults", label: "故障", n: faults.length, what: "可注入的异常及其处置" },
+    { id: "scenarios", label: "场景", n: scenarios.length, what: "可真实执行的故障场景" },
     { id: "requirements", label: "安全需求", n: reqs.length, what: "必须满足的安全要求" },
+    { id: "functions", label: "被测功能", n: functions.length, what: "列车视角的功能聚合" },
   ];
 
   const kw = q.trim().toLowerCase();
@@ -53,6 +119,11 @@ export function AssetsPage() {
   const filteredMessages = useMemo(() => filter(messages, ["name", "node", "send_type"]) as MessageInfo[], [messages, kw]);
   const filteredSignals = useMemo(() => filter(signals, ["name", "message", "unit"]) as SignalInfo[], [signals, kw]);
   const filteredFaults = useMemo(() => filter(faults, ["fid", "key", "name", "subsystem", "action"]) as FaultInfo[], [faults, kw]);
+  const filteredScenarios = useMemo(() => filter(scenarios, ["file", "name"]) as ScenarioInfo[], [scenarios, kw]);
+  const filteredFunctions = useMemo(() => filter(functions, ["fid", "name", "description"]) as FunctionInfo[], [functions, kw]);
+
+  const focusCls = (id: string) =>
+    focusId === id ? "!bg-info/10 transition-colors duration-700" : "";
 
   return (
     <div className="space-y-4 max-w-[1200px]">
@@ -61,7 +132,7 @@ export function AssetsPage() {
         {tabs.map((t) => (
           <button
             key={t.id}
-            onClick={() => setTab(t.id)}
+            onClick={() => selectTab(t.id)}
             className={`px-3.5 py-2 text-[13px] whitespace-nowrap border-b-2 transition-colors ${
               tab === t.id ? "border-info text-ink font-medium" : "border-transparent text-ink-dim hover:text-ink"
             }`}
@@ -104,7 +175,13 @@ export function AssetsPage() {
                   </thead>
                   <tbody>
                     {filteredMessages.map((m) => (
-                      <tr key={m.name} className="tr-hover">
+                      <tr
+                        key={m.name}
+                        ref={(el) => {
+                          rowRefs.current[m.name] = el;
+                        }}
+                        className={`tr-hover ${focusCls(m.name)}`}
+                      >
                         <td className="td font-medium text-ink">{m.name}</td>
                         <td className="td kbd-mono">{m.frame_id}</td>
                         <td className="td">
@@ -148,7 +225,13 @@ export function AssetsPage() {
                   </thead>
                   <tbody>
                     {filteredSignals.map((s) => (
-                      <tr key={s.name} className="tr-hover">
+                      <tr
+                        key={s.name}
+                        ref={(el) => {
+                          rowRefs.current[s.name] = el;
+                        }}
+                        className={`tr-hover ${focusCls(s.name)}`}
+                      >
                         <td className="td font-medium text-ink">{s.name}</td>
                         <td className="td kbd-mono">{s.message}</td>
                         <td className="td">{s.unit || "—"}</td>
@@ -184,7 +267,7 @@ export function AssetsPage() {
           {tab === "faults" && (
             <div className="grid lg:grid-cols-5 gap-4 items-start">
               <div className="lg:col-span-3">
-                <Panel title="故障字典（FMEA）" right={<Tag tone="dim">22 条 · 全部可注入</Tag>} bodyClass="p-0">
+                <Panel title="故障字典（FMEA）" right={<Tag tone="dim">{faults.length} 条 · 全部可注入</Tag>} bodyClass="p-0">
                   <Explain text="故障 = 可注入的异常。每条都规定了：什么等级（信号灯颜色）、系统该做什么处置。点一行看细节。" />
                   <div className="table-scroll mt-1">
                     <table>
@@ -198,7 +281,14 @@ export function AssetsPage() {
                       </thead>
                       <tbody>
                         {filteredFaults.map((f) => (
-                          <tr key={f.key} className={`tr-hover cursor-pointer ${selFault?.key === f.key ? "!bg-info/5" : ""}`} onClick={() => setSelFault(f)}>
+                          <tr
+                            key={f.key}
+                            ref={(el) => {
+                              rowRefs.current[f.key] = el;
+                            }}
+                            className={`tr-hover cursor-pointer ${selFault?.key === f.key ? "!bg-info/5" : ""} ${focusCls(f.key)}`}
+                            onClick={() => setSelFault(f)}
+                          >
                             <td className="td">
                               <div className="font-medium text-ink">{f.name}</div>
                               <div className="kbd-mono text-[11px]">
@@ -299,6 +389,72 @@ export function AssetsPage() {
             </div>
           )}
 
+          {/* 场景（资产浏览：可真实执行的故障场景；执行入口在「场景执行」页） */}
+          {tab === "scenarios" && (
+            <Panel title="故障场景" right={<Tag tone="dim">{scenarios.length} 个 · 可真实执行</Tag>} bodyClass="p-0">
+              <Explain text="场景 = 一份按时间编排的故障注入/恢复剧本（YAML）。每一步注入什么故障、期望系统怎么处置、何时恢复，都由真实引擎执行并断言。" />
+              <div className="table-scroll mt-1">
+                <table>
+                  <thead>
+                    <tr>
+                      <th className="th">场景</th>
+                      <th className="th">文件</th>
+                      <th className="th">步数</th>
+                      <th className="th">注入故障</th>
+                      <th className="th">涉及节点</th>
+                      <th className="th">动作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredScenarios.map((s) => (
+                      <tr
+                        key={s.file}
+                        ref={(el) => {
+                          rowRefs.current[s.file] = el;
+                        }}
+                        className={`tr-hover ${focusCls(s.file)}`}
+                      >
+                        <td className="td font-medium text-ink">{s.name}</td>
+                        <td className="td kbd-mono">{s.file}</td>
+                        <td className="td num">{s.steps}</td>
+                        <td className="td">
+                          <div className="flex flex-wrap gap-1">
+                            {s.fault_keys.map((fk) => (
+                              <Tag key={fk} tone="warn">
+                                {fk}
+                              </Tag>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="td">
+                          <div className="flex flex-wrap gap-1">
+                            {s.nodes.map((n) => (
+                              <Tag key={n} tone="dim">
+                                {n}
+                              </Tag>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="td">
+                          <button className="btn-ghost btn-sm" title={`在场景执行页运行 ${s.file}`} onClick={() => (window.location.href = "/scenarios")}>
+                            去执行 →
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredScenarios.length === 0 && (
+                      <tr>
+                        <td colSpan={6}>
+                          <EmptyState icon="?" title="无匹配场景" desc="换个关键词试试" />
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          )}
+
           {/* 需求 */}
           {tab === "requirements" && (
             <Panel title="需求追溯矩阵 (RTM)" right={<Tag tone="dim">SR-01 ~ SR-18</Tag>} bodyClass="p-0">
@@ -316,7 +472,13 @@ export function AssetsPage() {
                   <tbody>
                     {reqs.flatMap((r) =>
                       r.rows.map((row, i) => (
-                        <tr key={`${r.req_id}-${i}`} className="tr-hover">
+                        <tr
+                          key={`${r.req_id}-${i}`}
+                          ref={(el) => {
+                            rowRefs.current[r.req_id] = el;
+                          }}
+                          className={`tr-hover ${focusCls(r.req_id)}`}
+                        >
                           <td className="td">
                             <code className="kbd-mono">{r.req_id}</code>
                           </td>
@@ -331,11 +493,84 @@ export function AssetsPage() {
               </div>
             </Panel>
           )}
+
+          {/* 被测功能（列车视角聚合：功能 = 报文 + 信号 + 故障 + 需求） */}
+          {tab === "functions" && (
+            <Panel title="被测功能（列车视角的测试对象）" right={<Tag tone="dim">{functions.length} 个 · F-EBM / F-ATP / F-DOOR / F-NET</Tag>} bodyClass="p-0">
+              <Explain text="被测功能把“测报文”升维为“测功能”：每个功能聚合它关联的报文、信号、故障与安全需求——测试对象的列车视角。" />
+              <div className="table-scroll mt-1">
+                <table>
+                  <thead>
+                    <tr>
+                      <th className="th">功能</th>
+                      <th className="th">一句话</th>
+                      <th className="th">关联报文 / 信号</th>
+                      <th className="th">关联故障</th>
+                      <th className="th">覆盖需求</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredFunctions.map((fn) => (
+                      <tr
+                        key={fn.fid}
+                        ref={(el) => {
+                          rowRefs.current[fn.fid] = el;
+                        }}
+                        className={`tr-hover ${focusCls(fn.fid)}`}
+                      >
+                        <td className="td">
+                          <code className="kbd-mono">{fn.fid}</code>
+                          <div className="font-medium text-ink text-[13px] mt-0.5">{fn.name}</div>
+                        </td>
+                        <td className="td text-ink-dim">{fn.description}</td>
+                        <td className="td">
+                          <div className="flex flex-wrap gap-1">
+                            {fn.messages.map((mm) => (
+                              <Tag key={mm} tone="dim">
+                                {mm}
+                              </Tag>
+                            ))}
+                            {fn.signals.slice(0, 6).map((sg) => (
+                              <Tag key={sg} tone="vio">
+                                {sg}
+                              </Tag>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="td">
+                          <div className="flex flex-wrap gap-1">
+                            {fn.fault_keys.map((fk) => (
+                              <Tag key={fk} tone="warn">
+                                {fk}
+                              </Tag>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="td">
+                          <div className="flex flex-wrap gap-1">
+                            {fn.requirements.map((rq) => (
+                              <Tag key={rq} tone="ok">
+                                {rq}
+                              </Tag>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredFunctions.length === 0 && (
+                      <tr>
+                        <td colSpan={5}>
+                          <EmptyState icon="?" title="无匹配功能" desc="换个关键词试试" />
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          )}
         </>
       )}
     </div>
   );
 }
-
-// 供类型引用避免未使用告警
-void KIND_META;

@@ -3,13 +3,18 @@
 把一次真实故障场景(声明式 YAML)重建为一条可播放的事件时间线 + 通道曲线，
 供前端以列车/驾驶台动画演示「故障如何发生、如何被检测、系统如何处置」。
 
-诚实性纪律(与全仓库一致，数字机器自证)：
-- 事件时刻(注入/恢复 ts)与期望处置 = 真实场景 YAML 步骤(assets 派生)；
-- 处置结果 = 真实引擎断言(若有引擎执行结果)或故障字典 action(诚实标注来源)；
-- 检测/恢复描述 = 真实故障字典(faults.yaml detect/recovery)；
-- 通道波形(车速/制动缸压/门状态/心跳/总线…) = 事件级示意重建：
-  只按「故障激活区间 × 真实阈值常量」做阶梯变化，不做逐周期总线级仿真。
-  前端须展示此标注，避免把示意波形误当逐周期回放。
+诚实性纪律(与全仓库一致，数字机器自证) —— 以「数据管线透明」表达，而非道歉：
+- 每条事件带结构化 source{kind,ref,desc}，真实度分级：
+    scenario_yaml  注入/恢复时刻与期望处置 = 真实场景 YAML 步骤(assets 派生)
+    fault_dict     检测/恢复语义文本与默认处置 = 真实故障字典(faults.yaml)
+    engine_assert  处置 actual = 真实引擎 run_result 断言(若已执行)
+    derived_phys   检测时刻 = 注入 + DETECT_DELAY_S(示意规则)；通道波形 = 示意物理模型
+    note           备注(如"场景未编排恢复步骤"的事实陈述)
+- 通道波形(车速/制动缸压/门状态/心跳/总线…)为事件级示意重建：只按
+  「故障激活区间 × 真实阈值常量」做阶梯变化，不做逐周期总线级仿真。
+  示意模型规则与真实/示意常量表见 demo["pipeline"]["constants"]，用户可逐条核对。
+- 兼容字段：事件 derived 布尔保留，含义 = (source.kind == "derived_phys")。
+- 引擎真实执行的黑盒开窗：demo["engine"]{asserted,version,trace,assertions,notes}。
 
 通道在故障激活期间的取值来自各故障档案(profile)；档案值若非源码常量
 则以 `derived: true` 标注，保持诚实。
@@ -39,7 +44,13 @@ CRUISE_KMH = 120.0
 
 @dataclass
 class DemoEvent:
-    """时间线上一个事件(标记点)。"""
+    """时间线上一个事件(标记点)。
+
+    source: 数据来源标注（引擎观察窗）。kind 分级见模块 docstring；
+    ref 为来源引用（场景 YAML@版本 / faults.yaml 条目 / 引擎断言字段），
+    desc 为一句话中文说明该数据怎么来的。derived 布尔兼容保留，
+    含义 = source.kind == "derived_phys"。
+    """
 
     t: float
     kind: str  # inject / detect / action / recover / note
@@ -49,9 +60,12 @@ class DemoEvent:
     level: str = ""
     action: str = ""
     derived: bool = False  # True = 示意重建(检测延迟等)，False = 场景/字典真实
+    source_kind: str = ""
+    source_ref: str = ""
+    source_desc: str = ""
 
     def to_dict(self) -> dict:
-        return {
+        out = {
             "t": round(self.t, 2),
             "kind": self.kind,
             "fault": self.fault,
@@ -61,6 +75,13 @@ class DemoEvent:
             "action": self.action,
             "derived": self.derived,
         }
+        if self.source_kind:
+            out["source"] = {
+                "kind": self.source_kind,
+                "ref": self.source_ref,
+                "desc": self.source_desc,
+            }
+        return out
 
 
 def _fault_name(m: AssetModel, key: str) -> str:
@@ -280,19 +301,28 @@ def build_demo(
     """把一个真实场景重建为演示时间线。
 
     - scenario_file 必须在 asset_model 场景中（否则抛 KeyError）。
-    - run_result 可选：真实引擎 run 报告（含 assertions），用于替换
-      「处置结果」来源为真实断言；缺省用故障字典 action(诚实标注)。
+    - run_result 可选：真实引擎 run 报告（tcms.scenarios.run_yaml 的返回值，
+      含 assertions[{fault,ts,expected,actual,passed}] 与 ledger 台账汇总），
+      用于替换「处置结果」来源为真实断言；缺省用故障字典 action。
+    - 输出为「引擎观察窗」增强：
+        events[].source{kind,ref,desc} —— 每条事件的数据来源标注；
+        demo["engine"] —— 引擎真实执行的黑盒开窗（断言/台账证据）；
+        demo["pipeline"] —— 数据管线静态描述 + 真实/示意常量表（透明自证）。
+      既有字段(events/curve 结构、derived、params、duration、honesty)不变，
+      前端向后兼容。
     """
     scen = m.scenario(scenario_file)
     prof = _profiles()
     events: list[DemoEvent] = []
     active: dict[str, float] = {}  # fault -> inject ts（用于派生检测事件去重）
     asserted_action: dict[str, str] = {}
+    assert_index: dict[str, int] = {}
 
     if run_result:
-        for a in run_result.get("assertions", []):
+        for i, a in enumerate(run_result.get("assertions", [])):
             if a.get("fault"):
-                asserted_action[a["fault"]] = a.get("actual", "")
+                asserted_action.setdefault(a["fault"], a.get("actual", ""))
+                assert_index.setdefault(a["fault"], i)
 
     steps = sorted(scen.steps, key=lambda s: s.at)
     last_t = steps[-1].at if steps else 0.0
@@ -303,7 +333,8 @@ def build_demo(
             p = prof.get(fk, {})
             name = _fault_name(m, fk)
             fd = m.fault(fk) if fk in m.faults_by_key else None
-            # 1) 注入（真实：场景步骤）
+            scen_ref = f"scenarios/{scenario_file}（step @{st.at:.1f}s）"
+            # 1) 注入（真实：场景 YAML 步骤）
             events.append(
                 DemoEvent(
                     t=st.at,
@@ -313,9 +344,12 @@ def build_demo(
                     detail=st.impact or (fd.desc if fd else ""),
                     level=st.level or (fd.level if fd else ""),
                     action=st.expect or (fd.action if fd else ""),
+                    source_kind="scenario_yaml",
+                    source_ref=scen_ref,
+                    source_desc="注入时刻/故障/期望处置来自真实场景 YAML 步骤（资产派生，真实）",
                 )
             )
-            # 2) 检测（真实：故障字典 detect 文本；时刻为注入+示意检测延迟 → derived）
+            # 2) 检测（文本真实：故障字典 detect；时刻示意：注入 + DETECT_DELAY_S）
             detect_zh = p.get("detect_zh") or (fd.detect if fd else "系统检测到异常")
             events.append(
                 DemoEvent(
@@ -326,21 +360,41 @@ def build_demo(
                     detail=detect_zh,
                     level=st.level or "",
                     derived=True,
+                    source_kind="derived_phys",
+                    source_ref=f"示意规则 DETECT_DELAY_S={DETECT_DELAY_S}s",
+                    source_desc=(
+                        "检测文本来自真实故障字典 faults.yaml(detect)；"
+                        f"检测时刻 = 注入时刻 + 示意检测延迟 {DETECT_DELAY_S}s（示意物理模型规则）"
+                    ),
                 )
             )
-            # 3) 处置（来源优先真实断言 actual，否则故障字典 action）
+            # 3) 处置（来源优先真实引擎断言 actual，否则故障字典 action）
             actual = asserted_action.get(fk) or (fd.action if fd else "")
-            src = "真实引擎断言" if fk in asserted_action else "故障字典 action"
+            if fk in asserted_action:
+                src_kind, src_ref, src_desc = (
+                    "engine_assert",
+                    f"run_result.assertions[{assert_index[fk]}].actual={actual!r}",
+                    "处置 actual 来自真实引擎执行断言（tcms.scenarios.run_yaml，真实）",
+                )
+            else:
+                src_kind, src_ref, src_desc = (
+                    "fault_dict",
+                    f"faults.yaml#{fk}.action",
+                    "处置 actual 来自真实故障字典默认 action（未接引擎执行时回退，真实字典数据）",
+                )
             events.append(
                 DemoEvent(
                     t=round(st.at + DETECT_DELAY_S, 2),
                     kind="action",
                     fault=fk,
                     label=f"处置：{_action_zh(actual)}",
-                    detail=f"来源：{src} · 期望 {st.expect or fd.action}",
+                    detail=f"来源：{src_ref} · 期望 {st.expect or fd.action}",
                     level=st.level or "",
                     action=actual,
-                    derived=fk not in asserted_action,
+                    derived=False,
+                    source_kind=src_kind,
+                    source_ref=src_ref,
+                    source_desc=src_desc,
                 )
             )
             if p:
@@ -356,11 +410,14 @@ def build_demo(
                     label=f"恢复：{_fault_name(m, fk)}",
                     detail=(fd.recovery if fd else "故障消除"),
                     level=fd.level if fd else "",
+                    source_kind="scenario_yaml",
+                    source_ref=f"scenarios/{scenario_file}（step @{st.at:.1f}s）",
+                    source_desc="恢复时刻来自真实场景 YAML 步骤（资产派生，真实）",
                 )
             )
             active.pop(fk, None)
 
-    # 若场景未显式恢复的故障仍在激活 → 尾注（诚实：不虚构恢复）
+    # 若场景未显式恢复的故障仍在激活 → 尾注（事实陈述：不虚构恢复）
     if active:
         at_tail = last_t + 1.0
         events.append(
@@ -370,7 +427,9 @@ def build_demo(
                 fault=",".join(sorted(active)),
                 label="场景结束，故障仍处处置状态",
                 detail="本场景未编排恢复步骤；真实恢复语义见故障字典 recovery 字段。",
-                derived=True,
+                source_kind="note",
+                source_ref=f"scenarios/{scenario_file}（无 recover 步骤）",
+                source_desc="备注：场景步骤未含恢复，演示不虚构恢复时刻（事实陈述）",
             )
         )
 
@@ -390,10 +449,242 @@ def build_demo(
             "cruise_kmh": CRUISE_KMH,  # 正常巡航（示意）
             "eb_kpa": _EB_KPA,  # EB 制动缸压力基准
         },
+        # 引擎真实执行的黑盒开窗（证据透明，不臆造）
+        "engine": _engine_block(run_result),
+        # 数据管线静态描述 + 真实/示意常量表
+        "pipeline": _pipeline_block(),
+        # 诚实性（保留字段名，前端/测试引用；内容改为积极客观的管线透明表述）
         "honesty": (
-            "事件时刻来自真实场景 YAML；处置结果来自真实引擎断言（若已执行）或故障字典；"
-            "通道波形为事件级示意重建（依据真实阈值/枚举），非逐周期总线回放。"
+            "数据管线透明：每条事件标注 source——注入/恢复时刻与期望处置 = 真实场景 YAML；"
+            "处置 actual = 真实引擎断言（若已执行）或故障字典 action；检测文本 = 真实故障字典；"
+            "检测时刻与通道波形由示意物理模型生成（规则与真实/示意常量见 pipeline.constants）。"
         ),
+    }
+
+
+def _engine_block(run_result: dict | None) -> dict:
+    """引擎真实执行的黑盒开窗：断言 + 台账证据（只在给了 run_result 时非空）。"""
+    if not run_result:
+        return {
+            "asserted": False,
+            "version": None,
+            "trace": [],
+            "assertions": [],
+            "notes": [
+                "本次演示未接入引擎执行（run_result=None）；处置 actual 来源见各事件 source=fault_dict。"
+            ],
+        }
+    assertions = list(run_result.get("assertions") or [])
+    # trace：引擎台账内部证据（ledger.report 的 open_faults 逐故障 stage 明细；
+    # 场景若全部恢复则 open_faults 为空 → trace 空，但汇总计数进 notes，不虚构明细)
+    trace: list[dict] = []
+    ledger = run_result.get("ledger") or {}
+    open_faults = ledger.get("open_faults") or []
+    for fl in open_faults:
+        trace.append(
+            {
+                "fault": fl.get("name"),
+                "level": fl.get("level"),
+                "source": fl.get("source"),
+                "current_stage": fl.get("current_stage"),
+                "stages": fl.get("stages") or [],
+                "impact": fl.get("impact") or [],
+            }
+        )
+    notes: list[str] = []
+    version = run_result.get("engine_version") or run_result.get("version")
+    if ledger:
+        notes.append(
+            f"引擎台账：total={ledger.get('total')}, open={ledger.get('open')}, "
+            f"closed={ledger.get('closed')}, by_level={ledger.get('by_level')}"
+        )
+    if version is None:
+        notes.append(
+            "run_result 未携带引擎版本字段，version=None（不臆造；调用方可在 run_result 附 engine_version）"
+        )
+    if not assertions:
+        notes.append("run_result 无 assertions（场景无 expect 断言或执行异常）")
+    return {
+        "asserted": True,
+        "version": version,
+        "trace": trace,
+        "assertions": assertions,
+        "notes": notes,
+    }
+
+
+def _pipeline_block() -> dict:
+    """数据管线静态描述：FaultLab 的数据从哪来（真实/示意逐级标注 + 常量表）。"""
+    return {
+        "title": "演示数据管线",
+        "steps": [
+            {
+                "name": "故障场景 YAML",
+                "kind": "asset",
+                "desc": "真实：scenarios/*.yaml 声明注入/恢复时刻、故障键与期望处置（资产快照派生）。",
+            },
+            {
+                "name": "引擎真实执行",
+                "kind": "engine",
+                "desc": "真实：接入引擎时以 tcms.scenarios.run_yaml 断言 actual 作为处置结果；未接入时本级无产物，处置回退故障字典并如实标注 fault_dict。",
+            },
+            {
+                "name": "FMEA 故障字典",
+                "kind": "asset",
+                "desc": "真实：faults.yaml 提供检测语义(detect)、恢复语义(recovery)与默认处置 action。",
+            },
+            {
+                "name": "示意物理模型",
+                "kind": "model",
+                "desc": "示意：检测时刻 = 注入 + DETECT_DELAY_S；通道波形按真实阈值/枚举做事件级阶梯变化，非逐周期总线仿真。",
+            },
+        ],
+        "constants": {
+            "real": [
+                {
+                    "name": "limit_kmh",
+                    "value": 160.0,
+                    "unit": "km/h",
+                    "source": "atp.py DEFAULT_LIMIT_KMH",
+                    "desc": "线路限速（ATP 监督上限）",
+                },
+                {
+                    "name": "speed_supervision",
+                    "value": "Warning>155 / SBI>158 / EBI>160",
+                    "unit": "km/h",
+                    "source": "atp.py SpeedSupervisor",
+                    "desc": "超速分级监督阈值",
+                },
+                {
+                    "name": "eb_pressure_kpa",
+                    "value": 300.0,
+                    "unit": "kPa",
+                    "source": "exec_feedback.py PRESSURE_APPLIED_KPA",
+                    "desc": "判定制动已施加的制动缸压力",
+                },
+                {
+                    "name": "heartbeat_period_ms",
+                    "value": 100,
+                    "unit": "ms",
+                    "source": "watchdogs.py",
+                    "desc": "心跳周期",
+                },
+                {
+                    "name": "heartbeat_offline_misses",
+                    "value": 3,
+                    "unit": "周期",
+                    "source": "watchdogs.py",
+                    "desc": "丢失 3 周期判离线",
+                },
+                {
+                    "name": "heartbeat_recover_misses",
+                    "value": 2,
+                    "unit": "周期",
+                    "source": "watchdogs.py",
+                    "desc": "迟滞 2 周期恢复",
+                },
+                {
+                    "name": "bus_off_tec",
+                    "value": 256,
+                    "unit": "TEC",
+                    "source": "errstate.py BUS_OFF_THRESHOLD",
+                    "desc": "TEC≥256 进 Bus-Off",
+                },
+                {
+                    "name": "error_passive_min",
+                    "value": 128,
+                    "unit": "TEC/REC",
+                    "source": "errstate.py ERROR_PASSIVE_MIN",
+                    "desc": "≥128 进 Error-Passive",
+                },
+                {
+                    "name": "door_state_enum",
+                    "value": "Door1State 2=Fault / 3=Unknown",
+                    "unit": "-",
+                    "source": "tcms.dbc VAL_",
+                    "desc": "车门状态枚举",
+                },
+                {
+                    "name": "crc8_drop",
+                    "value": "CRC-8 失败帧丢弃并计数",
+                    "unit": "-",
+                    "source": "faults.py",
+                    "desc": "应用层 CRC 校验机制",
+                },
+            ],
+            "schematic": [
+                {
+                    "name": "detect_delay_s",
+                    "value": DETECT_DELAY_S,
+                    "unit": "s",
+                    "source": "faultlab.py 示意规则",
+                    "desc": "检测→处置的示意响应延迟（非源码常量）",
+                },
+                {
+                    "name": "sample_s",
+                    "value": SAMPLE_S,
+                    "unit": "s",
+                    "source": "faultlab.py",
+                    "desc": "采样/播放步长",
+                },
+                {
+                    "name": "tail_s",
+                    "value": TAIL_S,
+                    "unit": "s",
+                    "source": "faultlab.py",
+                    "desc": "处置后观察尾段时长",
+                },
+                {
+                    "name": "cruise_kmh",
+                    "value": _CRUISE_KMH,
+                    "unit": "km/h",
+                    "source": "faultlab.py 示意",
+                    "desc": "正常巡航速度基线",
+                },
+                {
+                    "name": "accel_rate",
+                    "value": _ACCEL_RATE,
+                    "unit": "km/h/s",
+                    "source": "faultlab.py 示意",
+                    "desc": "加速率",
+                },
+                {
+                    "name": "derate_speed",
+                    "value": _DERATE_SPEED,
+                    "unit": "km/h",
+                    "source": "faultlab.py 示意",
+                    "desc": "降级限速目标",
+                },
+                {
+                    "name": "eb_decel",
+                    "value": _EB_DECEL,
+                    "unit": "km/h/s",
+                    "source": "faultlab.py 示意",
+                    "desc": "EB/停车减速率",
+                },
+                {
+                    "name": "derate_decel",
+                    "value": _DERATE_DECEL,
+                    "unit": "km/h/s",
+                    "source": "faultlab.py 示意",
+                    "desc": "降级减速率",
+                },
+                {
+                    "name": "coast_decel",
+                    "value": _COAST_DECEL,
+                    "unit": "km/h/s",
+                    "source": "faultlab.py 示意",
+                    "desc": "牵引丢失滑行衰减",
+                },
+                {
+                    "name": "eb_fail_coast",
+                    "value": _EB_FAIL_COAST,
+                    "unit": "km/h/s",
+                    "source": "faultlab.py 示意",
+                    "desc": "EB 执行失败时几乎不减速（命令≠执行教学点）",
+                },
+            ],
+        },
     }
 
 
@@ -481,7 +772,8 @@ def _active_flags(m: AssetModel, demo: dict, t: float) -> dict:
         e["action"]
         for e in demo["events"]
         if e["kind"] == "action"
-        and inject_at.get(e["fault"], float("inf")) <= t
+        and inject_at.get(e["fault"], float("inf"))
+        <= t
         <= recover_at.get(e["fault"], demo["duration"])
         and e["action"]
     ]

@@ -4,6 +4,28 @@ import { api, type KbNode, type KbSearchHit, type KbSubgraph } from "../api";
 import { Panel, Tag, SkeletonRows, EmptyState, Explain } from "../components/ui";
 import { KIND_META, plainExplain } from "../lib/explanations";
 
+/** 图谱节点类型 → 画布色（kind→hex；与 KIND_META 的语义色对齐，供画布/图例共用） */
+const KIND_HEX: Record<string, string> = {
+  message: "#4ca6ff",
+  signal: "#8b7cf6",
+  device: "#f472b6",
+  fault: "#f4645a",
+  scenario: "#f5b84c",
+  requirement: "#2dd4a0",
+  function: "#22d3ee",
+  run: "#8ca0c0",
+  // P6 领域知识节点
+  mode: "#f472b6",
+  state: "#f59e0b",
+  interlock: "#f4645a",
+  threshold: "#f5b84c",
+  mechanism: "#a78bfa",
+  standard: "#60a5fa",
+  hazard: "#ef4444",
+  concept: "#34d399",
+};
+const kindHex = (kind: string): string => KIND_HEX[kind] ?? "#8ca0c0";
+
 /** 力导向 SVG（保持既有算法，视觉改用 token） */
 
 export function GraphWorkspace() {
@@ -14,7 +36,9 @@ export function GraphWorkspace() {
   const [hits, setHits] = useState<KbSearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [sub, setSub] = useState<KbSubgraph | null>(null);
+  const [depth, setDepth] = useState(2);
   const [seedLabel, setSeedLabel] = useState("");
+  const [showValue, setShowValue] = useState(false);
   const [selNode, setSelNode] = useState<{ id: string; kind: string; label: string; props?: Record<string, unknown>; neighbors?: KbNode[] } | null>(null);
   const [err, setErr] = useState("");
   const [activeKind, setActiveKind] = useState<string>("all");
@@ -25,10 +49,10 @@ export function GraphWorkspace() {
     api.kbStats().then(setKbStats).catch(() => undefined);
   }, []);
 
-  const focus = useCallback(async (seedId: string) => {
+  const focus = useCallback(async (seedId: string, d = depth) => {
     setErr("");
     try {
-      const r = await api.kbSubgraph(seedId, 2);
+      const r = await api.kbSubgraph(seedId, d);
       setSub(r);
       setHits(null);
       setSeedLabel(r.nodes.find((n) => n.id === seedId)?.label ?? seedId);
@@ -36,7 +60,14 @@ export function GraphWorkspace() {
     } catch (e) {
       setErr(String(e));
     }
-  }, []);
+  }, [depth]);
+
+  // 深度切换：以当前 seed 重拉（保持中心不变，扩/缩一圈）
+  const changeDepth = async (d: number) => {
+    if (d === depth || !sub) return;
+    setDepth(d);
+    await focus(sub.seed, d);
+  };
 
   // 支持 ?focus= 直达（从总览/资产页跳入）
   useEffect(() => {
@@ -88,6 +119,23 @@ export function GraphWorkspace() {
     ? order.filter((k) => grouped[k]?.length).map((k) => ({ kind: k, n: grouped[k]!.length }))
     : [];
 
+  // 当前子图按 kind 计数（「更进一步拓展」的分布统计行；kind 标签/颜色与图例一致）
+  const subKinds = useMemo(() => {
+    if (!sub) return null;
+    const by: Record<string, number> = {};
+    for (const n of sub.nodes) by[n.kind] = (by[n.kind] ?? 0) + 1;
+    return by;
+  }, [sub]);
+  // 图例：展示当前子图实际含有的类型（无子图时退化为 KB 概览 by_kind 全量）
+  const legendKinds = useMemo(() => {
+    const src = sub ? subKinds : kbStats?.graph.by_kind;
+    if (!src) return [];
+    const present = Object.keys(src);
+    return ["fault", "message", "signal", "function", "requirement", "scenario", "device", "run", "mode", "state", "interlock", "threshold", "mechanism", "standard", "hazard", "concept"].filter(
+      (k) => present.includes(k)
+    );
+  }, [sub, subKinds, kbStats]);
+
   return (
     <div className="space-y-4 max-w-[1200px]">
       {/* KB 索引概览（图谱+向量规模：让人一眼看到知识底座的深度） */}
@@ -103,6 +151,47 @@ export function GraphWorkspace() {
           </span>
         </div>
       )}
+
+      {/* 图谱双价值：这一张图，人怎么用 / AI 怎么用（默认收起，想看时展开） */}
+      <div className="panel overflow-hidden">
+        <button
+          className="w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-surface-2/40"
+          onClick={() => setShowValue((v) => !v)}
+          aria-expanded={showValue}
+        >
+          <span className={`inline-block transition-transform ${showValue ? "rotate-90" : ""} text-ink-faint text-[11px]`}>▶</span>
+          <span className="text-[13px] font-semibold text-ink">这张知识图谱，是给谁用的？</span>
+          <span className="ml-auto text-[11px] text-ink-faint">{showValue ? "收起" : "人用 / AI 用，两种读法"}</span>
+        </button>
+        {showValue && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 px-4 pb-4 pt-1">
+            {/* 给人 */}
+            <div className="bg-surface-2/40 rounded-xl p-3.5 border border-line-soft">
+              <div className="flex items-center gap-2 mb-2">
+                <Tag tone="info">给人</Tag>
+                <span className="text-[12px] text-ink-dim">查证 / 理解 · 用大白话问，不用懂报文</span>
+              </div>
+              <ul className="space-y-1.5 text-[12px] leading-5 text-ink-dim">
+                <li>· <span className="text-ink">大白话提问</span>：如「车门故障了还能发车吗」，返回带证据链的答案，不是一堆报文字段。</li>
+                <li>· <span className="text-ink">点实体漫游</span>：从一条报文点进它关联的故障、功能、安全需求，摸清「谁影响谁」。</li>
+                <li>· <span className="text-ink">每个命中都解释</span>：它是哪种资产、意味着什么、和谁相连，零术语也能读。</li>
+              </ul>
+            </div>
+            {/* 给 AI */}
+            <div className="bg-surface-2/40 rounded-xl p-3.5 border border-line-soft">
+              <div className="flex items-center gap-2 mb-2">
+                <Tag tone="vio">给 AI</Tag>
+                <span className="text-[12px] text-ink-dim">检索 / 追溯 / 沉淀 · 是 Agent 的「领域记忆」</span>
+              </div>
+              <ul className="space-y-1.5 text-[12px] leading-5 text-ink-dim">
+                <li>· <span className="text-ink">Agent 规划时检索证据</span>：混合检索（语义 + 图谱邻接）给 Agent 决策喂真实知识，评审按需求/联锁/阈值追溯。</li>
+                <li>· <span className="text-ink">评审核对需求追溯</span>：每次任务达成与否，都要在图谱里找到对应的安全需求与联锁规则作依据。</li>
+                <li>· <span className="text-ink">run 记录沉淀为组织记忆</span>：真实执行结果写成 run 节点连回场景/故障，越用越厚的知识底座。</li>
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* 检索区 */}
       <Panel bodyClass="p-3">
@@ -232,13 +321,42 @@ export function GraphWorkspace() {
                 关系图谱 · <span className="text-ink">{seedLabel}</span>
               </>
             }
-            right={<Tag tone="dim">{sub.node_count} 节点 / {sub.edges.length} 边</Tag>}
+            right={
+              <div className="flex items-center gap-2">
+                {/* 深度选择：1/2/3 跳 */}
+                <div className="flex items-center gap-1 text-[11px] text-ink-faint">
+                  深度
+                  {[1, 2, 3].map((d) => (
+                    <button
+                      key={d}
+                      className={`btn-ghost btn-sm !px-2 !py-0.5 !text-[11px] ${depth === d ? "!text-info !border-info/50" : ""}`}
+                      onClick={() => changeDepth(d)}
+                      disabled={d === depth}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+                <Tag tone="dim">{sub.node_count} 节点 / {sub.edges.length} 边</Tag>
+              </div>
+            }
             bodyClass="p-0"
           >
+            {/* 图例 + 分布（当前子图按类型统计；色点与画布一致） */}
+            <div className="px-4 pt-2.5 flex flex-wrap items-center gap-x-1 gap-y-1.5">
+              {legendKinds.map((k) => (
+                <span key={k} className="inline-flex items-center gap-1.5 text-[11px] text-ink-dim mr-2">
+                  <span className="h-2 w-2 rounded-full" style={{ background: kindHex(k) }} />
+                  {KIND_META[k]?.label ?? k}
+                  {subKinds ? <span className="text-ink-faint num">×{subKinds[k] ?? 0}</span> : null}
+                </span>
+              ))}
+            </div>
             <GraphCanvas sub={sub} onNodeClick={openNode} />
           </Panel>
           <div className="px-1 -mt-2 text-[11px] text-ink-faint">
-            说明：中心是「{seedLabel}」，向外一圈是它直接关联的资产，连线标着关系（如“发送方→”“触发”）。点节点看详情，点节点旁标签可跳转。
+            说明：中心是「{seedLabel}」，连线标着关系（如“发送方→”“触发”）；色点代表实体类型，数字是该类型在本子图里的个数。
+            点节点看详情，点节点旁标签可跳转；调整「深度」可扩/缩关联范围。
           </div>
         </>
       )}
@@ -390,29 +508,6 @@ function GraphCanvas({ sub, onNodeClick }: { sub: KbSubgraph; onNodeClick: (id: 
     return pos;
   }, [initPos, sub]);
 
-  const colorOf = (kind: string): string => {
-    const map: Record<string, string> = {
-      message: "#4ca6ff",
-      signal: "#8b7cf6",
-      device: "#f472b6",
-      fault: "#f4645a",
-      scenario: "#f5b84c",
-      requirement: "#2dd4a0",
-      function: "#22d3ee",
-      run: "#8ca0c0",
-      // P6 领域知识节点
-      mode: "#f472b6",
-      state: "#f59e0b",
-      interlock: "#f4645a",
-      threshold: "#f5b84c",
-      mechanism: "#a78bfa",
-      standard: "#60a5fa",
-      hazard: "#ef4444",
-      concept: "#34d399",
-    };
-    return map[kind] ?? "#8ca0c0";
-  };
-
   const label = (s: string) => (s.length > 15 ? s.slice(0, 14) + "…" : s);
 
   return (
@@ -443,7 +538,7 @@ function GraphCanvas({ sub, onNodeClick }: { sub: KbSubgraph; onNodeClick: (id: 
           >
             <circle
               r={isSeed ? 14 : 9}
-              fill={colorOf(n.kind)}
+              fill={kindHex(n.kind)}
               opacity={isSeed ? 1 : 0.9}
               stroke="#070b16"
               strokeWidth={2}

@@ -16,7 +16,7 @@ let body = await p.locator("body").innerText();
 assert("FaultLab 事件时间线含 注入", body.includes("注入故障"));
 assert("FaultLab 事件时间线含 处置", body.includes("处置"));
 assert("FaultLab 超速场景含 降级运行", body.includes("降级运行"));
-assert("FaultLab 诚实标注", body.includes("诚实性标注"));
+assert("FaultLab 引擎观察窗(数据管线)", body.includes("引擎观察窗") && body.includes("数据管线"));
 assert("FaultLab 事件刻度图例", body.includes("恢复"));
 await p.screenshot({ path: "e2e/shots-faultlab-os2.png", fullPage: false });
 // wait for auto play to reach ~ 12s (inject 10s)

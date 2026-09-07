@@ -176,6 +176,36 @@ body {
   animation: pulse-glow 0.8s ease-in-out infinite;
 }
 
+/* 故障部位高亮：红色/琥珀色闪烁 + 脉冲扩散环（克制、语义化） */
+@keyframes fault-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+.fault-blink {
+  animation: fault-blink 0.9s ease-in-out infinite;
+}
+
+@keyframes fault-ring {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+.fault-ring {
+  animation: fault-ring 1.5s ease-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
 /* range 滑条（暗色驾驶台） */
 .faultlab-range {
   -webkit-appearance: none;

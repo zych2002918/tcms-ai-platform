@@ -133,6 +133,9 @@ export interface FaultLabEvent {
   level: string;
   action: string;
   derived: boolean;
+  /** 引擎观察窗：结构化数据来源（引擎断言 / 故障字典 / 场景 YAML / 示意物理），
+   *  由 faultlab 各事件 source{kind,ref,desc} 提供（t2 engine-observer 落地）。 */
+  source?: { kind: string; ref: string; desc: string };
 }
 
 export interface FaultLabCurvePoint {
@@ -161,10 +164,35 @@ export interface FaultLabResp {
     events: FaultLabEvent[];
     params: { limit_kmh: number; derate_speed: number; cruise_kmh: number; eb_kpa: number };
     honesty: string;
+    /** 引擎真实执行的黑盒开窗（透明数据管线）：真实断言证据 + 结构/示意说明。
+     *  引擎可用且真实执行时 asserted=true、version="x.y.z"；未接入引擎时
+     *  asserted=false、version=null（后端 faultlab_demo 已附 engine_version）。 */
+    engine?: {
+      asserted: boolean;
+      version: string | null;
+      trace: unknown[];
+      assertions: { fault: string; ts: number; expected: string; actual: string; passed: boolean }[];
+      notes: string[];
+    };
+    /** 数据管线透明展示：demo 怎么从真实资产/引擎构建出来的可读步骤 + 真实/示意常量表。 */
+    pipeline?: {
+      title: string;
+      steps: { name: string; desc: string; kind: string }[];
+      constants?: { real?: ConstRow[]; schematic?: ConstRow[] };
+    };
   };
   curve: FaultLabCurvePoint[];
   engine_asserted: boolean;
   honesty_note: string;
+}
+
+/** 数据管线常量行（pipeline.constants 条目：真实阈值/枚举 vs 示意规则）。 */
+export interface ConstRow {
+  name: string;
+  value: string | number;
+  unit: string;
+  source: string;
+  desc: string;
 }
 
 export const api = {
@@ -211,6 +239,10 @@ export const api = {
     req<{ task_id: string; title: string; goal: string; target_fault: string; expected_action: string }[]>("/agent/tasks"),
   agentRun: (taskId?: string) =>
     req<AgentRunResp>("/agent/run", { method: "POST", body: JSON.stringify({ task_id: taskId ?? null }) }),
+  agentFree: (goal: string) =>
+    req<AgentFreeResp>("/agent/free", { method: "POST", body: JSON.stringify({ goal }) }),
+  runCustom: (body: CustomScenarioRequest) =>
+    req<RunScenarioResult & { custom: boolean }>("/run/custom", { method: "POST", body: JSON.stringify(body) }),
   settingsGet: () => req<SettingsView>("/settings"),
   settingsSave: (patch: Record<string, string | boolean>) =>
     req<SettingsView>("/settings", { method: "POST", body: JSON.stringify(patch) }),
@@ -256,4 +288,41 @@ export interface SettingsView {
   port: number;
   onboarding_done: boolean;
   providers: Record<string, { label: string; base_url: string; model: string }>;
+}
+
+// ---- 自由 Agent 目标（/api/agent/free）----
+
+export interface AgentFreeParsed {
+  fault: string;
+  fault_name: string;
+  expected: string;
+  expected_zh: string;
+  confidence: number;
+  resolver: "rule" | "llm";
+  matched_on: string;
+}
+
+/** /api/agent/free 响应：解析结果 + 与 /api/agent/run 同构的执行报告。 */
+export interface AgentFreeResp extends AgentRunResp {
+  goal: string;
+  parsed: AgentFreeParsed;
+  matched_task_id: string; // T-FREE-1（自由任务动态生成）
+}
+
+// ---- 自定义场景执行（/api/run/custom）----
+
+/** 自定义场景单步（与内置场景 YAML 步骤同构）。 */
+export interface CustomStep {
+  at: number;
+  action: "inject" | "recover";
+  fault?: string | null;
+  node?: string | null;
+  level?: string | null;
+  expect?: string | null;
+  impact?: string | null;
+}
+
+export interface CustomScenarioRequest {
+  name?: string;
+  steps: CustomStep[];
 }

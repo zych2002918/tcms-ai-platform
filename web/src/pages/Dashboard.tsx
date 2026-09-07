@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Stats } from "../api";
-import { Panel, StatCard, Tag, StatusDot } from "../components/ui";
+import { Panel, Tag, StatusDot } from "../components/ui";
 
 export function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -74,14 +74,34 @@ export function Dashboard() {
         </div>
       </Panel>
 
-      {/* 资产速览（保留少量关键统计，去重去噪） */}
+      {/* 资产速览（六卡可点 → 直达测试资产页对应 tab；hover 提示可点击） */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard value={stats?.messages ?? "–"} label="报文 (DBC)" tone="info" hint="DBC 协议库定义的报文数" />
-        <StatCard value={stats?.signals ?? "–"} label="信号" tone="vio" hint="报文内含的信号数" />
-        <StatCard value={stats?.faults ?? "–"} label="故障 (FMEA)" tone="warn" hint="可注入的故障字典条目" />
-        <StatCard value={stats?.scenarios ?? "–"} label="场景" tone="ok" hint="可真实执行的故障场景" />
-        <StatCard value={stats?.req_ids ?? "–"} label="安全需求" tone="info" hint="RTM 追溯矩阵需求数" />
-        <StatCard value={stats?.functions ?? "–"} label="被测功能" tone="ok" hint="列车视角功能聚合" />
+        {[
+          { to: "/assets?tab=messages", value: stats?.messages ?? "–", label: "报文 (DBC)", num: "text-info", hint: "DBC 协议库定义的报文数" },
+          { to: "/assets?tab=signals", value: stats?.signals ?? "–", label: "信号", num: "text-vio", hint: "报文内含的信号数" },
+          { to: "/assets?tab=faults", value: stats?.faults ?? "–", label: "故障 (FMEA)", num: "text-warn", hint: "可注入的故障字典条目" },
+          { to: "/assets?tab=scenarios", value: stats?.scenarios ?? "–", label: "场景", num: "text-ok", hint: "可真实执行的故障场景" },
+          { to: "/assets?tab=requirements", value: stats?.req_ids ?? "–", label: "安全需求", num: "text-info", hint: "RTM 追溯矩阵需求数" },
+          { to: "/assets?tab=functions", value: stats?.functions ?? "–", label: "被测功能", num: "text-ok", hint: "列车视角功能聚合" },
+        ].map((c) => (
+          <Link
+            key={c.label}
+            to={c.to}
+            title={`${c.hint} — 点击直达测试资产`}
+            className="panel panel-hover group relative block px-4 py-3"
+          >
+            <span className="pointer-events-none absolute right-2.5 top-2 text-[11px] text-info/0 transition-colors group-hover:text-info/90" aria-hidden>
+              →
+            </span>
+            <div className={`stat-num ${c.num}`}>{c.value}</div>
+            <div className="text-xs text-ink-dim mt-0.5 flex items-center gap-1">
+              {c.label}
+              <span className="text-info/0 transition-all group-hover:text-info/80 group-hover:translate-x-0.5" aria-hidden>
+                →
+              </span>
+            </div>
+          </Link>
+        ))}
       </div>
 
       {/* 从这里开始 —— 行动入口 */}

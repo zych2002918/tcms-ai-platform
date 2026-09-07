@@ -75,6 +75,38 @@ class FaultLabRequest(BaseModel):
     scenario: str  # 场景文件名（含 .yaml）
 
 
+class AgentFreeRequest(BaseModel):
+    """自由 Agent 目标请求：一句自然语言 → 自动解析为可执行任务。
+
+    模块级（FastAPI 前向引用约束，同 RunScenarioRequest）。
+    """
+
+    goal: str  # 自然语言目标（如「验证车门故障不能发车」）
+
+
+class CustomStepRequest(BaseModel):
+    """自定义场景单步（模块级：FastAPI 前向引用约束）。
+
+    与内置场景 YAML 步骤同构：at 为注入时刻；action ∈ inject/recover。
+    fault 必填（inject 用）；node/level 仅 inject 有意义。
+    """
+
+    at: float
+    action: str  # inject / recover
+    fault: str | None = None
+    node: str | None = None
+    level: str | None = None
+    expect: str | None = None
+    impact: str | None = None
+
+
+class CustomScenarioRequest(BaseModel):
+    """自定义场景请求：一组手动编排的步骤（真实引擎执行，不落盘）。"""
+
+    name: str = "custom"
+    steps: list[CustomStepRequest]
+
+
 class SettingsUpdateRequest(BaseModel):
     """设置保存请求（前端「设置/引导」页写入；key 只落本机文件）。"""
 
@@ -519,6 +551,11 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
                 import tcms.scenarios as sc  # noqa: PLC0415
 
                 run_result = sc.run_yaml(str(_app_upstream / req.scenario))
+                # 真实引擎 run_yaml 报告不带版本 → 补 engine_version，供
+                # faultlab._engine_block 填 demo.engine.version（不臆造 None）。
+                if run_result is not None:
+                    run_result = dict(run_result)
+                    run_result["engine_version"] = __import__("tcms").__version__
             except Exception:  # noqa: BLE001 - 引擎失败退化为字典来源（诚实标注）
                 run_result = None
 
@@ -665,6 +702,120 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
                 raise HTTPException(404, f"任务不存在: {req.task_id}")
         # 每次现取后端（设置页改 key/provider 后无需重启即生效）
         return _make_harness().run_tasks(tasks)
+
+    @app.post("/api/agent/free")
+    def agent_free(req: AgentFreeRequest) -> dict:
+        """自由 Agent 目标：自然语言 → 解析(规则+LLM仲裁) → 真实执行。
+
+        像 DSH Harness 一样自由：不给任务 id，只给一句话目标。
+        返回解析结果（命中故障/期望处置/置信度）+ 与 /api/agent/run 同构的执行报告。
+        """
+        from ..agent.freeform import NoFaultMatch, parse_free_goal
+        from ..agent.llm_backend import llm_available as _llm_ok
+
+        try:
+            parsed = parse_free_goal(
+                asset_model, req.goal, seq=1, use_llm=_llm_ok()
+            )
+        except NoFaultMatch as e:
+            raise HTTPException(422, str(e)) from None
+        task = parsed.to_task(req.goal, seq=1)
+        resp = _make_harness().run_tasks([task])
+        return {
+            "goal": req.goal,
+            "parsed": {
+                "fault": parsed.fault,
+                "fault_name": parsed.fault_name,
+                "expected": parsed.expected,
+                "expected_zh": parsed.expected_zh,
+                "confidence": parsed.confidence,
+                "resolver": parsed.resolver,
+                "matched_on": parsed.matched_on,
+            },
+            "matched_task_id": task.task_id,  # T-FREE-1（自由任务由解析动态生成）
+            **resp,
+        }
+
+    @app.post("/api/run/custom")
+    def run_custom(req: CustomScenarioRequest) -> dict:
+        """手动编排的自定义故障场景 → 真实引擎执行（不落盘）。
+
+        与 /api/run/scenario 同构：校验 → 组装 YAML → parse_scenario →
+        VirtualClock(virtual) + FaultLedger 执行 → 同构报告。
+        """
+        # 校验引擎（缺失引导文案与 run_scenario 一致）
+        try:
+            import tcms.scenarios as sc  # noqa: PLC0415
+            import tcms.timebase as _tb  # noqa: PLC0415
+        except ImportError as e:
+            raise HTTPException(
+                503,
+                f"TCMS 引擎不可用：自定义场景执行需要 tcms-can-test。请 pip install tcms-can-test，"
+                f"或设置 TCMS_UPSTREAM_DIR 指向其目录。({e})",
+            ) from None
+        if not req.steps:
+            raise HTTPException(422, "自定义场景至少需要一个步骤")
+
+        # 校验故障键存在（在真实故障字典内，防拼写错误静默通过）
+        for st in req.steps:
+            if st.action == "inject":
+                if not st.fault:
+                    raise HTTPException(422, f"at={st.at} 的 inject 步骤缺少 fault")
+                if st.fault not in asset_model.faults_by_key:
+                    raise HTTPException(
+                        422,
+                        f"未知故障键: {st.fault}（可用故障见 /api/faults，共 {len(asset_model.faults_by_key)} 个）",
+                    )
+            elif st.action != "recover":
+                raise HTTPException(422, f"at={st.at} 的未知动作: {st.action!r}（仅支持 inject/recover）")
+            elif not st.fault:
+                raise HTTPException(422, f"at={st.at} 的 recover 步骤缺少 fault")
+
+        # 组装 YAML（显式 inject/recover 写法；level/impact/expect 缺省由引擎字典兜底）
+        lines = [f"name: {req.name or 'custom'}", "steps:"]
+        for st in sorted(req.steps, key=lambda s: s.at):
+            if st.action == "inject":
+                lines.append(f"  - at: {st.at}")
+                lines.append("    inject:")
+                lines.append(f"      fault: {st.fault}")
+                if st.node:
+                    lines.append(f"      node: {st.node}")
+                if st.level:
+                    lines.append(f"      level: {st.level}")
+                if st.impact:
+                    lines.append(f"      impact: {st.impact}")
+                if st.expect:
+                    lines.append(f"      expect: {st.expect}")
+            else:
+                lines.append(f"  - at: {st.at}")
+                lines.append(f"    recover: {st.fault}")
+        yaml_text = "\n".join(lines)
+
+        try:
+            scenario = sc.parse_scenario(yaml_text, name=req.name or "custom")
+            clock = _tb.VirtualClock(mode="virtual")
+            from tcms.faultlife import FaultLedger, ScenarioRunner  # noqa: PLC0415
+
+            rep = ScenarioRunner(FaultLedger(clock), scenario, clock).run()
+        except Exception as e:  # 组装/执行异常 → 500 含信息
+            raise HTTPException(500, f"自定义场景执行失败: {e}") from None
+        _run_counter["n"] += 1
+        sink.record_run(
+            f"run-{_run_counter['n']:03d}",
+            req.name or "custom",
+            {"passed": rep.get("passed"), "failed": rep.get("failed"), "all_passed": rep.get("all_passed")},
+        )
+        return {
+            "scenario": rep.get("scenario"),
+            "steps": rep.get("steps"),
+            "assertions": rep.get("assertions"),
+            "passed": rep.get("passed"),
+            "failed": rep.get("failed"),
+            "all_passed": rep.get("all_passed"),
+            "engine_version": __import__("tcms").__version__,
+            "run_id": f"run-{_run_counter['n']:03d}",
+            "custom": True,
+        }
 
     # ---- 前端静态托管（P3）：生产构建 dist/ 挂到根路径 ----
     # 路径解析：PyInstaller 打包(frozen)时静态资源在 sys._MEIPASS/web/dist；

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type SettingsView } from "../api";
 import { Panel, Tag, EmptyState, StatusDot } from "../components/ui";
 
@@ -7,9 +8,20 @@ type Sys = {
   llm_key: boolean;
   agent_backend?: string;
   asset_mode: string;
+  capabilities?: Record<string, boolean>;
+  fix_hints?: { engine: string[]; llm: string[] };
 };
 
 const STEP_LABELS = ["① 资产源", "② 接入 AI（可选）", "③ 检查引擎", "④ 完成"];
+
+/** 能力矩阵：机器自证的「当前开哪些能力」（值与 /api/system/status.capabilities 对齐） */
+const CAP_ROWS: { k: string; label: string; desc: string; kind: "always" | "engine" | "llm" }[] = [
+  { k: "browse_assets", label: "浏览测试资产", desc: "DBC 报文 · 信号 · FMEA 故障 · RTM 需求", kind: "always" },
+  { k: "knowledge_graph", label: "知识图谱检索", desc: "向量 + 图谱 + GraphRAG 证据链", kind: "always" },
+  { k: "run_scenario", label: "场景执行", desc: "在真实 TCMS 引擎上跑故障场景", kind: "engine" },
+  { k: "agent", label: "AI Agent 规划与执行", desc: "检索证据 → 真实执行 → 复盘评分", kind: "engine" },
+  { k: "llm_generation", label: "真 LLM 决策 / 生成", desc: "Agent 规划与场景选择由 LLM 完成（可选增强）", kind: "llm" },
+];
 
 export function SettingsPage() {
   const [st, setSt] = useState<SettingsView | null>(null);
@@ -109,6 +121,64 @@ export function SettingsPage() {
   const llmReady = sys?.llm_key ?? false;
   const hasAssetCustom = Boolean(st?.asset_dir);
 
+  // ---- 扩展与集成面板派生数据 ----
+  const srcMode = sys?.asset_mode || "";
+  const isBundled = srcMode.startsWith("bundled");
+  const srcFriendly = isBundled ? "内置快照（未指向外部目录）" : srcMode ? "外部资产目录" : "…";
+  const portNow = window.location.port || String(st?.port ?? 8000);
+  const provLabel = st?.llm.provider && st?.providers?.[st.llm.provider] ? st.providers[st.llm.provider].label : st?.llm.provider || "";
+  const caps = sys?.capabilities ?? {};
+  const capVal = (k: string, always: boolean) => (caps[k] === undefined ? always : caps[k]);
+  const capMeta = (k: string, v: boolean) => {
+    if (v) return { tone: "ok" as const, txt: "已开启" };
+    return k === "llm_generation"
+      ? { tone: "info" as const, txt: "未开启 · 可选（第②步接入 LLM 后启用）" }
+      : { tone: "warn" as const, txt: "未开启 · 需先启用引擎" };
+  };
+  const envRows: { name: string; role: string; val: string; tone: "ok" | "warn" | "info" }[] = [
+    {
+      name: "TCMS_UPSTREAM_DIR",
+      role: "资产 + 引擎活目录（解析链：env → 设置页资产目录）",
+      val: isBundled ? "未设置 → 内置快照" : `当前解析源 → ${srcMode}`,
+      tone: isBundled ? "info" : "ok",
+    },
+    {
+      name: "TCMS_AI_HOME",
+      role: "本地设置目录（settings.json 所在处）",
+      val: st?.dir ?? "~/.tcms-ai-platform",
+      tone: "info",
+    },
+    { name: "PORT", role: "Web 服务端口", val: portNow, tone: "info" },
+    {
+      name: "LLM_BASE_URL",
+      role: "OpenAI 兼容 API 端点",
+      val: st?.llm.base_url?.trim() ? st.llm.base_url : "（未设置 → 默认阿里百炼兼容端点）",
+      tone: st?.llm.base_url?.trim() ? "info" : "info",
+    },
+    {
+      name: "LLM_MODEL",
+      role: "默认模型名",
+      val: st?.llm.model?.trim() ? st.llm.model : "（未设置 → 默认 deepseek-v3.2）",
+      tone: st?.llm.model?.trim() ? "info" : "info",
+    },
+    {
+      name: "DASH_API_KEY",
+      role: "API key 来源：env → 设置文件 → ~/.dsh/.credentials.yaml（refs.ALIYUN_API_KEY）",
+      val: llmReady ? "已设置" : "未设置（Agent 自动走离线 Mock，可完整体验）",
+      tone: llmReady ? "ok" : "warn",
+    },
+  ];
+
+  /** 完成步的下一步建议（可点击直达） */
+  const nextSteps: { t: string; d: string; to?: string; back?: number }[] = [
+    { t: "▶ 故障演示", d: "选一个真实故障，看它如何被检测与处置", to: "/faultlab" },
+    { t: "◈ 知识图谱", d: "用大白话问 TCMS 领域知识，看证据链", to: "/graph" },
+    { t: "✦ AI Agent · 自由目标", d: "给 Agent 一个任务/目标，看它检索证据并真实执行", to: "/agent" },
+    { t: "▤ 测试资产", d: "浏览 DBC 报文 / 故障字典 / 安全需求", to: "/assets" },
+    { t: "⚙ 自定义场景", d: "手动编排故障场景，在 TCMS 引擎上真实执行", to: "/scenarios" },
+    { t: "⇄ 接入自有数据 / AI", d: "回到第①②步：接资产目录、填 API key", back: 0 },
+  ];
+
   return (
     <div className="space-y-4 max-w-[1100px]">
       {/* 顶部状态行 */}
@@ -160,13 +230,14 @@ export function SettingsPage() {
               平台的测试资产（报文 / 故障 / 场景 / 需求）来自 <b className="text-ink">TCMS 引擎目录</b>。
               <div className="text-ink-dim text-[12px] mt-1">
                 当前模式：<code className="kbd-mono">{sys?.asset_mode ?? "…"}</code>
-                {!hasAssetCustom && "（内置快照，可直接开始）"}
+                {!hasAssetCustom && "（内置快照已够上手；接自己的资产目录即可扩展到真实数据）"}
               </div>
             </div>
             <div className="panel bg-surface-2/40 p-3 space-y-2">
               <div className="text-[12px] text-ink-dim">
-                想用自己的实际数据？（例如：往 tcms-can-test 的 <code className="kbd-mono">tcms/faults.yaml</code> 加故障、往
-                <code className="kbd-mono">scenarios/</code> 加场景）——把你的 tcms-can-test 目录路径填到下面：
+                想用自己的实际数据？例如：往 tcms-can-test 的 <code className="kbd-mono">tcms/faults.yaml</code> 加故障、往
+                <code className="kbd-mono">scenarios/</code> 加场景、往 <code className="kbd-mono">tcms.dbc</code> 加报文——把你的
+                tcms-can-test 目录路径填到下面，重启后平台启动时自动扫描加载：
               </div>
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
@@ -195,15 +266,15 @@ export function SettingsPage() {
         {step === 1 && (
           <div className="space-y-3">
             <div className="text-[13px] leading-6">
-              想让 Agent 用<b className="text-ink">真 LLM 做规划决策</b>（而非离线规则）？填一个 OpenAI 兼容的 API。
+              想让 Agent 用<b className="text-ink">真 LLM 做规划决策</b>（而非离线规则）？接入任意 OpenAI 兼容端点即可（阿里云百炼 / DeepSeek / OpenAI / 自建）。
               <div className="text-ink-dim text-[12px] mt-0.5">
-                不填也能用：Agent 自动走离线 Mock，全流程可演示、不花钱。
+                不填也能完整体验：Agent 自动走离线 Mock 后端——全流程可演示、零成本、不卡壳。
               </div>
             </div>
             <div className="grid sm:grid-cols-2 gap-2">
               <label className="text-[11px] text-ink-faint">服务商（选预设自动填 base_url/model）
                 <select className="select w-full mt-1" value={provider} onChange={(e) => pickProvider(e.target.value)}>
-                  <option value="">（自定义）</option>
+                  <option value="">（自定义 / 接入你自己的模型）</option>
                   {st?.providers &&
                     Object.entries(st.providers).map(([k, v]) => (
                       <option key={k} value={k}>
@@ -238,7 +309,7 @@ export function SettingsPage() {
                   清除已存 key
                 </button>
               )}
-              <span className="ml-auto text-[10px] text-ink-faint">key 只写入本机 ~/.tcms-ai-platform/settings.json，绝不上传/入库</span>
+              <span className="ml-auto text-[10px] text-ink-faint">key 只写入本机 {st?.dir ?? "~/.tcms-ai-platform/settings.json"}，绝不上传/入库</span>
             </div>
             <div className="flex justify-between">
               <button className="btn-ghost" onClick={() => setStep(0)}>← 上一步</button>
@@ -280,20 +351,30 @@ export function SettingsPage() {
         {step === 3 && (
           <div className="space-y-3">
             <div className="text-[13px] leading-6">
-              都设置好了。接下来你可以：
+              都设置好了。接下来你可以（点卡片直达）：
             </div>
-            <div className="grid sm:grid-cols-2 gap-2 text-[12px]">
-              {[
-                ["▶ 故障演示", "到「故障演示」选一个真实故障，看它如何被检测与处置"],
-                ["◈ 知识图谱", "用大白话问 TCMS 领域知识，看证据链"],
-                ["✦ AI Agent", "给 Agent 真实任务，看它检索证据并真实执行"],
-                ["▤ 测试资产", "浏览 DBC 报文 / 故障字典 / 安全需求"],
-              ].map(([t, d]) => (
-                <div key={t} className="panel bg-surface-2/40 px-3 py-2.5">
-                  <div className="font-medium text-ink">{t}</div>
-                  <div className="text-ink-dim mt-0.5">{d}</div>
-                </div>
-              ))}
+            <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-2 text-[12px]">
+              {nextSteps.map((n) => {
+                const inner = (
+                  <>
+                    <div className="font-medium text-ink">{n.t}</div>
+                    <div className="text-ink-dim mt-0.5 text-xs">{n.d}</div>
+                  </>
+                );
+                return n.to ? (
+                  <Link key={n.t} to={n.to} className="panel bg-surface-2/40 px-3 py-2.5 block hover:border-info/40 transition-colors">
+                    {inner}
+                  </Link>
+                ) : (
+                  <button
+                    key={n.t}
+                    onClick={() => setStep(n.back ?? 0)}
+                    className="panel bg-surface-2/40 px-3 py-2.5 text-left w-full hover:border-info/40 transition-colors cursor-pointer"
+                  >
+                    {inner}
+                  </button>
+                );
+              })}
             </div>
             <div className="flex justify-between items-center">
               <button className="btn-ghost" onClick={() => setStep(2)}>← 上一步</button>
@@ -309,15 +390,177 @@ export function SettingsPage() {
         )}
       </Panel>
 
-      {/* 高级说明：外接配置接口 */}
-      <Panel title="进阶：外部可配置接口（给开发者 / 现场人员）" bodyClass="p-4">
-        <div className="space-y-2 text-[12px] text-ink-dim leading-5">
-          <div>所有配置都持久化在 <code className="kbd-mono">{st?.dir ?? "~/.tcms-ai-platform/settings.json"}</code>，不进仓库、不改代码：</div>
-          <ul className="list-disc pl-5 space-y-1">
-            <li><b className="text-ink">自定义资产 / 故障 / 场景</b>：把任意含 <code className="kbd-mono">tcms/dbc</code> + <code className="kbd-mono">faults.yaml</code> + <code className="kbd-mono">scenarios/</code> 的 tcms-can-test 目录填到资产源（加故障 = 往 faults.yaml 加条目并补对应场景）。</li>
-            <li><b className="text-ink">LLM / API</b>：任意 OpenAI 兼容端点（阿里云百炼 / DeepSeek / 自建）。key 仅本机保存。</li>
-            <li><b className="text-ink">环境变量</b>（可选，优先级高于设置文件）：<code className="kbd-mono">TCMS_UPSTREAM_DIR</code>、<code className="kbd-mono">DASH_API_KEY</code>、<code className="kbd-mono">LLM_BASE_URL</code>、<code className="kbd-mono">LLM_MODEL</code>、<code className="kbd-mono">PORT</code>。</li>
-          </ul>
+      {/* ============ 扩展与集成：可扩展点地图 ============ */}
+      <Panel
+        title="扩展与集成 · 外部可配置接口（给开发者 / 现场人员）"
+        right={<Tag tone="vio">免改代码 · 3 类扩展点</Tag>}
+        bodyClass="p-4"
+      >
+        <p className="text-[12px] text-ink-dim leading-5 mb-3">
+          把这个平台当开源项目用：<b className="text-ink">内容、模型、运行参数</b> 三类扩展点都开放成外部接口——
+          不 fork、不改平台代码即可接入自己的东西。取参优先级：<b className="text-ink">环境变量 &gt; 设置文件 &gt; 内置默认</b>；
+          设置文件在 <code className="kbd-mono">{st?.dir ?? "~/.tcms-ai-platform/settings.json"}</code>，不进仓库。
+        </p>
+
+        {/* 三卡：数据 / AI / 环境 */}
+        <div className="grid md:grid-cols-3 gap-2.5">
+          {/* ① 数据扩展 */}
+          <div className="panel bg-surface-2/40 p-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-semibold text-ink">① 数据扩展</span>
+              <Tag tone="dim">assets</Tag>
+            </div>
+            <div className="text-[11.5px] text-ink-dim leading-5">
+              自定义资产 = 往你的 tcms-can-test 目录加内容，重启后启动时自动加载：
+              <div className="mt-1.5 space-y-0.5">
+                <div>· 报文 → <code className="kbd-mono">tcms/tcms.dbc</code></div>
+                <div>· 故障 → <code className="kbd-mono">tcms/faults.yaml</code>（加条目 + 处置）</div>
+                <div>· 场景 → <code className="kbd-mono">scenarios/</code>（放一个 yaml）</div>
+              </div>
+            </div>
+            <div className="mt-auto pt-1 border-t border-line-soft/70">
+              <div className="flex items-center gap-2 text-[11.5px]">
+                <span className="text-ink-faint">资产源目录已指向？</span>
+                <StatusDot tone={isBundled ? "info" : "ok"} />
+                <span className={isBundled ? "text-ink-dim" : "text-ok"}>{srcFriendly}</span>
+              </div>
+              <Link to="/assets" className="text-info text-xs hover:underline inline-block mt-1.5">
+                去资产页看效果 →
+              </Link>
+            </div>
+          </div>
+
+          {/* ② AI / API 扩展 */}
+          <div className="panel bg-surface-2/40 p-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-semibold text-ink">② AI / API 扩展</span>
+              <Tag tone="dim">llm</Tag>
+            </div>
+            <div className="text-[11.5px] text-ink-dim leading-5 space-y-1">
+              <div>
+                服务商：<code className="kbd-mono">{provLabel || "（未选择 — 任意 OpenAI 兼容）"}</code>
+              </div>
+              <div>
+                模型：<code className="kbd-mono">{st?.llm.model?.trim() || "（默认 deepseek-v3.2）"}</code>
+              </div>
+              <div>
+                Base URL：
+                <code className="kbd-mono">{st?.llm.base_url?.trim() || "（默认阿里百炼兼容端点）"}</code>
+              </div>
+              <div className="flex items-center gap-1.5">
+                Key：
+                <StatusDot tone={llmReady ? "ok" : "info"} />
+                {llmReady ? "已设置" : "未设置（离线 Mock 可完整体验）"}
+              </div>
+            </div>
+            <div className="mt-auto pt-1 border-t border-line-soft/70">
+              <button className="btn-ghost btn-sm" onClick={() => setStep(1)}>在此接入你自己的模型 / 填 key →</button>
+              <div className="text-[10px] text-ink-faint mt-1">兼容：阿里云百炼 · DeepSeek · OpenAI · 自建 v1 端点</div>
+            </div>
+          </div>
+
+          {/* ③ 环境变量扩展 */}
+          <div className="panel bg-surface-2/40 p-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-semibold text-ink">③ 环境变量扩展</span>
+              <Tag tone="dim">env</Tag>
+            </div>
+            <div className="text-[11.5px] text-ink-dim leading-5">
+              启动服务前设置的环境变量优先级最高，适合部署 / 现场，无需动设置文件：
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {["TCMS_UPSTREAM_DIR", "TCMS_AI_HOME", "PORT", "LLM_BASE_URL", "LLM_MODEL", "DASH_API_KEY"].map((v) => (
+                  <code key={v} className="kbd-mono text-[10.5px] bg-surface px-1.5 py-0.5 rounded border border-line-soft">
+                    {v}
+                  </code>
+                ))}
+              </div>
+            </div>
+            <div className="mt-auto pt-1 border-t border-line-soft/70 text-[11.5px] text-ink-faint">
+              当前取值与状态见下方「环境变量键值表」↓
+            </div>
+          </div>
+        </div>
+
+        {/* 能力矩阵 */}
+        <div className="mt-4 pt-3 border-t border-line-soft">
+          <div className="flex items-center justify-between mb-2">
+            <span className="section-title">能力矩阵 · 当前开哪些能力</span>
+            <Tag tone="ok">机器自证</Tag>
+          </div>
+          <div className="table-scroll">
+            <table style={{ minWidth: 620 }}>
+              <thead>
+                <tr>
+                  <th className="th">能力</th>
+                  <th className="th">名称</th>
+                  <th className="th">说明</th>
+                  <th className="th">当前状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {CAP_ROWS.map((r) => {
+                  const v = capVal(r.k, r.kind === "always");
+                  const meta = capMeta(r.k, v);
+                  return (
+                    <tr key={r.k} className="tr-hover">
+                      <td className="td">
+                        <code className="kbd-mono">{r.k}</code>
+                      </td>
+                      <td className="td text-ink font-medium">{r.label}</td>
+                      <td className="td text-ink-dim text-[12.5px]">{r.desc}</td>
+                      <td className="td">
+                        <span className="inline-flex items-center gap-1.5 text-[12px]">
+                          <StatusDot tone={meta.tone} />
+                          <span className={meta.tone === "ok" ? "text-ok" : meta.tone === "warn" ? "text-warn" : "text-ink-dim"}>
+                            {meta.txt}
+                          </span>
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 环境变量键值表 */}
+        <div className="mt-4 pt-3 border-t border-line-soft">
+          <div className="flex items-center justify-between mb-2">
+            <span className="section-title">环境变量键值表</span>
+            <Tag tone="dim">当前值 / 状态（只读）</Tag>
+          </div>
+          <div className="table-scroll">
+            <table style={{ minWidth: 720 }}>
+              <thead>
+                <tr>
+                  <th className="th">环境变量</th>
+                  <th className="th">作用</th>
+                  <th className="th">当前值 / 状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {envRows.map((r) => (
+                  <tr key={r.name} className="tr-hover">
+                    <td className="td">
+                      <code className="kbd-mono text-[12px]">{r.name}</code>
+                    </td>
+                    <td className="td text-ink-dim text-[12.5px]">{r.role}</td>
+                    <td className="td">
+                      <span className="inline-flex items-center gap-2 text-[12px]">
+                        <StatusDot tone={r.tone} />
+                        <span className={r.tone === "warn" ? "text-warn" : r.tone === "ok" ? "text-ok" : "text-ink-dim"}>{r.val}</span>
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-ink-faint mt-2">
+            API key 永不回显：只显示「已设置 / 未设置」。来源链：环境变量（DASH_API_KEY / DEEPSEEK_API_KEY /
+            OPENAI_API_KEY）→ 设置文件 → ~/.dsh/.credentials.yaml。
+          </p>
         </div>
       </Panel>
 

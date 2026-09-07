@@ -17,7 +17,7 @@ const NAV = [
   { to: "/faultlab", label: "故障演示", icon: "⚙", hint: "故障发生过程动画演示" },
   { to: "/graph", label: "知识图谱", icon: "◈", hint: "检索领域知识" },
   { to: "/agent", label: "AI Agent", icon: "✦", hint: "指挥测试 Agent" },
-  { to: "/settings", label: "设置 / 引导", icon: "⚙", hint: "资产源 · API · 新手引导" },
+  { to: "/settings", label: "设置 / 引导", icon: "⚙", hint: "资产源 · API · 扩展点 · 新手引导" },
 ];
 
 const TITLES: Record<string, { t: string; s: string }> = {

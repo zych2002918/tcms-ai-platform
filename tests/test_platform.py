@@ -339,6 +339,30 @@ def test_faultlab_demo_404(client):
     assert r.status_code == 404
 
 
+def test_faultlab_demo_engine_window(client):
+    """引擎观察窗：engine.version 非空(真实执行已附)、事件带 source 溯源、pipeline 有常量表。
+
+    由 t1 在 faultlab_demo 端点给 run_result 补 engine_version 支撑——
+    run_yaml 报告本身不带版本，缺补丁则 version=None（回归锁定）。
+    """
+    r = client.post("/api/faultlab/demo", json={"scenario": "overspeed_derate.yaml"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["engine_asserted"] is True  # 引擎可用(测试夹具挂上游)
+    eng = body["demo"]["engine"]
+    assert eng["asserted"] is True
+    assert eng["version"]  # t1 补丁：真实引擎版本(如 1.9.1)，而非 None
+    assert body["demo"]["pipeline"]["title"]
+    # 真实/示意常量表齐备（透明自证）
+    assert body["demo"]["pipeline"]["constants"]["real"]
+    assert body["demo"]["pipeline"]["constants"]["schematic"]
+    # 事件带结构化 source（引擎断言/场景 YAML/故障字典溯源）
+    act_evts = [e for e in body["demo"]["events"] if e["kind"] == "action"]
+    assert any(e.get("source", {}).get("kind") == "engine_assert" for e in act_evts)
+    inj_evts = [e for e in body["demo"]["events"] if e["kind"] == "inject"]
+    assert any(e.get("source", {}).get("kind") == "scenario_yaml" for e in inj_evts)
+
+
 # ---- 设置层 / 新手引导 API（外部可配置接口；key 永不外泄）----
 
 

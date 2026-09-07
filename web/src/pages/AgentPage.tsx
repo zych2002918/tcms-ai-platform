@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type AgentRunResp } from "../api";
+import { api, type AgentFreeResp, type AgentRunResp } from "../api";
 import { Panel, Tag, EmptyState, SkeletonRows } from "../components/ui";
+
+type AgentRun = AgentRunResp["runs"][number];
 
 type SysStatus = {
   engine: { ok: boolean; version?: string };
@@ -18,6 +20,9 @@ const STEP_META: Record<string, { label: string; tone: "info" | "ok" | "warn" | 
   report: { label: "汇报", tone: "ok" },
 };
 
+/** 管线顺序（与后端真实轨迹的 step 对齐：plan→retrieve→act→exec→verify→reflect→report） */
+const STEP_ORDER = ["plan", "retrieve", "act", "exec", "verify", "reflect", "report"];
+
 const DIM_LABELS: Record<string, string> = {
   result_grounded: "真实断言",
   evidence_used: "证据使用",
@@ -27,14 +32,117 @@ const DIM_LABELS: Record<string, string> = {
   honesty: "诚实性",
 };
 
+/** 运行中「Agent 思考中…」的步骤提示（随动画轮换，给用户"进程在走"的感觉） */
+const RUN_HINTS = [
+  "正在把你的目标拆成「故障 → 期望处置」…",
+  "正在从知识底座检索证据（GraphRAG）…",
+  "正在挑选覆盖该故障的真实场景…",
+  "正在真实引擎上执行并核对断言…",
+  "正在评审结果：阈值 / 联锁 / 需求追溯…",
+];
+
+/** 单条 run 的「管线进程视图」：把逐条 reveal 映射到横排 step 点亮 */
+function StepPipeline({ trace, showCount }: { trace: AgentRun["trace"]; showCount: number }) {
+  if (trace.length === 0) return null;
+  const shown = trace.slice(0, showCount);
+  const doneSteps = new Set(shown.map((t) => t.step));
+  const lastStep = shown.length > 0 ? shown[shown.length - 1].step : null;
+  const stillRevealing = showCount < trace.length;
+  const toneCls: Record<string, string> = {
+    ok: "text-ok border-ok/40 bg-ok/10",
+    warn: "text-warn border-warn/40 bg-warn/10",
+    bad: "text-bad border-bad/40 bg-bad/10",
+    info: "text-info border-info/40 bg-info/10",
+    vio: "text-vio border-vio/40 bg-vio/10",
+    dim: "text-ink-dim border-line bg-surface-2",
+  };
+  return (
+    <ol className="flex flex-wrap items-center gap-y-1.5 gap-x-0 px-4 pt-3 pb-0.5" aria-label="执行管线">
+      {STEP_ORDER.map((s, i) => {
+        const meta = STEP_META[s] ?? { label: s, tone: "info" as const };
+        const isDone = doneSteps.has(s);
+        const isActive = isDone && stillRevealing && s === lastStep;
+        const isTodo = !isDone;
+        return (
+          <li key={s} className="flex items-center gap-x-0">
+            {i > 0 && <span className="text-ink-faint mx-1 text-[10px]">→</span>}
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] leading-4 whitespace-nowrap transition-all ${
+                isActive
+                  ? "text-info border-info/70 bg-info/15"
+                  : isDone
+                    ? toneCls[meta.tone] ?? toneCls.info
+                    : "text-ink-faint border-line bg-transparent"
+              }`}
+            >
+              {isActive ? (
+                <span className="h-1.5 w-1.5 rounded-full bg-info pulse-dot" />
+              ) : isDone ? (
+                <span className="text-[9px]">✓</span>
+              ) : (
+                <span className="h-1.5 w-1.5 rounded-full border border-ink-faint/50" />
+              )}
+              {isTodo ? <span className="opacity-60">{meta.label}</span> : meta.label}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** 自由目标 → 解析卡：给人看 Agent 怎么理解自然语言 */
+function GoalParseCard({ resp }: { resp: AgentFreeResp }) {
+  const p = resp.parsed;
+  if (!p) return null;
+  const conf = typeof p.confidence === "number" ? Math.round(p.confidence * 100) : null;
+  return (
+    <div className="panel border-info/30 bg-info/5 px-4 py-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] text-ink-faint font-medium uppercase tracking-wide">Agent 理解你的目标</span>
+        <span className="text-[11px] text-ink-dim">“{resp.goal}”</span>
+        {conf !== null && (
+          <span className="ml-auto">
+            <Tag tone={conf >= 60 ? "ok" : "warn"}>置信度 {conf}%</Tag>
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px]">
+        <span className="text-ink-dim">锚定故障</span>
+        <code className="kbd-mono !text-[13px] !text-bad border border-bad/30 bg-bad/10 rounded px-1.5 py-0.5">
+          {p.fault_name ? `${p.fault_name}（${p.fault}）` : p.fault}
+        </code>
+        <span className="text-ink-faint">→</span>
+        <span className="text-ink-dim">期望处置</span>
+        <code className="kbd-mono !text-[13px] !text-ok border border-ok/30 bg-ok/10 rounded px-1.5 py-0.5">
+          {p.expected_zh ? `${p.expected_zh}（${p.expected}）` : p.expected}
+        </code>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-ink-faint">
+        {p.resolver && (
+          <span>
+            解析方式：{p.resolver === "llm" ? "LLM 语义理解" : "规则匹配"}
+          </span>
+        )}
+        {p.matched_on && <span>命中依据：{p.matched_on}</span>}
+        <span className="text-ink-faint">下面按这条理解走完整流程：检索证据 → 真实执行 → 评审。</span>
+      </div>
+    </div>
+  );
+}
+
 export function AgentPage() {
   const [tasks, setTasks] = useState<{ task_id: string; title: string; goal: string; target_fault: string; expected_action: string }[]>([]);
   const [sel, setSel] = useState("");
   const [sys, setSys] = useState<SysStatus | null>(null);
   const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
   const [result, setResult] = useState<AgentRunResp | null>(null);
+  const [freeResp, setFreeResp] = useState<AgentFreeResp | null>(null);
   const [visible, setVisible] = useState(0); // 事件流逐条揭示
   const [err, setErr] = useState("");
+  const [goal, setGoal] = useState("");
+  const [goalHint, setGoalHint] = useState(""); // 自由目标没锚定 → 换说法引导
+  const [hintIdx, setHintIdx] = useState(0); // 运行中步骤提示轮换
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
@@ -43,7 +151,45 @@ export function AgentPage() {
     return () => timers.current.forEach(clearTimeout);
   }, []);
 
+  // 运行中：步骤提示轮换（简单 interval；离开 running 自动停）
+  useEffect(() => {
+    if (phase !== "running") return;
+    const id = setInterval(() => setHintIdx((i) => i + 1), 2000);
+    return () => clearInterval(id);
+  }, [phase]);
+
   const current = tasks.find((t) => t.task_id === sel);
+  const engineBlocked = sys !== null && !sys.engine.ok;
+
+  const clearTimers = () => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+  };
+
+  /** 按真实轨迹时间逐条揭示（事件流感：顺序/耗时是后端真实记录） */
+  const scheduleReveal = (runs: AgentRun[]) => {
+    setVisible(0);
+    const run0 = runs[0];
+    if (run0) {
+      const totalMs = run0.duration_ms || 1200;
+      run0.trace.forEach((_, i) => {
+        const delay = 250 + (totalMs / Math.max(run0.trace.length, 1)) * 0.9;
+        timers.current.push(setTimeout(() => setVisible(i + 1), i * delay));
+      });
+    } else {
+      setVisible(1);
+    }
+  };
+
+  const begin = () => {
+    clearTimers();
+    setPhase("running");
+    setResult(null);
+    setFreeResp(null);
+    setErr("");
+    setGoalHint("");
+    setVisible(0);
+  };
 
   const run = async (taskId?: string) => {
     const id = taskId ?? sel;
@@ -53,24 +199,11 @@ export function AgentPage() {
       setErr("engine_missing");
       return;
     }
-    setPhase("running");
-    setResult(null);
-    setErr("");
-    setVisible(0);
+    begin();
     try {
       const r = await api.agentRun(id);
       setResult(r);
-      // 按真实轨迹时间逐条揭示（事件流感，顺序/耗时是后端真实记录）
-      const run0 = r.runs[0];
-      if (run0) {
-        const totalMs = run0.duration_ms || 1200;
-        run0.trace.forEach((_, i) => {
-          const delay = 250 + (totalMs / Math.max(run0.trace.length, 1)) * 0.9;
-          timers.current.push(setTimeout(() => setVisible(i + 1), i * delay));
-        });
-      } else {
-        setVisible(1);
-      }
+      scheduleReveal(r.runs);
       setPhase("done");
     } catch (e) {
       setErr(String(e));
@@ -78,9 +211,65 @@ export function AgentPage() {
     }
   };
 
+  const runFree = async () => {
+    const g = goal.trim();
+    if (!g || phase === "running") return;
+    if (sys && !sys.engine.ok) {
+      setErr("engine_missing");
+      return;
+    }
+    begin();
+    try {
+      // 契约（t1 已落地并经 be-contracts 核验）：命中 → 200 恒带 parsed；
+      // 未命中 → HTTP 422，detail 为中文提示（req() 统一抛 "422: <detail>"）。
+      const r = await api.agentFree(g);
+      setFreeResp(r);
+      scheduleReveal(r.runs);
+      setPhase("done");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // 422/400 = 没锚定到具体故障 → 中文空态引导换个说法；其余 → 错误条
+      if (/^422:|^400:/.test(msg)) {
+        setGoalHint(msg.replace(/^4\d\d:\s*/, ""));
+      } else {
+        setErr(msg);
+      }
+      setPhase("done");
+    }
+  };
+
+  const runs: AgentRun[] = result?.runs ?? freeResp?.runs ?? [];
+
   return (
     <div className="space-y-4 max-w-[1100px]">
-      <Panel title="给 Agent 一个真实测试任务" bodyClass="p-3">
+      {/* 自由目标（像 DSH 一样：给 Agent 一句话，它先理解再查证） */}
+      <Panel title="用大白话，直接给 Agent 一个目标" bodyClass="p-3">
+        <textarea
+          className="input resize-none"
+          rows={2}
+          value={goal}
+          onChange={(e) => setGoal(e.target.value)}
+          placeholder="用大白话描述你想验证的：如「车门故障了还能发车吗？」「超速后系统该怎么办」「验证紧急制动失败必须停车」"
+          aria-label="自由目标输入"
+          disabled={phase === "running"}
+        />
+        <div className="mt-2 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+          <button
+            className="btn justify-center sm:w-auto"
+            onClick={() => void runFree()}
+            disabled={phase === "running" || !goal.trim() || engineBlocked}
+            title={engineBlocked ? "需先启用 TCMS 引擎" : "让 Agent 先去理解你的目标，再检索证据、真实执行"}
+          >
+            {phase === "running" ? "执行中…" : "✦ 让 Agent 去查证"}
+          </button>
+          <span className="text-[11px] text-ink-faint leading-4">
+            不用选任务、不用懂报文——Agent 会先把你的话理解成「故障 → 期望处置」，再去知识库查证。
+          </span>
+        </div>
+      </Panel>
+
+      {/* 内置任务（保留原有入口） */}
+      <Panel title="或选一个内置真实测试任务" bodyClass="p-3">
         <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
           <select className="select flex-1" value={sel} onChange={(e) => setSel(e.target.value)} aria-label="选择任务" disabled={phase === "running"}>
             {tasks.map((t) => (
@@ -89,10 +278,10 @@ export function AgentPage() {
               </option>
             ))}
           </select>
-          <button className="btn justify-center" onClick={() => run()} disabled={phase === "running" || !sel || (sys !== null && !sys.engine.ok)} title={sys && !sys.engine.ok ? "需先启用 TCMS 引擎" : undefined}>
+          <button className="btn justify-center" onClick={() => run()} disabled={phase === "running" || !sel || engineBlocked} title={engineBlocked ? "需先启用 TCMS 引擎" : undefined}>
             {phase === "running" ? "执行中…" : "▶ 执行此任务"}
           </button>
-          <button className="btn-ghost justify-center" onClick={() => run(tasks[0]?.task_id)} disabled={phase === "running" || tasks.length === 0 || (sys !== null && !sys.engine.ok)}>
+          <button className="btn-ghost justify-center" onClick={() => run(tasks[0]?.task_id)} disabled={phase === "running" || tasks.length === 0 || engineBlocked}>
             运行全部
           </button>
         </div>
@@ -103,6 +292,9 @@ export function AgentPage() {
             <div className="mt-1">{current.goal}</div>
           </div>
         )}
+        <div className="mt-2 text-[11px] text-ink-faint">
+          也可以直接在上方输入你自己的目标，Agent 会先理解再查证——两者走的是同一条执行流水线。
+        </div>
       </Panel>
 
       {/* 引擎缺失引导 */}
@@ -129,15 +321,56 @@ export function AgentPage() {
         <div className="panel border-bad/30 bg-bad/5 px-4 py-2.5 text-sm text-bad">引擎状态已变化，请刷新后重试。</div>
       )}
 
-      {/* 运行中 / 结果：真实事件流 */}
-      {phase !== "idle" && result && (
+      {err && err !== "engine_missing" && (
+        <div className="panel border-bad/30 bg-bad/5 px-4 py-2.5 text-sm text-bad">⚠ {err}</div>
+      )}
+
+      {/* 运行中：Agent 思考中…（步骤提示轮换 + pulse） */}
+      {phase === "running" && !result && !freeResp && !goalHint && (
+        <div className="panel px-4 py-4 flex items-start gap-3 step-in">
+          <span className="mt-1.5 flex h-2.5 w-2.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-info pulse-dot" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium text-ink">Agent 思考中…</div>
+            <div className="text-xs text-ink-dim mt-0.5 h-4">{RUN_HINTS[hintIdx % RUN_HINTS.length]}</div>
+            <div className="mt-1">
+              <SkeletonRows rows={1} cols={3} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 自由目标没锚定（422 中文 detail）→ 换个说法引导（在事件流容器外，422 时无 runs 可显示） */}
+      {goalHint && phase === "done" && (
+        <div className="panel px-4 py-5 step-in">
+          <EmptyState
+            icon="?"
+            title="这句我没法锚定到具体故障"
+            desc={`${goalHint} —— 试试让目标里出现故障对象（如：车门故障 / 超速 / 心跳丢失）和期望（如：不能发车 / 降级 / 停车）。`}
+          />
+          <div className="flex flex-wrap gap-1.5 justify-center pb-2">
+            {["车门故障了还能发车吗", "超速后系统该怎么办", "验证紧急制动失败必须停车"].map((ex) => (
+              <Tag key={ex} tone="dim" onClick={() => setGoal(ex)}>
+                {ex}
+              </Tag>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 运行中 / 结果：真实事件流（含管线进程视图） */}
+      {phase !== "idle" && (result || freeResp) && (
         <div className="step-in space-y-4">
-          {result.runs.map((run, ri) => {
+          {/* 自由目标命中 → 先给人看 Agent 怎么理解这句话（后端契约：200 恒带 parsed） */}
+          {freeResp && <GoalParseCard resp={freeResp} />}
+
+          {runs.map((run, ri) => {
             const isRevealed = ri === 0; // 只对触发的首个任务做逐条揭示动效
             const showCount = isRevealed && phase === "done" ? Math.max(visible, 1) : run.trace.length;
             return (
               <Panel
-                key={run.task_id}
+                key={`${run.task_id}-${ri}`}
                 title={
                   <>
                     <code className="kbd-mono">{run.task_id}</code>
@@ -163,7 +396,9 @@ export function AgentPage() {
                 }
                 bodyClass="p-0"
               >
-                <div className="px-4 py-3 space-y-0 border-b border-line-soft">
+                {/* 管线进程视图：随 reveal 逐段点亮 */}
+                <StepPipeline trace={run.trace} showCount={showCount} />
+                <div className="px-4 py-2.5 space-y-0 border-t border-line-soft">
                   {run.trace.slice(0, showCount).map((t, i) => {
                     const m = STEP_META[t.step] ?? { label: t.step, tone: "info" as const };
                     return (
@@ -267,7 +502,7 @@ export function AgentPage() {
           <EmptyState
             icon="✦"
             title="Agent 会像测试工程师一样完成任务"
-            desc="选一个任务（如「验证紧急制动执行失败必须触发 emergency_brake」）。它会检索知识、选场景、真实执行，并把每一步做了什么实时列出来。"
+            desc="选一个任务（如「验证紧急制动执行失败必须触发 emergency_brake」），或直接在上方输入你自己的目标。它会先理解成故障+期望处置，再检索知识、选场景、真实执行，并把每一步做了什么实时列出来。"
           />
         </Panel>
       )}
