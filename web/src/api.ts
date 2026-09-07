@@ -343,12 +343,20 @@ export interface AgentFreeResp extends AgentRunResp {
 }
 
 /** /api/agent/compose：一句话 → 原子资产组合 → 真实执行（Q3）。 */
+export interface ComposeProvenance {
+  fault: string;
+  name: string;
+  asset: { fid: string; level: string; action: string; sil: string; desc: string; detect: string; inject: string };
+  graph_facts: { system: string; scenarios: string[] };
+  agent_action: string;
+}
 export interface AgentComposeResp {
   goal: string;
   composed: boolean;
   intent: string;
   fault_matches?: { key: string; name: string; action: string; level: string }[];
   steps?: CustomStep[];
+  provenance?: ComposeProvenance[]; // Q7 三栏溯源
   run?: {
     scenario: string;
     passed: number;

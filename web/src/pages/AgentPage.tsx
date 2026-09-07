@@ -505,6 +505,53 @@ export function AgentPage() {
                     ))}
                   </div>
                 )}
+                {/* Q7：三栏溯源（源资产 / 图谱事实 / Agent 建议）——让组合"不是黑箱" */}
+                {composeResp.provenance && composeResp.provenance.length > 0 && (
+                  <div className="mt-3">
+                    <div className="text-[11px] text-ink-faint uppercase tracking-wide mb-1.5">
+                      三栏溯源 · 每个故障的事实从哪来（引用真实资产更可信，Agent 不臆造）
+                    </div>
+                    <div className="space-y-2">
+                      {composeResp.provenance.map((p) => (
+                        <div key={p.fault} className="grid grid-cols-1 md:grid-cols-3 gap-1.5">
+                          {/* 栏① 源资产（故障字典逐字段） */}
+                          <div className="panel bg-surface-2/40 px-2.5 py-2 text-[11px]">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <Tag tone="warn">{p.fault}</Tag>
+                              <span className="font-medium text-ink truncate">{p.name}</span>
+                            </div>
+                            <div className="text-ink-dim leading-4 space-y-0.5">
+                              <div><span className="text-ink-faint">字典：</span>{p.asset.fid} · {p.asset.level} · 处置 {p.asset.action} · SIL {p.asset.sil}</div>
+                              <div className="line-clamp-2"><span className="text-ink-faint">描述：</span>{p.asset.desc}</div>
+                            </div>
+                          </div>
+                          {/* 栏② 图谱事实（隶属系统 + 覆盖场景） */}
+                          <div className="panel bg-surface-2/40 px-2.5 py-2 text-[11px]">
+                            <div className="text-[10px] text-ink-faint mb-1">图谱事实</div>
+                            <div className="text-ink-dim leading-4">
+                              <div>隶属系统：<span className="text-ink">{p.graph_facts.system}</span></div>
+                              <div className="mt-0.5 text-ink-faint">覆盖场景（{p.graph_facts.scenarios.length}）：</div>
+                              <div className="flex flex-wrap gap-1 mt-0.5">
+                                {p.graph_facts.scenarios.slice(0, 3).map((s) => (
+                                  <span key={s} className="tag text-info border-info/30 bg-info/5">{s.replace(".yaml", "")}</span>
+                                ))}
+                                {p.graph_facts.scenarios.length > 3 && <span className="text-ink-faint">+{p.graph_facts.scenarios.length - 3}</span>}
+                              </div>
+                            </div>
+                          </div>
+                          {/* 栏③ Agent 建议（期望处置） */}
+                          <div className="panel bg-surface-2/40 px-2.5 py-2 text-[11px]">
+                            <div className="text-[10px] text-ink-faint mb-1">Agent 建议</div>
+                            <div className="text-ink-dim leading-4">
+                              <div>期望处置：<code className="text-ok">{p.agent_action}</code></div>
+                              <div className="mt-0.5 text-ink-faint line-clamp-2">检测手段：{p.asset.detect}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               <>

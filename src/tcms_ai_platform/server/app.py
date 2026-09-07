@@ -960,6 +960,47 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
                 **({"rag_evidence": turn.rag_evidence} if turn.rag_evidence else {}),
             }
         steps = [dict(s) for s in turn.suggested_steps]
+        # Q7 三栏溯源：每个组合故障 → {字典真实字段 / 隶属系统 / 覆盖场景}
+        provenance: list[dict] = []
+        seen_fk: set[str] = set()
+        for st in steps:
+            fk = st.get("fault")
+            if not fk or fk in seen_fk:
+                continue
+            seen_fk.add(fk)
+            fd = asset_model.fault(fk) if fk in asset_model.faults_by_key else None
+            if fd is None:
+                continue
+            fnode = f"fault:{fk}"
+            sys_name = ""
+            scen_list: list[str] = []
+            for e in graph.edges:
+                if e.src == fnode and e.kind == "belongs_to" and e.dst.startswith("system:"):
+                    n = graph.nodes.get(e.dst)
+                    if n:
+                        sys_name = n.label
+                elif e.dst == fnode and e.kind == "injects" and e.src.startswith("scenario:"):
+                    scen_list.append(e.src.split(":", 1)[1])
+            provenance.append(
+                {
+                    "fault": fk,
+                    "name": fd.name,
+                    # 栏① 真实资产（故障字典逐字段）
+                    "asset": {
+                        "fid": fd.fid,
+                        "level": fd.level,
+                        "action": fd.action,
+                        "sil": fd.sil,
+                        "desc": fd.desc,
+                        "detect": fd.detect,
+                        "inject": fd.inject,
+                    },
+                    # 栏② 图谱事实（隶属系统 + 覆盖场景）
+                    "graph_facts": {"system": sys_name or "未归类", "scenarios": sorted(scen_list)},
+                    # 栏③ Agent 建议 = 步骤里的期望处置与注入时刻
+                    "agent_action": st.get("expect") or fd.action,
+                }
+            )
         rep = _run_custom_steps(
             asset_model,
             req.message[:40] or "compose",
@@ -978,6 +1019,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             "intent": "compose_scenario",
             "fault_matches": turn.fault_matches,
             "steps": steps,
+            "provenance": provenance,  # Q7 三栏溯源：源资产 / 图谱事实 / Agent 建议
             "run": {
                 "scenario": rep.get("scenario"),
                 "passed": rep.get("passed"),

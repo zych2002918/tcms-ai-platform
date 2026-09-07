@@ -205,6 +205,14 @@ def test_agent_compose_two_faults_executes(client, monkeypatch):
     injects = [s["at"] for s in b["steps"] if s["action"] == "inject"]
     assert injects == sorted(injects)
     assert len(set(injects)) == len(injects)
+    # Q7 三栏溯源：每个故障带 字典/图谱事实/Agent 建议，且隶属真实系统
+    prov = {p["fault"]: p for p in b.get("provenance", [])}
+    assert "door_fault" in prov and "overspeed" in prov
+    dp = prov["door_fault"]
+    assert dp["asset"]["fid"].startswith("F-TCMS-")  # 真实字典条目
+    assert dp["graph_facts"]["system"]  # 隶属系统非空
+    assert dp["graph_facts"]["scenarios"]  # 有覆盖场景
+    assert dp["agent_action"] == "derate"  # Agent 建议 = 字典默认处置
 
 
 @NEEDS_UPSTREAM
