@@ -1,4 +1,4 @@
-﻿# ============ tcms-ai-platform .gitignore ============
+# ============ tcms-ai-platform .gitignore ============
 # Python
 __pycache__/
 *.py[cod]
@@ -40,11 +40,13 @@ e2e/theme-graph-verify.mjs
 # 本地预览截图
 docs/preview/
 
-# PyInstaller 打包产物
-dist/
+# PyInstaller 打包产物（根目录 dist/；web/dist 是前端构建产物，有意入库）
+/dist/
 build/
 tcms-ai-platform.spec
 !packaging/tcms-ai-platform.spec
 
-# 注意：web/dist 构建产物有意入库（任意 clone 即可跑出界面，P3 决策）
+# e2e 临时验证脚本（不入库）
 e2e/agent-suggest-verify.mjs
+
+# 注意：web/dist 构建产物有意入库（任意 clone 即可跑出界面，P3 决策）
