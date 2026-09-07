@@ -1,135 +1,181 @@
-# TCMS × AI 测试平台（tcms-ai-platform）
+<div align="center">
 
-> 把「AI 测试工程师能干活、能自证、看得见」的 TCMS 列车控制软件测试平台，
-> 做成**本地 Web 应用**。数据全部派生自真实上游资产，AI 能力离线可用。
+# TCMS × AI 列车软件测试平台
 
-![UI](docs/dashboard-preview.png)
+> **让 AI 测试工程师能干活、能自证、看得见** —— 面向列车控制软件（TCMS）的
+> 本地测试平台：真实资产 → 知识底座 → Agent 自证 → 动画/图谱可视化，全部离线可跑。
 
-更多页面截图：本地运行 `node e2e/preview-shots.mjs` 生成（见 docs/preview/）。
+![Python](https://img.shields.io/badge/Python-3.11+-2dd4a0)
+![FastAPI](https://img.shields.io/badge/FastAPI-Web_UI-4ca6ff)
+![React](https://img.shields.io/badge/React-18+-8b7cf6)
+![pytest](https://img.shields.io/badge/pytest-102%20passed-2dd4a0)
+![license](https://img.shields.io/badge/license-MIT-8ca0c0)
 
-## 新人 3 步跑起来（不用配任何 key）
+**黑夜 / 白天双主题 · 图谱 2D 缩放平移 + 3D 俯瞰 · 一键本地启动**
+
+</div>
+
+---
+
+## 这是什么
+
+本仓库是把两条独立能力线**合二为一**的 TCMS（列车网络控制系统）AI 测试工程：
+
+| 组件 | 一句话 | 位置 | 状态 |
+|---|---|---|---|
+| **平台**（tcms-ai-platform） | 本地 Web 应用：资产模型 + 知识图谱 + Agent Harness + 故障动画演示 | 仓库根 + `web/` + `src/tcms_ai_platform/` | ✅ 完整可运行 |
+| **AI 测试生成器**（原 tcms-ai-testgen） | LLM 生成测试用例的受约束 DSL 流水线 + 变异杀毒/反思自愈评测 | `ai-testgen/` | ✅ 完整可运行 |
+
+> 背景：作者先在 `tcms-can-test` 手写了 777 个 pytest（98% 覆盖），再把
+> 「AI 写测试并自证好坏」做成流水线（`ai-testgen`），最后把整套东西收进一个
+> 带界面的本地平台（`tcms-ai-platform`）——**三个仓库一个叙事**：
+> 真实核心 → AI 生成 → 平台化可视。上游引擎 `tcms-can-test` 作为依赖存在。
+
+---
+
+## 快速开始（2 条命令，不用配任何 key）
 
 ```bash
-# 1. clone
 git clone https://github.com/zych2002918/tcms-ai-platform.git
 cd tcms-ai-platform
 
-# 2. 启动（Windows）
+# Windows：
 start.bat
-
-# 2'. 或 macOS / Linux
+# macOS / Linux：
 bash start.sh
 ```
 
-脚本会自动：建虚拟环境 → 装依赖 → 启动服务 → 自动打开浏览器。
-**首次较慢（装依赖），之后秒开。**
+脚本自动建 venv → 装依赖 → 起服务 → 开浏览器（`http://127.0.0.1:8000`）。
+**全部功能离线可用**：Agent 默认离线 Mock 后端，检索 / 执行 / 评分一分钱不花。
 
-### 免安装：Windows exe（给现场 / 不会配环境的人）
+> 免 Python 版：Windows 现场可用 `dist/tcms-ai-platform/` 下的 exe（见
+> `packaging/README.md`）。
 
-> 打包方法见 `packaging/README.md`；发布产物即整个 `dist/tcms-ai-platform/` 目录，
-> 双击 `tcms-ai-platform.exe` 即可（免 Python、免引擎、前端已内置，自动开浏览器）。
+---
 
-## 新手引导 + 外部可配置接口（设置页）
+## 一屏看懂：平台里有什么
 
-打开后右上/导航「**设置 / 引导**」有 4 步新手向导：资产源 → 接入 AI → 检查引擎 → 完成。
+```
+┌─────────────────────────── 总览 ───────────────────────────┐
+│ 引擎/资产源/AI 后端状态 · 六大资产卡（报文/信号/故障/场景/需求/功能）│
+├──────────────┬───────────────┬───────────────┬─────────────┤
+│  场景执行      │  故障演示       │  知识图谱       │  AI Agent    │
+│  真实引擎跑场景 │  故障动画可溯源   │  2D 缩放/3D 俯瞰 │  检索→执行→自证 │
+│  手动编排      │  注入→检测→处置  │  大白话问 TCMS  │  自由目标/任务库 │
+│  AI 编排顾问   │  →恢复 逐帧溯源  │  向量+图谱双通道  │  8 真实故障锚定  │
+└──────────────┴───────────────┴───────────────┴─────────────┘
+```
 
-- **资产源**：默认用内置快照可直接开始；也可填自己的 tcms-can-test 目录
-  （往 `tcms/faults.yaml` 加故障、往 `scenarios/` 加场景 = 自定义用例/故障/情景）。
-- **接入 AI（可选）**：阿里云百炼 / DeepSeek 官方 / 任意 OpenAI 兼容端点。
-  不填也能用（Agent 离线 Mock 全流程可演示）。
-- **API key 安全**：只写入本机 `~/.tcms-ai-platform/settings.json`（gitignore 之外），
-  响应/日志/仓库绝不含 key；「清除 key」一键删除。
+### 核心亮点
 
-### 手动启动（可选）
+- **知识图谱工作台**：语义检索 + 关系图谱。图谱画布支持**滚轮缩放、拖拽平移、
+  双击/按钮一键适配**，并可切换 **3D 俯瞰**（拖拽旋转 / 自动缓转）——不同深度
+  （1/2/3 跳）扩缩关联范围，节点可点开看属性与邻居。
+- **故障演示（FaultLab）**：真实场景 → 可播放动画。列车/驾驶台 SVG + 故障部位
+  高亮脉冲 + 速度/制动缸压曲线，随进度条逐帧推进；每个事件都可溯源到
+  「场景 YAML / 故障字典 / 引擎断言 / 示意模型」四级数据来源。
+- **AI Agent 工作台**：内置 8 类真实故障任务（紧急制动/超速/心跳/总线/CRC/
+  重启风暴…），Agent 检索知识底座 → 真实执行 → 6 维语义评审 → 轨迹可审计；
+  也支持**自由目标**：输入「车门故障了还能发车吗」，Agent 理解后查证。
+- **手动编排 + AI 编排顾问**：在场景执行页自己编排「何时注入什么故障 → 期望
+  什么处置」并真实执行；旁边 AI 顾问可多轮对话，给出可一键采纳的编排建议。
+- **黑夜 / 白天双主题**：右上角一键切换，跟随系统/手动/持久化到本机设置。
+
+---
+
+## ai-testgen：AI 写测试并证明它写得好
+
+`ai-testgen/` 是独立可运行的 Python 包（原 `tcms-ai-testgen` 仓库整体并入）。
+它回答行业难题：**LLM 生成的测试用例怎么证明是"好的"**。
+
+```
+真实资产(DBC 8报文/36信号 + 13场景YAML) ──> 生成器(mock/真LLM) ──> execution DSL
+──> 编译为真实 pytest ──> 在上游 tcms-can-test 执行 ──> 量化报告
+        解析率 / 编译率 / 执行通过率 / 变异杀毒 kill_rate / 反思自愈 / 双 judge
+```
+
+### 独立运行
 
 ```bash
-python -m venv .venv
-.venv/Scripts/activate            # Windows；Linux/macOS: source .venv/bin/activate
-pip install -e .                  # 或 pip install -e ".[upstream]" 带引擎
-python -m tcms_ai_platform.server.app   # → http://127.0.0.1:8000
+cd ai-testgen
+pip install -e ".[test]"          # 30 秒自检：python scripts/selfcheck.py
+python examples/demo_full_loop.py --num 40 --mutation   # 全链路演示
+python -m tcms_ai_testgen.cli --llm --target "TCMS 超速防护"   # 真 LLM（需 key）
 ```
 
-## 回答你的几个"为什么"
+### 量化证据（数字全部有报告 JSON 可复现，见 `ai-testgen/docs/reports/`）
 
-### 为什么要一个端口 / 这是不是要部署到服务器？
-**不需要服务器。** 平台是**本地 Web 应用**：Python 起一个本地服务（默认
-`http://127.0.0.1:8000`），浏览器访问——跟你打开 VS Code 一样，是跑在你
-自己机器上的程序，不对外网开放。端口只是本机内部通信的"门牌"。
+| 证据 | 结果 | 复现 |
+|---|---|---|
+| 真实执行通过率 | mock 生成 34 条 → 真实 pytest **34/34 passed**（compile 100%） | `demo_full_loop.py --num 40` |
+| 变异杀毒 | 3 个被选中行为翻转**全被杀**（kill_rate 1.0，按相关用例分母） | 同上 `--mutation` |
+| 真 LLM 可执行 | deepseek-v3.2 compile 100%；幻觉（AlarmLevel=-1）被真实执行器当场拦截 | `run_llm_arm.py` |
+| AI 自我修复 | 反思闭环：22 条 5 失败 2 自愈（self-heal 0.40，diff 门禁防作弊） | `run_reflect_demo.py` |
+| 多模型对比 | v4-flash/v3.2/r1 × 3 批正式对比（质量差异被量化） | `run_multi_model.py` |
+| 生成源可区分 | 规则基线 vs mock 变异覆盖 1/3 vs 3/3 —— 只有 pass_rate 会误判 | `run_p3_comparison.py` |
 
-### 下载后别人怎么运行？
-见上方"新人 3 步"。关键设计：
-- **平台自带资产快照**（DBC/故障字典/19 场景/RTM 随包分发），clone 单仓库即可加载全部资产；
-- 启动脚本自动建 venv、装依赖，无需手工配环境；
-- 可选的 TCMS 引擎（`.[upstream]`）用于场景执行/Agent，不装则资产浏览与知识图谱仍完整可用；
-- `start.bat` / `start.sh` 是唯二需要用户执行的命令。
+---
 
-### 新人要不要填自己的 API？
-**当前不用。** Agent 默认走**离线 Mock 后端**——检索知识、选场景、真实执行、
-给评分报告这条链路**不花一分钱、不需要任何 key**。只有将来启用"真 LLM
-写测试/自由规划"这类功能才需要 key（`pip install -e ".[llm]"` + 配
-`.env` 的 key），且是可选增强而非前提。
-
-## 界面与功能
-
-- **总览** — 系统状态 + 从这里开始（看故障演示 / 跑场景 / 问图谱 / 指挥 Agent）；
-  六大资产卡（报文/信号/故障/场景/需求/功能）**点击直达**测试资产页对应内容
-- **设置 / 引导** — 新手向导 + **扩展与集成**面板（自定义资产 / API / 环境变量键值表 /
-  能力矩阵 / key 本机安全存储），外部可配置接口一目了然
-- **测试资产** — 报文 · 信号（枚举）· 故障（FMEA 详情）· 安全需求（RTM）· 场景 · 被测功能，
-  可筛选；支持 `?tab=` / `?focus=` URL 直达指定条目
-- **场景执行** — 在真实 TCMS 引擎上运行故障场景，逐步流程 + 断言证据；
-  场景数来自当前资产源（机器自证）；**手动编排**模式可自己编排
-  「何时注入什么故障 → 期望什么处置」并真实执行
-- **故障演示（FaultLab）** — 把真实故障场景变成**可播放的动画**：注入 → 检测 →
-  处置 → 恢复。列车状态、故障部位高亮、驾驶台仪表、速度/制动缸压力曲线随时间轴
-  同步推进（拖动进度条即暂停，便于停在关键瞬间观察）。每个事件都可溯源——
-  页内「数据管线 · 引擎观察窗」透明展示场景 YAML / 故障字典 / 引擎断言 / 示意物理模型。
-- **知识图谱** — 大白话检索 TCMS 领域知识（图谱 + 向量双通道），结果分类 + 附小白解释 +
-  关系图谱；**「这张图谱给谁用」**说明条 + 图例 + 深度 1/2/3 切换（给人看证据链，给 AI 喂 RAG）
-- **AI Agent 工作台** — 给 Agent 真实任务（紧急制动 / 超速 / 心跳丢失 / 总线短路 /
-  CRC / 重启风暴…8 类），看它**检索到的证据链** → 决策 → 真实执行 → 汇报（轨迹可审计 + 真实语义评审）；
-  也支持**自由目标**：用大白话输入「车门故障了还能发车吗」，Agent 先理解锚定真实故障再查证，
-  执行过程以**步骤管线动画**实时展示（规划 → 检索 → 执行 → 验证 → 汇报）
-
-## 启动前自检
-
-```bash
-python -m tcms_ai_platform.cli      # 或: tcms-platform-doctor
-```
-逐项检查：Python / 依赖 / 资产源 / TCMS 引擎 / LLM key / 端口。
-
-## 配置（.env，全部可选）
-
-见 `.env.example`。核心变量：
-- `PORT` — 端口，默认 8000
-- `TCMS_UPSTREAM_DIR` — 用活的上游 tcms-can-test 目录（可选，默认内置快照）
-- `DASH_API_KEY` / `DEEPSEEK_API_KEY` / `LLM_API_KEY` — 真 LLM 用（可选）
-
-### 配置优先级
-
-环境变量 > 设置文件（`~/.tcms-ai-platform/settings.json`，经「设置/引导」页写入）> 内置默认。
-用设置文件最省事：不用碰终端、不泄漏到仓库、exe 同样支持。
-
-## 架构
+## 目录速览
 
 ```
-真实资产(tcms-can-test) ──loader──▶ L1 资产模型 ──FastAPI──▶ Web UI (/)
-        (内置快照/活上游/兄弟目录 三级解析)
-        ├──▶ 知识底座：图谱(221节点/342边) + 向量(216文档) + GraphRAG
-        │        ├─ 资产实体(报文/信号/故障/场景/需求/功能)
-        │        └─ 领域知识注入(驾驶模式/联锁/阈值/机制/危害/标准/概念)
-        │            └─ 故障→危害 深连(16边，全部溯源真实 hazard 条目)
-        ├──▶ FaultLab：真实场景 → 事件时间线 + 通道曲线(动画演示)
-        └──▶ Agent Harness：任务库(8真实故障) → GraphRAG 检索(证据链可见)
-                 → 真实执行 → 验证 → 反思自愈 → 6维语义评审
+tcms-ai-platform/
+├── src/tcms_ai_platform/      平台 Python 包
+│   ├── core/                  L1 资产模型 + loader + 三级资产源
+│   ├── knowledge/             知识底座：图谱(221节点) + 向量 + GraphRAG + 沉淀
+│   ├── agent/                 Agent Harness：8任务/自由目标/advisor/reviewer/LLM后端
+│   ├── faultlab.py            故障演示数据重建器（事件时间线 + 通道曲线）
+│   ├── domain/                领域知识注入 JSON（EBM/网络/安全三套真实知识）
+│   └── server/app.py          FastAPI（单端口托管前端 dist）
+├── web/                       React + Vite + Tailwind v4 前端（双主题）
+├── ai-testgen/                独立包：LLM 测试生成流水线（原 tcms-ai-testgen）
+├── e2e/                       浏览器走查脚本（playwright + Edge）
+├── docs/                      设计 / 截图 / 研究
+└── packaging/                 PyInstaller 打包说明
 ```
+
+---
+
+## 配置（全部可选，新人零配置）
+
+环境变量 > 本机设置文件（`~/.tcms-ai-platform/settings.json`，设置页写入）> 内置默认。
+
+| 变量 | 作用 | 默认 |
+|---|---|---|
+| `PORT` | Web 端口 | 8000 |
+| `TCMS_UPSTREAM_DIR` | 指向活的上游 tcms-can-test（资产+引擎） | 自动：兄弟目录 → 内置快照 |
+| `TCMS_AI_HOME` | 本机设置目录 | `~/.tcms-ai-platform` |
+| `DASH_API_KEY` / `DEEPSEEK_API_KEY` | 真 LLM（可选，离线 Mock 已够演示） | 未设置走 Mock |
+
+**新人在设置页的「环境变量键值表」可实时看到每个变量当前取值与解析状态**，
+无遗留本地绝对路径——仓库源码不含任何 `D:\` 字面量（唯一 `C:\` 在注释里说明
+本机设置文件位置）。
+
+---
 
 ## 测试 / 门禁
 
 ```bash
-python -m pytest tests -q            # 53 tests（含真实资产冒烟）
-python -m ruff check src tests
-python -m pytest tests -q --cov=tcms_ai_platform --cov-fail-under=80
+# 平台
+python -m pytest tests -q                 # 102 passed（含真实资产冒烟）
+python -m ruff check src tests            # clean
+# ai-testgen（独立包，需 PYTHONPATH=src 或先 pip install -e）
+cd ai-testgen && python -m pytest tests -q
 ```
 
-> 红线：展示数字全部由真实资产派生；功能表/任务库锚定真实 RTM/故障字典，漂移即失败。
+红线（继承 tcms-can-test 纪律）：展示数字全部由真实资产派生、任务库锚定真实
+RTM/故障字典（漂移即失败）、API key 永不入库/不入响应、LLM 决策可落回离线 Mock。
+
+---
+
+## 关系：与上下游仓库
+
+| 仓库 | 关系 | 说明 |
+|---|---|---|
+| `tcms-can-test` | **上游引擎** | 777 手写用例 / 98% 覆盖的领域核心；平台以 `pip install -e ".[upstream]"` 依赖 |
+| `tcms-ai-platform` | **本仓库** | 平台 + 生成器（ai-testgen）合体，一个叙事 |
+| ~~tcms-ai-testgen~~ | 已并入 | 作为 `ai-testgen/` 保留独立包结构 |
+
+## License
+
+MIT —— 平台与生成器均 MIT；上游 tcms-can-test 亦 MIT。

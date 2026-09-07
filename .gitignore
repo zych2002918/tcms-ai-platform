@@ -1,42 +1,43 @@
-*.egg-info/
-# 娉ㄦ剰: 涓嶅拷鐣?web/dist 鈥斺€?鍓嶇鏋勫缓浜х墿鍏ュ簱锛屼繚璇佷竴閿惎鍔ㄥ嚭鐣岄潰锛圥3 鍐崇瓥锛?
+﻿# ============ tcms-ai-platform .gitignore ============
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
 .venv/
 .pytest_cache/
 .ruff_cache/
 .coverage
 htmlcov/
 coverage.json
+.hypothesis/
 
-# 鏈湴杩愯浜х墿
+# 运行产物
 reports/
 *.log
+server.log
 
-# 缂栬緫鍣?绯荤粺
+# IDE / OS
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
 
-# 鍓嶇鎴浘涓存椂
+# 前端截图 / 节点依赖
 web/shot-*.png
 web/node_modules/
-
-# TS build cache
-web/*.tsbuildinfo
-
-# e2e node deps
 e2e/node_modules/
 e2e/package*.json
-# e2e 运行截图（不入库）
+
+# TS 构建缓存
+web/*.tsbuildinfo
+
+# e2e 运行截图 / e2e 走查产物（不入库）
 e2e/shots-*.png
 e2e/docs/
 e2e/e2e/
+e2e/theme-graph-verify.mjs
 
-
-# 鏈湴棰勮鎴浘(涓嶅叆搴?渚涗汉宸ユ煡鐪?
+# 本地预览截图
 docs/preview/
 
 # PyInstaller 打包产物
@@ -44,4 +45,5 @@ dist/
 build/
 tcms-ai-platform.spec
 !packaging/tcms-ai-platform.spec
-# packaging/ 下的 spec 与打包说明入库,勿删
+
+# 注意：web/dist 构建产物有意入库（任意 clone 即可跑出界面，P3 决策）

@@ -291,6 +291,7 @@ export interface SettingsView {
   asset_dir: string;
   port: number;
   onboarding_done: boolean;
+  theme: string; // dark / light / ""（前端偏好，后端透传）
   providers: Record<string, { label: string; base_url: string; model: string }>;
 }
 

@@ -80,11 +80,11 @@ const normStep = (x: unknown): FaultLabStepPayload | null => {
 };
 
 const KIND_COLOR: Record<string, string> = {
-  inject: "#f5b84c",
-  detect: "#4ca6ff",
-  action: "#f4645a",
-  recover: "#2dd4a0",
-  note: "#8ca0c0",
+  inject: "var(--warn)",
+  detect: "var(--info)",
+  action: "var(--bad)",
+  recover: "var(--ok)",
+  note: "var(--ink-dim)",
 };
 const KIND_LABEL: Record<string, string> = {
   inject: "注入",
@@ -122,17 +122,17 @@ type FaultLabRespEx = Omit<FaultLabResp, "demo"> & { demo: FaultLabDemoEx };
 
 /* 来源标注（替代「示意」标签：数据从哪来，而不是在道歉） */
 const SOURCE_META: Record<string, { label: string; color: string }> = {
-  scenario_yaml: { label: "场景 YAML", color: "#4ca6ff" },
-  fault_dict: { label: "故障字典", color: "#8b7cf6" },
-  engine_assert: { label: "引擎断言", color: "#2dd4a0" },
-  derived_phys: { label: "示意模型", color: "#5d6f8f" },
-  note: { label: "备注", color: "#8ca0c0" },
+  scenario_yaml: { label: "场景 YAML", color: "var(--info)" },
+  fault_dict: { label: "故障字典", color: "var(--vio)" },
+  engine_assert: { label: "引擎断言", color: "var(--ok)" },
+  derived_phys: { label: "示意模型", color: "var(--ink-dim)" },
+  note: { label: "备注", color: "var(--ink-dim)" },
 };
 /* 数据管线步骤（t2 schema：kind ∈ asset / engine / model） */
 const STEP_META: Record<string, { label: string; color: string }> = {
-  asset: { label: "真实资产", color: "#4ca6ff" },
-  engine: { label: "真实引擎", color: "#2dd4a0" },
-  model: { label: "示意模型", color: "#8ca0c0" },
+  asset: { label: "真实资产", color: "var(--info)" },
+  engine: { label: "真实引擎", color: "var(--ok)" },
+  model: { label: "示意模型", color: "var(--ink-dim)" },
 };
 
 /* 故障 → 列车部位高亮锚点 + 中文名（在 520×150 的 SVG 视口内）
@@ -196,14 +196,15 @@ function PulseDot({ x, y, color }: { x: number; y: number; color: string }) {
 }
 
 function SpotChip({ spot }: { spot: FaultSpot }) {
-  const c = spot.tone === "red" ? SPOT_RED : SPOT_AMBER;
+  const red = spot.tone === "red";
+  const cls = red ? "text-bad border-bad/40 bg-bad/10" : "text-warn border-warn/40 bg-warn/10";
+  const dot = red ? "bg-bad" : "bg-warn";
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium"
-      style={{ color: c, borderColor: `${c}55`, background: `${c}1a` }}
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${cls}`}
       role="status"
     >
-      <span className="h-1.5 w-1.5 rounded-full pulse-dot" style={{ background: c }} />
+      <span className={`h-1.5 w-1.5 rounded-full pulse-dot ${dot}`} />
       高亮：{spot.zh}
     </span>
   );
@@ -232,7 +233,7 @@ function TrainGlyph({
   const shutdown = pt.action === "shutdown";
   const alarmOn = pt.alarms.length > 0 || spots.length > 0;
   const overLimit = pt.speed_kmh > limitKmh;
-  const speedColor = overLimit ? SPOT_RED : derate ? SPOT_AMBER : "#e8eef9";
+  const speedCls = overLimit ? "text-bad" : derate ? "text-warn" : "text-ink";
   return (
     <div className="relative select-none">
       <svg width="100%" viewBox="0 0 520 150" style={{ display: "block", background: "#0a1120", borderRadius: 12 }} role="img" aria-label="列车状态示意（故障部位高亮）">
@@ -331,7 +332,7 @@ function TrainGlyph({
         <div className="panel px-2.5 py-1.5 bg-surface-2/40 col-span-2 sm:col-span-3 md:col-span-1 flex flex-col justify-center" role="group" aria-label="驾驶台速度表">
           <div className="text-[10px] text-ink-faint">当前速度</div>
           <div className="flex items-baseline gap-1 leading-none">
-            <span className={`num text-[26px] font-bold ${overLimit ? "fault-blink" : ""}`} style={{ color: speedColor }}>
+            <span className={`num text-[26px] font-bold ${overLimit ? "fault-blink" : ""} ${speedCls}`}>
               {pt.speed_kmh.toFixed(0)}
             </span>
             <span className="text-[10px] text-ink-dim">km/h</span>
@@ -355,13 +356,11 @@ function TrainGlyph({
 }
 
 function MiniStat({ label, ok, text, tone }: { label: string; ok?: boolean; text: string; tone?: "ok" | "bad" }) {
-  const c = tone === "bad" ? "#f4645a" : tone === "ok" ? "#2dd4a0" : ok ? "#2dd4a0" : "#f4645a";
+  const cls = tone === "bad" || (!tone && !ok) ? "text-bad" : tone === "ok" || ok ? "text-ok" : "text-bad";
   return (
     <div className="panel px-1 py-1.5 bg-surface-2/40 min-w-0">
       <div className="text-[10px] text-ink-faint">{label}</div>
-      <div className="text-[11px] font-semibold truncate" style={{ color: c }}>
-        {text}
-      </div>
+      <div className={`text-[11px] font-semibold truncate ${cls}`}>{text}</div>
     </div>
   );
 }
@@ -401,7 +400,7 @@ function Curves({ curve, t, limitKmh }: { curve: FaultLabCurvePoint[]; t: number
 /** 事件来源标注：展示这条事件的数据从哪来（而非「这是示意」的道歉） */
 function SourceNote({ e }: { e: FaultLabEventEx }) {
   if (e.source?.desc) {
-    const m = SOURCE_META[e.source.kind || ""] || { label: e.source.kind || "数据来源", color: "#8ca0c0" };
+    const m = SOURCE_META[e.source.kind || ""] || { label: e.source.kind || "数据来源", color: "var(--ink-dim)" };
     return (
       <div className="flex items-center gap-1.5 text-[10.5px] mt-0.5 min-w-0">
         <span className="inline-block h-1.5 w-1.5 rounded-full shrink-0" style={{ background: m.color }} />
@@ -611,7 +610,7 @@ export function FaultLabPage() {
   const constRows = pipeline?.constants;
   const constReal = constRows?.real ?? [];
   const constSchematic = constRows?.schematic ?? [];
-  const stepColor = (kind?: string) => (kind ? STEP_META[kind]?.color ?? SOURCE_META[kind]?.color ?? "#8ca0c0" : "#8ca0c0");
+  const stepColor = (kind?: string) => (kind ? STEP_META[kind]?.color ?? SOURCE_META[kind]?.color ?? "var(--ink-dim)" : "var(--ink-dim)");
 
   return (
     <div className="space-y-4 max-w-[1180px]">
@@ -629,8 +628,8 @@ export function FaultLabPage() {
           </button>
         </div>
         {entry && phase === "ready" && data && (
-          <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10.5px]" style={{ borderColor: "var(--color-line)", background: "var(--color-surface-2)" }}>
-            <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: entry.tone === "vio" ? "#8b7cf6" : "#4ca6ff" }} />
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10.5px]" style={{ borderColor: "var(--line)", background: "var(--surface-2)" }}>
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${entry.tone === "vio" ? "bg-vio" : "bg-info"}`} />
             <span className="text-ink-dim">
               当前演示 = <span className="text-ink font-medium">{entry.label}</span>
               {entry.note ? ` · ${entry.note}` : ""}

@@ -9,6 +9,7 @@ import { FaultLabPage } from "./pages/FaultLabPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { api, type SettingsView } from "./api";
 import { StatusDot } from "./components/ui";
+import { applyTheme, currentTheme, toggleTheme } from "./lib/theme";
 
 const NAV = [
   { to: "/", label: "总览", icon: "◫", hint: "系统状态与入口" },
@@ -43,12 +44,20 @@ export default function App() {
   const [sys, setSys] = useState<SysStatus | null>(null);
   const [settings, setSettings] = useState<SettingsView | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">(currentTheme());
   const loc = useLocation();
   const meta = TITLES[loc.pathname] ?? TITLES["/"];
 
   useEffect(() => {
     api.systemStatus().then(setSys).catch(() => undefined);
-    api.settingsGet().then(setSettings).catch(() => undefined);
+    api.settingsGet().then((s) => {
+      setSettings(s);
+      // 服务端持久化的主题偏好 → 覆盖本地（多端一致）
+      if (s.theme && s.theme !== currentTheme()) {
+        applyTheme(s.theme as "dark" | "light");
+        setTheme(s.theme as "dark" | "light");
+      }
+    }).catch(() => undefined);
   }, []);
 
   const engineOk = sys?.engine.ok ?? true; // 未知时不打扰
@@ -163,6 +172,19 @@ export default function App() {
         <header className="flex items-baseline gap-3 px-6 pt-5 pb-1 shrink-0">
           <h1 className="text-[17px] font-semibold text-ink">{meta.t}</h1>
           <span className="text-xs text-ink-faint hidden sm:inline truncate">{meta.s}</span>
+          <button
+            className="theme-toggle ml-auto"
+            onClick={() => {
+              const next = toggleTheme();
+              setTheme(next);
+              // 主题偏好持久化到本机设置（可选增强：key 级别仅本机）
+              api.settingsSave({ theme: next }).catch(() => undefined);
+            }}
+            title={theme === "dark" ? "切换到白天模式" : "切换到黑夜模式"}
+            aria-label="切换主题"
+          >
+            {theme === "dark" ? "☀ 白天" : "☾ 黑夜"}
+          </button>
         </header>
         <div className="flex-1 overflow-y-auto px-6 pb-8 pt-3">
           <Routes>

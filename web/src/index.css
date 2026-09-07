@@ -1,23 +1,110 @@
 @import "tailwindcss";
 
-/* ===== TCMS × AI 设计 token（依 frontend-redesign-plan.md）===== */
+/* ===== TCMS × AI 设计 token（双主题：dark 默认 · light 覆盖）=====
+   html.theme-dark / 无标记 → 驾驶台夜视底；html.theme-light → 明亮驾驶舱。
+   语义色在亮/暗两套取值不同（保证对比度），用法不变：text-info / bg-ok/10 … */
+
+:root,
+html.theme-dark {
+  /* 夜视驾驶台底 */
+  --bg: #070b16;
+  --surface: #0d1424;
+  --surface-2: #131c33;
+  --surface-3: #1a2540;
+  --line: #233152;
+  --line-soft: #1a2540;
+  --input: #0a1120;
+  --ink: #e8eef9;
+  --ink-dim: #8ca0c0;
+  --ink-faint: #5d6f8f;
+  --on-info: #04121f;
+  --scrim: rgba(7, 11, 22, 0.55);
+  color-scheme: dark;
+  /* 信号语义色（暗底霓虹） */
+  --ok: #2dd4a0;
+  --warn: #f5b84c;
+  --bad: #f4645a;
+  --info: #4ca6ff;
+  --vio: #8b7cf6;
+  /* 图谱实体类型色（暗底霓虹） */
+  --kind-message: #4ca6ff;
+  --kind-signal: #8b7cf6;
+  --kind-device: #f472b6;
+  --kind-fault: #f4645a;
+  --kind-scenario: #f5b84c;
+  --kind-requirement: #2dd4a0;
+  --kind-function: #22d3ee;
+  --kind-run: #8ca0c0;
+  --kind-mode: #f472b6;
+  --kind-state: #f59e0b;
+  --kind-interlock: #f4645a;
+  --kind-threshold: #f5b84c;
+  --kind-mechanism: #a78bfa;
+  --kind-standard: #60a5fa;
+  --kind-hazard: #ef4444;
+  --kind-concept: #34d399;
+}
+
+html.theme-light {
+  /* 明亮驾驶舱（冷灰纸白 + 深海军墨） */
+  --bg: #e9eef7;
+  --surface: #ffffff;
+  --surface-2: #eef3fb;
+  --surface-3: #e2eaf6;
+  --line: #c7d4e8;
+  --line-soft: #dce5f2;
+  --input: #f7fafd;
+  --ink: #0d1b30;
+  --ink-dim: #45566f;
+  --ink-faint: #7a8ba5;
+  --on-info: #ffffff;
+  --scrim: rgba(233, 238, 247, 0.55);
+  color-scheme: light;
+  /* 信号语义色（亮底加深，保对比度） */
+  --ok: #0e9f6e;
+  --warn: #d97706;
+  --bad: #dc2626;
+  --info: #1d6fe0;
+  --vio: #6647e0;
+  /* 图谱实体类型色（亮底加深，保对比度） */
+  --kind-message: #1d6fe0;
+  --kind-signal: #6647e0;
+  --kind-device: #c2418d;
+  --kind-fault: #dc2626;
+  --kind-scenario: #d97706;
+  --kind-requirement: #0e9f6e;
+  --kind-function: #0e7490;
+  --kind-run: #64748b;
+  --kind-mode: #c2418d;
+  --kind-state: #c2541a;
+  --kind-interlock: #dc2626;
+  --kind-threshold: #d97706;
+  --kind-mechanism: #7c3aed;
+  --kind-standard: #2563a8;
+  --kind-hazard: #b91c1c;
+  --kind-concept: #15803d;
+}
+
+/* Tailwind 色板映射（inline：类名里的 /opacity 修饰符走 color-mix，可随变量联动） */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-input: var(--input);
+  --color-ink: var(--ink);
+  --color-ink-dim: var(--ink-dim);
+  --color-ink-faint: var(--ink-faint);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-info: var(--info);
+  --color-vio: var(--vio);
+}
+
 @theme {
-  /* 驾驶台夜视底 */
-  --color-bg: #070b16;
-  --color-surface: #0d1424;
-  --color-surface-2: #131c33;
-  --color-line: #233152;
-  --color-line-soft: #1a2540;
-  --color-ink: #e8eef9;
-  --color-ink-dim: #8ca0c0;
-  --color-ink-faint: #5d6f8f;
-  /* 信号语义色（结构即信息） */
-  --color-ok: #2dd4a0;
-  --color-warn: #f5b84c;
-  --color-bad: #f4645a;
-  --color-info: #4ca6ff;
-  --color-vio: #8b7cf6;
-  /* 字体 */
   --font-sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --font-mono: "Cascadia Code", Consolas, "JetBrains Mono", monospace;
 }
@@ -30,10 +117,11 @@ body,
 }
 
 body {
-  background: var(--color-bg);
-  color: var(--color-ink);
+  background: var(--bg);
+  color: var(--ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* ===== 基础组件类（Tailwind @apply 复用，避免重复长串）===== */
@@ -46,7 +134,7 @@ body {
   }
   .btn {
     @apply inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium
-      bg-info text-[#04121f] hover:brightness-110 active:brightness-95
+      bg-info text-[color:var(--on-info)] hover:brightness-110 active:brightness-95
       disabled:opacity-40 disabled:cursor-not-allowed transition-all select-none;
   }
   .btn-ghost {
@@ -54,16 +142,21 @@ body {
       bg-transparent text-ink-dim border border-line hover:text-ink hover:border-ink-dim/50
       disabled:opacity-40 disabled:cursor-not-allowed transition-all select-none;
   }
+  .btn-soft {
+    @apply inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium
+      bg-surface-3/70 text-ink-dim border border-transparent hover:text-ink hover:border-line
+      disabled:opacity-40 disabled:cursor-not-allowed transition-all select-none;
+  }
   .btn-sm {
     @apply px-2.5 py-1.5 text-xs;
   }
   .input {
-    @apply bg-[#0a1120] border border-line rounded-lg px-3 py-2 text-sm text-ink
+    @apply bg-input border border-line rounded-lg px-3 py-2 text-sm text-ink
       placeholder:text-ink-faint outline-none focus:border-info/60 focus:ring-1 focus:ring-info/30
       transition-all w-full;
   }
   .select {
-    @apply bg-[#0a1120] border border-line rounded-lg px-3 py-2 text-sm text-ink
+    @apply bg-input border border-line rounded-lg px-3 py-2 text-sm text-ink
       outline-none focus:border-info/60 transition-all;
   }
   .tag {
@@ -87,6 +180,10 @@ body {
   .stat-num {
     @apply text-[26px] font-bold tabular-nums tracking-tight;
   }
+  /* 图表内嵌深色块（如仪表曲线背景）：亮色下退为浅蓝灰，暗色下为输入底色 */
+  .chart-bg {
+    background: var(--input);
+  }
 }
 
 /* 表格容器：窄屏横向滚动不错位 */
@@ -102,13 +199,13 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* 滚动条暗色 */
+/* 滚动条跟随主题 */
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #233152;
+  background: var(--line);
   border-radius: 4px;
 }
 *::-webkit-scrollbar-track {
@@ -145,7 +242,7 @@ body {
 
 /* 键盘焦点可见（可访问性） */
 :focus-visible {
-  outline: 2px solid var(--color-info);
+  outline: 2px solid var(--info);
   outline-offset: 1px;
 }
 
@@ -206,13 +303,13 @@ body {
   transform-origin: center;
 }
 
-/* range 滑条（暗色驾驶台） */
+/* range 滑条（主题跟随） */
 .faultlab-range {
   -webkit-appearance: none;
   appearance: none;
   height: 6px;
   border-radius: 3px;
-  background: #233152;
+  background: var(--line);
   outline: none;
 }
 .faultlab-range::-webkit-slider-thumb {
@@ -221,16 +318,22 @@ body {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #4ca6ff;
-  border: 2px solid #070b16;
+  background: var(--info);
+  border: 2px solid var(--bg);
   cursor: pointer;
-  box-shadow: 0 0 0 3px #4ca6ff33;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--info) 25%, transparent);
 }
 .faultlab-range::-moz-range-thumb {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #4ca6ff;
-  border: 2px solid #070b16;
+  background: var(--info);
+  border: 2px solid var(--bg);
   cursor: pointer;
+}
+
+/* 主题切换按钮（App 顶栏） */
+.theme-toggle {
+  @apply inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium
+    bg-surface-2/70 border border-line text-ink-dim hover:text-ink hover:border-ink-dim/50 transition-all select-none cursor-pointer;
 }

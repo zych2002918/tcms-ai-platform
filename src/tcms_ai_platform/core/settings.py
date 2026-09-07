@@ -40,6 +40,7 @@ DEFAULTS: dict = {
     "asset_dir": "",  # 用户自定义资产目录(空=内置快照/自动解析)
     "port": 8000,
     "onboarding_done": False,  # 新手引导是否完成
+    "theme": "",  # 前端主题偏好(dark/light；空=跟随系统)。仅前端读取，后端透传持久化
 }
 
 # 常见 provider 预设(仅展示提示;实际连通性由 base_url/model/key 决定)
@@ -141,4 +142,5 @@ def public_view() -> dict:
         "asset_dir": s.get("asset_dir", ""),
         "port": s.get("port", 8000),
         "onboarding_done": bool(s.get("onboarding_done", False)),
+        "theme": s.get("theme", "") or "",
     }

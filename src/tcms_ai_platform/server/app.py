@@ -231,6 +231,7 @@ class SettingsUpdateRequest(BaseModel):
     llm_api_key: str | None = None  # 允许空串 = 清除
     asset_dir: str | None = None  # 空串 = 清空(回到自动)
     onboarding_done: bool | None = None
+    theme: str | None = None  # 前端主题偏好 dark/light/""（透传持久化，仅供前端）
 
 
 def create_app(asset_model: AssetModel | None = None, upstream: str | Path | None = None) -> FastAPI:
@@ -407,6 +408,9 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             patch["asset_dir"] = req.asset_dir.strip()
         if req.onboarding_done is not None:
             patch["onboarding_done"] = bool(req.onboarding_done)
+        if req.theme is not None:
+            v = (req.theme or "").strip().lower()
+            patch["theme"] = v if v in ("dark", "light") else ""
         if not patch:
             raise HTTPException(400, "无有效设置字段")
         try:

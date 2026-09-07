@@ -4,27 +4,27 @@ import { api, type KbNode, type KbSearchHit, type KbSubgraph } from "../api";
 import { Panel, Tag, SkeletonRows, EmptyState, Explain } from "../components/ui";
 import { KIND_META, plainExplain } from "../lib/explanations";
 
-/** 图谱节点类型 → 画布色（kind→hex；与 KIND_META 的语义色对齐，供画布/图例共用） */
-const KIND_HEX: Record<string, string> = {
-  message: "#4ca6ff",
-  signal: "#8b7cf6",
-  device: "#f472b6",
-  fault: "#f4645a",
-  scenario: "#f5b84c",
-  requirement: "#2dd4a0",
-  function: "#22d3ee",
-  run: "#8ca0c0",
+/** 图谱节点类型 → 主题变量色（亮/暗两套由 CSS 变量给出，画布/图例共用） */
+const KIND_VAR: Record<string, string> = {
+  message: "var(--kind-message)",
+  signal: "var(--kind-signal)",
+  device: "var(--kind-device)",
+  fault: "var(--kind-fault)",
+  scenario: "var(--kind-scenario)",
+  requirement: "var(--kind-requirement)",
+  function: "var(--kind-function)",
+  run: "var(--kind-run)",
   // P6 领域知识节点
-  mode: "#f472b6",
-  state: "#f59e0b",
-  interlock: "#f4645a",
-  threshold: "#f5b84c",
-  mechanism: "#a78bfa",
-  standard: "#60a5fa",
-  hazard: "#ef4444",
-  concept: "#34d399",
+  mode: "var(--kind-mode)",
+  state: "var(--kind-state)",
+  interlock: "var(--kind-interlock)",
+  threshold: "var(--kind-threshold)",
+  mechanism: "var(--kind-mechanism)",
+  standard: "var(--kind-standard)",
+  hazard: "var(--kind-hazard)",
+  concept: "var(--kind-concept)",
 };
-const kindHex = (kind: string): string => KIND_HEX[kind] ?? "#8ca0c0";
+const kindHex = (kind: string): string => KIND_VAR[kind] ?? "var(--kind-run)";
 
 /** 力导向 SVG（保持既有算法，视觉改用 token） */
 
@@ -426,129 +426,425 @@ export function GraphWorkspace() {
   );
 }
 
-/** 力导向 SVG 图 */
-function GraphCanvas({ sub, onNodeClick }: { sub: KbSubgraph; onNodeClick: (id: string) => void }) {
-  const W = 900;
-  const H = 480;
+/** ================= 图谱画布：2D 缩放平移 + 3D 轨道俯瞰 =================
+ *  - 2D：滚轮缩放（以光标为中心）、拖拽平移、双击/按钮一键适配、可点节点
+ *  - 3D：力导向布局投影到球面，可拖拽旋转 + 自动缓转，体感更直观
+ *  - 取色走主题变量 / 语义色（KIND_HEX），亮暗主题下都可读
+ */
+
+const GRAPH_W = 960;
+const GRAPH_H = 600;
+
+type ViewMode = "2d" | "3d";
+interface ViewState {
+  scale: number;
+  tx: number;
+  ty: number;
+}
+
+type Layout = Map<string, { x: number; y: number }>;
+
+/** 力导向布局（保留原算法，抽成纯函数，2D 与适配共用） */
+function computeLayout(sub: KbSubgraph): Layout {
+  const W = GRAPH_W;
+  const H = GRAPH_H;
   const K = 150;
-
-  const initPos = useMemo(() => {
-    const map = new Map<string, { x: number; y: number; vx: number; vy: number }>();
-    const nodes = sub.nodes;
-    const cx = W / 2;
-    const cy = H / 2;
-    nodes.forEach((n, i) => {
-      if (n.id === sub.seed) {
-        map.set(n.id, { x: cx, y: cy, vx: 0, vy: 0 });
-        return;
-      }
-      const ang = (i / Math.max(nodes.length - 1, 1)) * Math.PI * 2;
-      const r = 120 + (i % 3) * 55;
-      map.set(n.id, { x: cx + Math.cos(ang) * r, y: cy + Math.sin(ang) * r, vx: 0, vy: 0 });
-    });
-    return map;
-  }, [sub]);
-
-  const layout = useMemo(() => {
-    const pos = new Map(initPos);
-    const nodes = sub.nodes;
-    const links = sub.edges;
-    const rep = 9000;
-    const attr = 0.06;
-    for (let iter = 0; iter < 200; iter++) {
-      const forces = new Map<string, { fx: number; fy: number }>();
-      nodes.forEach((n) => forces.set(n.id, { fx: 0, fy: 0 }));
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = pos.get(nodes[i].id)!;
-          const b = pos.get(nodes[j].id)!;
-          let dx = a.x - b.x;
-          let dy = a.y - b.y;
-          let d2 = dx * dx + dy * dy;
-          if (d2 < 1) {
-            dx = (Math.random() - 0.5) * 2;
-            dy = (Math.random() - 0.5) * 2;
-            d2 = dx * dx + dy * dy;
-          }
-          const d = Math.sqrt(d2);
-          const f = rep / d2;
-          const fx = (dx / d) * f;
-          const fy = (dy / d) * f;
-          forces.get(nodes[i].id)!.fx += fx;
-          forces.get(nodes[i].id)!.fy += fy;
-          forces.get(nodes[j].id)!.fx -= fx;
-          forces.get(nodes[j].id)!.fy -= fy;
-        }
-      }
-      links.forEach((l) => {
-        const a = pos.get(l.src);
-        const b = pos.get(l.dst);
-        if (!a || !b) return;
-        let dx = b.x - a.x;
-        let dy = b.y - a.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const f = (dist - K) * attr;
-        const fx = (dx / dist) * f;
-        const fy = (dy / dist) * f;
-        forces.get(l.src)!.fx += fx;
-        forces.get(l.src)!.fy += fy;
-        forces.get(l.dst)!.fx -= fx;
-        forces.get(l.dst)!.fy -= fy;
-      });
-      nodes.forEach((n) => {
-        const p = pos.get(n.id)!;
-        p.x += (W / 2 - p.x) * 0.01;
-        p.y += (H / 2 - p.y) * 0.01;
-        p.x += forces.get(n.id)!.fx;
-        p.y += forces.get(n.id)!.fy;
-        p.x = Math.max(40, Math.min(W - 40, p.x));
-        p.y = Math.max(35, Math.min(H - 35, p.y));
-      });
+  const nodes = sub.nodes;
+  const links = sub.edges;
+  const pos = new Map<string, { x: number; y: number }>();
+  const cx = W / 2;
+  const cy = H / 2;
+  nodes.forEach((n, i) => {
+    if (n.id === sub.seed) {
+      pos.set(n.id, { x: cx, y: cy });
+      return;
     }
-    return pos;
-  }, [initPos, sub]);
+    const ang = (i / Math.max(nodes.length - 1, 1)) * Math.PI * 2;
+    const r = 120 + (i % 3) * 55;
+    pos.set(n.id, { x: cx + Math.cos(ang) * r, y: cy + Math.sin(ang) * r });
+  });
+  const rep = 9000;
+  const attr = 0.06;
+  const fmap = new Map<string, { fx: number; fy: number }>();
+  for (let iter = 0; iter < 200; iter++) {
+    nodes.forEach((n) => fmap.set(n.id, { fx: 0, fy: 0 }));
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = pos.get(nodes[i].id)!;
+        const b = pos.get(nodes[j].id)!;
+        let dx = a.x - b.x;
+        let dy = a.y - b.y;
+        let d2 = dx * dx + dy * dy;
+        if (d2 < 1) {
+          dx = (Math.random() - 0.5) * 2;
+          dy = (Math.random() - 0.5) * 2;
+          d2 = dx * dx + dy * dy;
+        }
+        const d = Math.sqrt(d2);
+        const f = rep / d2;
+        const fx = (dx / d) * f;
+        const fy = (dy / d) * f;
+        fmap.get(nodes[i].id)!.fx += fx;
+        fmap.get(nodes[i].id)!.fy += fy;
+        fmap.get(nodes[j].id)!.fx -= fx;
+        fmap.get(nodes[j].id)!.fy -= fy;
+      }
+    }
+    links.forEach((l) => {
+      const a = pos.get(l.src);
+      const b = pos.get(l.dst);
+      if (!a || !b) return;
+      let dx = b.x - a.x;
+      let dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const f = (dist - K) * attr;
+      const fx = (dx / dist) * f;
+      const fy = (dy / dist) * f;
+      fmap.get(l.src)!.fx += fx;
+      fmap.get(l.src)!.fy += fy;
+      fmap.get(l.dst)!.fx -= fx;
+      fmap.get(l.dst)!.fy -= fy;
+    });
+    nodes.forEach((n) => {
+      const p = pos.get(n.id)!;
+      p.x += (W / 2 - p.x) * 0.01;
+      p.y += (H / 2 - p.y) * 0.01;
+      p.x += fmap.get(n.id)!.fx;
+      p.y += fmap.get(n.id)!.fy;
+      p.x = Math.max(40, Math.min(W - 40, p.x));
+      p.y = Math.max(35, Math.min(H - 35, p.y));
+    });
+  }
+  return pos;
+}
 
-  const label = (s: string) => (s.length > 15 ? s.slice(0, 14) + "…" : s);
+const shortLabel = (s: string) => (s.length > 15 ? s.slice(0, 14) + "…" : s);
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/** 2D 力导向 + 缩放平移画布 */
+function GraphCanvas2D({ sub, onNodeClick, fitSignal }: { sub: KbSubgraph; onNodeClick: (id: string) => void; fitSignal: number }) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [view, setView] = useState<ViewState>({ scale: 1, tx: 0, ty: 0 });
+  const drag = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(null);
+
+  const layout = useMemo(() => computeLayout(sub), [sub]);
+
+  const fit = useCallback(() => {
+    const pts = [...layout.values()];
+    if (!pts.length) return;
+    const xs = pts.map((p) => p.x);
+    const ys = pts.map((p) => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const pad = 70;
+    const scale = clamp(Math.min((GRAPH_W - pad * 2) / Math.max(maxX - minX, 1), (GRAPH_H - pad * 2) / Math.max(maxY - minY, 1)), 0.15, 2.5);
+    const tx = GRAPH_W / 2 - ((minX + maxX) / 2) * scale;
+    const ty = GRAPH_H / 2 - ((minY + maxY) / 2) * scale;
+    setView({ scale, tx, ty });
+  }, [layout]);
+
+  // 首次挂载 + fitSignal 递增（父级“适配”按钮）都触发适配
+  useEffect(() => {
+    fit();
+  }, [fit, fitSignal]);
+
+  const toLocal = (clientX: number, clientY: number) => {
+    const svg = svgRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    const r = svg.getBoundingClientRect();
+    return { x: ((clientX - r.left) / r.width) * GRAPH_W, y: ((clientY - r.top) / r.height) * GRAPH_H };
+  };
+
+  const zoomAt = (mx: number, my: number, factor: number) => {
+    setView((v) => {
+      const scale = clamp(v.scale * factor, 0.15, 4);
+      const k = scale / v.scale;
+      return { scale, tx: mx - (mx - v.tx) * k, ty: my - (my - v.ty) * k };
+    });
+  };
+
+  const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
+    const { x, y } = toLocal(e.clientX, e.clientY);
+    zoomAt(x, y, e.deltaY < 0 ? 1.18 : 1 / 1.18);
+  };
+
+  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (e.button !== 0) return;
+    drag.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty, moved: false };
+    (e.currentTarget as SVGSVGElement).setPointerCapture(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const d = drag.current;
+    if (!d) return;
+    const rect = svgRef.current?.getBoundingClientRect();
+    const w = rect?.width ?? GRAPH_W;
+    const h = rect?.height ?? GRAPH_H;
+    const dx = ((e.clientX - d.x) / w) * GRAPH_W;
+    const dy = ((e.clientY - d.y) / h) * GRAPH_H;
+    if (Math.abs(dx) + Math.abs(dy) > 1) d.moved = true;
+    setView((v) => ({ ...v, tx: d.tx + dx, ty: d.ty + dy }));
+  };
+  const endDrag = () => {
+    drag.current = null;
+  };
+
+  const onDoubleClick = () => fit();
+  const showLabels = view.scale >= 0.42;
+  const showEdgeText = view.scale >= 0.85;
 
   return (
-    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} style={{ background: "#0a1120", display: "block" }} role="img" aria-label="资产关系图谱">
-      {sub.edges.map((e, i) => {
-        const a = layout.get(e.src);
-        const b = layout.get(e.dst);
-        if (!a || !b) return null;
-        return (
-          <g key={i}>
-            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#233152" strokeWidth={1.2} />
-            <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 5} fill="#5d6f8f" fontSize={9} textAnchor="middle">
-              {e.kind}
-            </text>
-          </g>
-        );
-      })}
-      {sub.nodes.map((n) => {
-        const p = layout.get(n.id);
-        if (!p) return null;
-        const isSeed = n.id === sub.seed;
+    <svg
+      ref={svgRef}
+      width="100%"
+      height={GRAPH_H}
+      viewBox={`0 0 ${GRAPH_W} ${GRAPH_H}`}
+      className="chart-bg"
+      style={{ display: "block", touchAction: "none", cursor: drag.current ? "grabbing" : "grab" }}
+      role="img"
+      aria-label="资产关系图谱（2D：滚轮缩放，拖拽平移，双击适配）"
+      onWheel={onWheel}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerLeave={endDrag}
+      onDoubleClick={onDoubleClick}
+    >
+      <g transform={`translate(${view.tx} ${view.ty}) scale(${view.scale})`}>
+        {sub.edges.map((e, i) => {
+          const a = layout.get(e.src);
+          const b = layout.get(e.dst);
+          if (!a || !b) return null;
+          return (
+            <g key={i}>
+              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="var(--line)" strokeWidth={1.1 / view.scale} />
+              {showEdgeText && (
+                <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 5} fill="var(--ink-faint)" fontSize={9 / view.scale} textAnchor="middle" style={{ pointerEvents: "none" }}>
+                  {e.kind}
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {sub.nodes.map((n) => {
+          const p = layout.get(n.id);
+          if (!p) return null;
+          const isSeed = n.id === sub.seed;
+          const r = isSeed ? 13 : 8;
+          return (
+            <g
+              key={n.id}
+              transform={`translate(${p.x},${p.y})`}
+              style={{ cursor: "pointer" }}
+              onClick={(ev) => {
+                ev.stopPropagation();
+                onNodeClick(n.id);
+              }}
+            >
+              {isSeed && <circle r={r + 7} fill="none" stroke={kindHex(n.kind)} strokeWidth={1.1 / view.scale} opacity={0.55} className="pulse-glow" style={{ transformBox: "fill-box", transformOrigin: "center" }} />}
+              <circle r={r / Math.sqrt(view.scale)} fill={kindHex(n.kind)} opacity={isSeed ? 1 : 0.92} stroke="var(--bg)" strokeWidth={2 / Math.sqrt(view.scale)} />
+              {showLabels && (
+                <text
+                  y={(isSeed ? 30 : 23) / view.scale}
+                  fill="var(--ink-dim)"
+                  fontSize={(isSeed ? 11.5 : 10) / view.scale}
+                  textAnchor="middle"
+                  style={{ pointerEvents: "none", fontWeight: isSeed ? 600 : 400 }}
+                >
+                  {shortLabel(n.label)}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </g>
+    </svg>
+  );
+}
+
+/** 3D 轨道俯瞰：力导向平面坐标按费波那契球面散布 → 透视投影，可拖拽旋转 + 自转 */
+function GraphCanvas3D({
+  sub,
+  onNodeClick,
+  auto,
+  onAutoChange,
+}: {
+  sub: KbSubgraph;
+  onNodeClick: (id: string) => void;
+  auto: boolean;
+  onAutoChange: (v: boolean) => void;
+}) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [rot, setRot] = useState<{ x: number; y: number }>({ x: -0.35, y: 0.6 });
+  const drag = useRef<{ x: number; y: number; rx: number; ry: number } | null>(null);
+  const raf = useRef<number | null>(null);
+
+  const R = useMemo(() => clamp(130 + sub.nodes.length * 11, 150, 300), [sub.nodes.length]);
+
+  const proj = useMemo(() => {
+    const n = sub.nodes.length || 1;
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    const out = new Map<string, { x: number; y: number; z: number }>();
+    sub.nodes.forEach((node, i) => {
+      const a = i * golden;
+      const pol = Math.acos(1 - (2 * (i + 0.5)) / n);
+      const y = Math.cos(pol) * R;
+      const rxy = Math.sin(pol) * R;
+      out.set(node.id, { x: Math.cos(a) * rxy, y, z: Math.sin(a) * rxy });
+    });
+    return out;
+  }, [sub.nodes, R]);
+
+  useEffect(() => {
+    if (!auto) return;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = Math.min((now - last) / 1000, 0.05);
+      last = now;
+      setRot((r) => ({ ...r, y: r.y + dt * 0.25 }));
+      raf.current = requestAnimationFrame(tick);
+    };
+    raf.current = requestAnimationFrame(tick);
+    return () => {
+      if (raf.current) cancelAnimationFrame(raf.current);
+    };
+  }, [auto]);
+
+  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (e.button !== 0) return;
+    onAutoChange(false);
+    drag.current = { x: e.clientX, y: e.clientY, rx: rot.x, ry: rot.y };
+    (e.currentTarget as SVGSVGElement).setPointerCapture(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const d = drag.current;
+    if (!d) return;
+    setRot({ x: clamp(d.rx + (e.clientY - d.y) * 0.005, -1.3, 1.3), y: d.ry + (e.clientX - d.x) * 0.006 });
+  };
+  const endDrag = () => {
+    drag.current = null;
+  };
+
+  const cosX = Math.cos(rot.x);
+  const sinX = Math.sin(rot.x);
+  const cosY = Math.cos(rot.y);
+  const sinY = Math.sin(rot.y);
+  const cx = GRAPH_W / 2;
+  const cy = GRAPH_H / 2;
+  const cam = 2.6;
+  // 球半径相对画布偏小 → 用 scl 放大投影，让球体铺满画布
+  const scl = (Math.min(GRAPH_W, GRAPH_H) * 0.42) / R;
+  const spots: { n: { id: string; kind: string; label: string }; sx: number; sy: number; depth: number; seed: boolean }[] = [];
+
+  sub.nodes.forEach((n) => {
+    const v = proj.get(n.id);
+    if (!v) return;
+    const x1 = v.x * cosY + v.z * sinY;
+    const z1 = -v.x * sinY + v.z * cosY;
+    const y2 = v.y * cosX - z1 * sinX;
+    const z2 = v.y * sinX + z1 * cosX;
+    const persp = 1 / (cam - z2 / R);
+    spots.push({ n, sx: cx + x1 * persp * scl, sy: cy + y2 * persp * scl, depth: (z2 / R + 1) / 2, seed: n.id === sub.seed });
+  });
+  spots.sort((a, b) => a.depth - b.depth);
+
+  const edgeSpots = sub.edges
+    .map((e) => {
+      const a = spots.find((s) => s.n.id === e.src);
+      const b = spots.find((s) => s.n.id === e.dst);
+      return a && b ? { a, b } : null;
+    })
+    .filter((x): x is { a: (typeof spots)[number]; b: (typeof spots)[number] } => x !== null)
+    .sort((p, q) => Math.min(q.a.depth, q.b.depth) - Math.min(p.a.depth, p.b.depth));
+
+  return (
+    <svg
+      ref={svgRef}
+      width="100%"
+      height={GRAPH_H}
+      viewBox={`0 0 ${GRAPH_W} ${GRAPH_H}`}
+      className="chart-bg"
+      style={{ display: "block", touchAction: "none", cursor: drag.current ? "grabbing" : "grab" }}
+      role="img"
+      aria-label="资产关系图谱 3D 俯瞰（拖拽旋转 · 节点可点）"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerLeave={endDrag}
+    >
+      {edgeSpots.map(({ a, b }, i) => (
+        <line key={i} x1={a.sx} y1={a.sy} x2={b.sx} y2={b.sy} stroke="var(--line)" strokeWidth={0.5 + a.depth * b.depth} opacity={0.2 + a.depth * b.depth * 0.4} />
+      ))}
+      {spots.map((s) => {
+        const r = (s.seed ? 11 : 6.5) * (0.55 + 0.5 * s.depth);
+        const fill = kindHex(s.n.kind);
         return (
           <g
-            key={n.id}
-            transform={`translate(${p.x},${p.y})`}
-            style={{ cursor: "pointer" }}
-            onClick={() => onNodeClick(n.id)}
+            key={s.n.id}
+            transform={`translate(${s.sx},${s.sy})`}
+            style={{ cursor: "pointer", opacity: 0.3 + 0.7 * s.depth }}
+            onClick={(ev) => {
+              ev.stopPropagation();
+              onNodeClick(s.n.id);
+            }}
           >
-            <circle
-              r={isSeed ? 14 : 9}
-              fill={kindHex(n.kind)}
-              opacity={isSeed ? 1 : 0.9}
-              stroke="#070b16"
-              strokeWidth={2}
-            />
-            <text y={isSeed ? 28 : 22} fill="#c7d4e8" fontSize={isSeed ? 11.5 : 10} textAnchor="middle" style={{ pointerEvents: "none" }}>
-              {label(n.label)}
-            </text>
+            {s.seed && <circle r={r + 6} fill="none" stroke={fill} strokeWidth={1.2} opacity={0.6} className="pulse-glow" style={{ transformBox: "fill-box", transformOrigin: "center" }} />}
+            <circle r={r} fill={fill} stroke="var(--bg)" strokeWidth={1.5} />
+            {s.depth > 0.48 && (
+              <text y={r + 13} fill="var(--ink-dim)" fontSize={s.seed ? 10.5 : 8.5} textAnchor="middle" style={{ pointerEvents: "none" }}>
+                {shortLabel(s.n.label)}
+              </text>
+            )}
           </g>
         );
       })}
     </svg>
+  );
+}
+
+/** 图谱视图：2D（缩放/平移/适配）与 3D（轨道/自转）切换 + 控制条 */
+function GraphCanvas({ sub, onNodeClick }: { sub: KbSubgraph; onNodeClick: (id: string) => void }) {
+  const [mode, setMode] = useState<ViewMode>("2d");
+  const [fitSignal, setFitSignal] = useState(0);
+  const [auto, setAuto] = useState(true);
+
+  return (
+    <div className="relative">
+      {mode === "2d" ? (
+        <GraphCanvas2D sub={sub} onNodeClick={onNodeClick} fitSignal={fitSignal} />
+      ) : (
+        <GraphCanvas3D sub={sub} onNodeClick={onNodeClick} auto={auto} onAutoChange={setAuto} />
+      )}
+      {/* 视图控制条 */}
+      <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5">
+        <div className="flex items-center rounded-lg border border-line bg-surface/90 p-0.5 shadow-sm">
+          {(["2d", "3d"] as ViewMode[]).map((m) => (
+            <button
+              key={m}
+              className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${mode === m ? "bg-info text-[color:var(--on-info)]" : "text-ink-dim hover:text-ink"}`}
+              onClick={() => setMode(m)}
+            >
+              {m === "2d" ? "◫ 2D" : "◍ 3D"}
+            </button>
+          ))}
+        </div>
+        {mode === "2d" ? (
+          <button className="btn-soft" onClick={() => setFitSignal((s) => s + 1)} title="把全部节点适配到可视区域（或双击画布）">
+            ⤢ 适配
+          </button>
+        ) : (
+          <button className={`btn-soft ${auto ? "!text-info" : ""}`} onClick={() => setAuto((a) => !a)} title={auto ? "停止自动旋转" : "开始自动旋转"}>
+            {auto ? "⏸ 停转" : "▶ 自转"}
+          </button>
+        )}
+      </div>
+      {/* 操作提示 */}
+      <div className="absolute bottom-2 right-2 z-10 pointer-events-none">
+        <span className="rounded-md border border-line-soft bg-surface/70 px-1.5 py-0.5 text-[10px] text-ink-faint">
+          {mode === "2d" ? "滚轮缩放 · 拖拽平移 · 双击适配" : "拖拽旋转 · 点击节点查看详情"}
+        </span>
+      </div>
+    </div>
   );
 }
