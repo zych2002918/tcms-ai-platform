@@ -34,6 +34,7 @@ export function GraphWorkspace() {
 
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<KbSearchHit[] | null>(null);
+  const [route, setRoute] = useState<{ domains: string[]; zh: string[]; bounded: boolean; mixed: boolean } | null>(null);
   const [searching, setSearching] = useState(false);
   const [sub, setSub] = useState<KbSubgraph | null>(null);
   const [depth, setDepth] = useState(2);
@@ -86,6 +87,12 @@ export function GraphWorkspace() {
     try {
       const r = await api.kbSearch(text, 10);
       setHits(r.hits);
+      setRoute({
+        domains: r.routed_domains ?? [],
+        zh: r.routed_zh ?? [],
+        bounded: r.bounded ?? false,
+        mixed: r.mixed_fallback ?? false,
+      });
       setActiveKind("all");
       setSelNode(null);
     } catch (e) {
@@ -236,6 +243,19 @@ export function GraphWorkspace() {
             </Panel>
           ) : (
             <>
+              {/* 检索走向（Q4 有界分层：先图谱路由到域，再域内语义 topk） */}
+              {route && route.domains.length > 0 && (
+                <div className="px-1 -mt-1 mb-1 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-faint">
+                  <span>检索已路由到分域：</span>
+                  {route.zh.map((z) => (
+                    <span key={z} className="tag text-info border-info/30 bg-info/5">
+                      {z}
+                    </span>
+                  ))}
+                  {route.bounded && <span>· 有界域内检索（不整库迷失）</span>}
+                  {route.mixed && <span>· 域内不足已全局补召回</span>}
+                </div>
+              )}
               {/* 分类 tab */}
               <div className="flex flex-wrap items-center gap-1.5 px-1">
                 <button
@@ -282,6 +302,11 @@ export function GraphWorkspace() {
                               <Tag tone={KIND_META[kind]?.color}>
                                 相关度 {(h.score * 100).toFixed(0)}%
                               </Tag>
+                              {h.domain && (
+                                <span className="text-[10px] text-ink-faint tag !bg-transparent border-line-soft">
+                                  域·{h.domain}
+                                </span>
+                              )}
                               <span className="ml-auto text-[11px] text-ink-faint">点击查看关系图谱 →</span>
                             </div>
                             <div className="mt-1.5 text-[13px] text-ink leading-5 line-clamp-2">

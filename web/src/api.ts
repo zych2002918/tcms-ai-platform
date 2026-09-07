@@ -105,11 +105,16 @@ export interface KbSearchHit {
   kind: string;
   text: string;
   score: number;
+  domain?: string; // Q4 分区标签（如 network/door）
   graph_neighbors: { id: string; kind: string; label: string; via: string }[];
 }
 
 export interface KbSearchResp {
   query: string;
+  routed_domains?: string[]; // Q4：图谱路由到的分区域（有界检索）
+  routed_zh?: string[];
+  bounded?: boolean; // true = 域内检索；false = 全局回退
+  mixed_fallback?: boolean; // true = 域内不足已回退补召回
   hits: KbSearchHit[];
 }
 

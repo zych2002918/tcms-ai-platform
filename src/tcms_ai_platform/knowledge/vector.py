@@ -66,30 +66,76 @@ class HashedEmbedder(Embedder):
 
 
 class VectorStore:
-    """内存向量库：add / search（余弦）。"""
+    """内存向量库（可分片有界）：add / search（余弦）。
 
-    def __init__(self, embedder: Embedder | None = None) -> None:
+    有界分层设计（Q4）：
+    - 每个 doc 可带 domain 分区标签（meta["domain"]），search 可按 domains 过滤 →
+      检索先路由到域、再域内语义 topk（不会在庞大库中迷失）。
+    - 分区容量上限：add 时可传 partition_caps {domain: max_docs}；超限自动拒绝
+      （fail-loud 防静默溢出），由调用方做淘汰/归档。
+    - 无 domain 的 doc 归 "" 分区（全局兼容，原行为不变）。
+    """
+
+    def __init__(
+        self,
+        embedder: Embedder | None = None,
+        partition_caps: dict[str, int] | None = None,
+    ) -> None:
         self.embedder = embedder or HashedEmbedder()
         self.docs: list[Doc] = []
         self._vectors: list[np.ndarray] = []
+        self.partition_caps = dict(partition_caps or {})
 
-    def add(self, doc: Doc) -> None:
+    def _domain_of(self, doc: Doc) -> str:
+        return str(doc.meta.get("domain", "") or "")
+
+    def add(self, doc: Doc) -> bool:
+        """加文档；返回是否成功（超分区上限时拒绝并返回 False，不静默溢出）。"""
+        dom = self._domain_of(doc)
+        cap = self.partition_caps.get(dom)
+        if cap is not None:
+            cur = sum(1 for d in self.docs if self._domain_of(d) == dom)
+            if cur >= cap:
+                return False
         self.docs.append(doc)
         self._vectors.append(self.embedder.embed(doc.text))
+        return True
 
     def add_many(self, docs: list[Doc]) -> int:
+        accepted = 0
         for d in docs:
-            self.add(d)
-        return len(docs)
+            if self.add(d):
+                accepted += 1
+        return accepted
 
-    def search(self, query: str, k: int = 8) -> list[dict]:
+    def partition_stats(self) -> dict:
+        """各分区文档数（供 UI/自检展示「有界索引」）。"""
+        out: dict[str, int] = {}
+        for d in self.docs:
+            dom = self._domain_of(d)
+            out[dom] = out.get(dom, 0) + 1
+        return out
+
+    def search(self, query: str, k: int = 8, domains: list[str] | None = None) -> list[dict]:
+        """余弦 topk；domains 非空时只在该分区内检索（图谱路由后调用）。"""
         if not self.docs:
             return []
+        idx = list(range(len(self.docs)))
+        if domains is not None:
+            dset = {d for d in domains if d != ""} | (set() if "" in (domains or []) else set())
+            if dset or "" in (domains or []):
+                idx = [
+                    i
+                    for i in idx
+                    if (self._domain_of(self.docs[i]) in dset)
+                    or (self._domain_of(self.docs[i]) == "" and "" in (domains or []))
+                ]
+                if not idx:
+                    return []
         qv = self.embedder.embed(query)
         scores = []
-        for i, vec in enumerate(self._vectors):
-            # 余弦（向量已归一化）
-            s = float(np.dot(qv, vec))
+        for i in idx:
+            s = float(np.dot(qv, self._vectors[i]))
             scores.append((s, i))
         scores.sort(key=lambda t: t[0], reverse=True)
         out = []
@@ -110,7 +156,7 @@ class VectorStore:
         by_kind: dict[str, int] = {}
         for d in self.docs:
             by_kind[d.kind] = by_kind.get(d.kind, 0) + 1
-        return {"docs": len(self.docs), "by_kind": by_kind}
+        return {"docs": len(self.docs), "by_kind": by_kind, "by_domain": self.partition_stats()}
 
 
 # ---------------------------------------------------------------------------
@@ -118,12 +164,49 @@ class VectorStore:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# 域分区（Q4 有界分层：检索先路由到域，再域内语义 topk）
+# ---------------------------------------------------------------------------
+# 域标签沿用上游 faults.yaml 的 subsystem 归属；真实列车按 13 系统分类法
+# (S1000D 01-13) 组织，当前资产子集已覆盖：牵引/制动/车门/能源/受电弓/网络/
+# VCU/信号。域常量同时被图谱路由 (retriever) 与向量分区消费。
+
+# 子系统 → 归一化域（别名收拢，避免"网络/VCU/信号"三处分片过碎）
+SUB_DOMAIN: dict[str, str] = {
+    "牵引": "traction",
+    "制动": "brake",
+    "车门": "door",
+    "能源": "power",
+    "受电弓": "pantograph",
+    "网络": "network",
+    "VCU": "network",  # VCU 心跳/健康属网络完整性域
+    "信号": "signal",
+}
+DOMAIN_ZH: dict[str, str] = {
+    "traction": "牵引",
+    "brake": "制动",
+    "door": "车门",
+    "power": "能源/电池",
+    "pantograph": "受电弓/高压",
+    "network": "网络/VCU",
+    "signal": "信号/传感",
+    "": "通用",
+}
+DOMAINS: list[str] = ["traction", "brake", "door", "power", "pantograph", "network", "signal", ""]
+
+
+def subsystem_domain(subsystem: str) -> str:
+    """故障子系统 → 分区域（未收录归 网络 域，避免丢失可检索性）。"""
+    return SUB_DOMAIN.get(subsystem or "", "network")
+
+
 def build_docs_from_asset(m) -> list[Doc]:
-    """从 L1 AssetModel 派生检索语料（全真实，无手编）。"""
+    """从 L1 AssetModel 派生检索语料（全真实，无手编），并打 domain 分区标签。"""
     docs: list[Doc] = []
 
-    # 故障：desc + detect + inject + recovery
+    # 故障：desc + detect + inject + recovery（分区 = 子系统域）
     for f in m.faults_by_key.values():
+        dom = subsystem_domain(f.subsystem)
         docs.append(
             Doc(
                 doc_id=f"fault:{f.key}",
@@ -138,33 +221,45 @@ def build_docs_from_asset(m) -> list[Doc]:
                     "level": f.level,
                     "action": f.action,
                     "subsystem": f.subsystem,
+                    "domain": dom,
                 },
             )
         )
 
-    # 需求 verifies
+    # 需求 verifies（分区 = 覆盖它的功能主域；无覆盖归 ""）
+    def _fault_domain(key: str) -> str:
+        f = m.faults_by_key.get(key)
+        return subsystem_domain(f.subsystem) if f else ""
+
+    _REQ_DOMAIN: dict[str, str] = {}
+    for fn in m.functions.values():
+        dom = _fault_domain(fn.fault_keys[0]) if fn.fault_keys else ""
+        for rid in fn.requirements:
+            _REQ_DOMAIN.setdefault(rid, dom)
     for req_id, reqs in m.requirements.items():
         docs.append(
             Doc(
                 doc_id=f"req:{req_id}",
                 kind="requirement",
                 text=f"{req_id} " + " ".join(r.verifies for r in reqs),
-                meta={"req_id": req_id, "rows": len(reqs)},
+                meta={"req_id": req_id, "rows": len(reqs), "domain": _REQ_DOMAIN.get(req_id, "")},
             )
         )
 
-    # 被测功能
+    # 被测功能（分区 = 其 fault_keys 主域）
+
     for fn in m.functions.values():
+        dom = _fault_domain(fn.fault_keys[0]) if fn.fault_keys else ""
         docs.append(
             Doc(
                 doc_id=f"function:{fn.fid}",
                 kind="function",
                 text=f"{fn.name} {fn.description}",
-                meta={"fid": fn.fid, "requirements": list(fn.requirements)},
+                meta={"fid": fn.fid, "requirements": list(fn.requirements), "domain": dom},
             )
         )
 
-    # 场景（含步骤语义）
+    # 场景（分区 = 注入故障主域；多域场景归第一域）
     for s in m.scenarios.values():
         steps_txt = []
         for st in s.steps:
@@ -174,17 +269,20 @@ def build_docs_from_asset(m) -> list[Doc]:
                 )
             else:
                 steps_txt.append(f"在{st.at}s恢复{st.fault}")
+        dom = _fault_domain(next(iter(s.fault_keys), "")) if s.fault_keys else ""
         docs.append(
             Doc(
                 doc_id=f"scenario:{s.file}",
                 kind="scenario",
                 text=f"{s.name} {' '.join(steps_txt)}",
-                meta={"file": s.file},
+                meta={"file": s.file, "domain": dom},
             )
         )
 
-    # 报文/信号元（让检索能命中"心跳/门/速度"等）
+    # 报文/信号元（让检索能命中"心跳/门/速度"等）；分区 = 发送设备域
+    _DEV_DOMAIN = {"BCU": "brake", "VCU": "network", "BMS": "power", "TCMS": "network", "BOGIE": "door"}
     for msg in m.messages.values():
+        dom = _DEV_DOMAIN.get(msg.node, "")
         docs.append(
             Doc(
                 doc_id=f"message:{msg.name}",
@@ -193,7 +291,7 @@ def build_docs_from_asset(m) -> list[Doc]:
                     f"报文 {msg.name} 发送节点{msg.node} 周期{msg.cycle_ms}ms "
                     f"类型{msg.send_type} 信号:" + ",".join(msg.signal_names)
                 ),
-                meta={"name": msg.name, "cycle_ms": msg.cycle_ms},
+                meta={"name": msg.name, "cycle_ms": msg.cycle_ms, "domain": dom},
             )
         )
     for sig in m.signals.values():

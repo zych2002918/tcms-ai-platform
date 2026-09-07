@@ -132,3 +132,41 @@ def test_graph_sink_records_run(kb):
     assert len(sink.runs) == 1
     run_id = "run:run-test-001"
     assert run_id in g.nodes
+
+
+# ---- Q4：有界分层检索（域路由 → 域内语义 topk） ----
+
+
+@NEEDS_UPSTREAM
+def test_partition_stats_domain_tagged(kb):
+    """资产文档已按子系统打域标（有界索引的分区基础）。"""
+    by = kb["store"].partition_stats()
+    # 资产文档已按子系统打域标；验证域集合非空且可路由
+    assert "door" in by and "network" in by and "brake" in by
+    assert by.get("network", 0) >= 9  # 网络子系统 9 故障 + 相关报文/场景
+
+
+@NEEDS_UPSTREAM
+def test_route_domain_door(kb):
+    r = kb["retriever"].retrieve("车门故障 不能发车", k=3)
+    assert r["bounded"] is True
+    assert "door" in r["routed_domains"]
+    # 域内 top1 应命中 door 域资产
+    top = r["hits"][0]
+    assert top.get("domain") in ("door", "")
+
+
+@NEEDS_UPSTREAM
+def test_route_domain_heartbeat(kb):
+    r = kb["retriever"].retrieve("VCU 心跳丢失 降级", k=3)
+    assert "network" in r["routed_domains"]
+    ids = {h["doc_id"] for h in r["hits"]}
+    assert "fault:heartbeat_loss_vcu" in ids
+
+
+@NEEDS_UPSTREAM
+def test_unrouted_query_falls_back_global(kb):
+    """无域信号查询（天气/通用）→ 不全域硬路由，退回全局检索保召回。"""
+    r = kb["retriever"].retrieve("今天天气不错", k=3)
+    assert r["bounded"] is False
+    assert r["hits"]  # 仍返回（虽有噪，但诚实不空）
