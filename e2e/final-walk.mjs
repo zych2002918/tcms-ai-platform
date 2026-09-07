@@ -10,7 +10,7 @@ const assert = (name, cond) => results.push((cond ? "✓ " : "✗ ") + name);
 await p.goto(BASE + "/", { waitUntil: "networkidle" });
 await p.waitForTimeout(600);
 let body = await p.locator("body").innerText();
-assert("总览:状态条+从这里开始", body.includes("上游引擎就绪") && body.includes("从这里开始") && body.includes("被测功能"));
+assert("总览:状态条+从这里开始", body.includes("平台运行中") && body.includes("从这里开始") && body.includes("被测功能"));
 
 // 2. 资产 —— 报文 tab + 筛选
 await p.goto(BASE + "/assets", { waitUntil: "networkidle" });

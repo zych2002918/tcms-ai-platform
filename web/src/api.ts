@@ -31,6 +31,14 @@ export interface Stats {
   functions: number;
 }
 
+/** /api/health：双段版本（平台自身 / 资产模型 / 上游引擎） */
+export interface HealthResp {
+  status: string;
+  version: string;
+  asset_version: string;
+  engine_version: string | null;
+}
+
 export interface MessageInfo {
   name: string;
   frame_id: string;
@@ -197,7 +205,7 @@ export interface ConstRow {
 
 export const api = {
   stats: () => req<Stats>("/stats"),
-  health: () => req<{ status: string; version: string }>("/health"),
+  health: () => req<HealthResp>("/health"),
   systemStatus: () =>
     req<{
       engine: { ok: boolean; version?: string; reason?: string };

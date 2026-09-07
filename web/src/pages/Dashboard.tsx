@@ -5,7 +5,7 @@ import { Panel, Tag, StatusDot } from "../components/ui";
 
 export function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [health, setHealth] = useState<{ status: string; version: string } | null>(null);
+  const [health, setHealth] = useState<{ status: string; version: string; engine_version: string | null } | null>(null);
   const [err, setErr] = useState("");
 
   useEffect(() => {
@@ -61,8 +61,13 @@ export function Dashboard() {
           <span className="flex items-center gap-2">
             <StatusDot tone={health?.status === "ok" ? "ok" : "bad"} pulse />
             <span>
-              {health?.status === "ok" ? "上游引擎就绪" : "上游引擎离线"} · v
+              {health?.status === "ok" ? "平台运行中" : "平台异常"} · v
               {stats?.version ?? "–"}
+              {health?.engine_version ? (
+                <span className="ml-1 text-ink-faint">· 引擎 v{health.engine_version}</span>
+              ) : (
+                <span className="ml-1 text-ink-faint">· 引擎未接入</span>
+              )}
             </span>
           </span>
           <span className="text-ink-dim">

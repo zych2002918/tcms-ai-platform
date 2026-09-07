@@ -330,7 +330,20 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
 
     @app.get("/api/health")
     def health() -> dict:
-        return {"status": "ok", "version": asset_model.version}
+        """健康 + 双段版本：platform 自身版本 + 上游 tcms 引擎版本（若可导入）。"""
+        engine_version = None
+        try:
+            import tcms  # noqa: F401
+
+            engine_version = getattr(tcms, "__version__", None)
+        except Exception:  # noqa: BLE001 - 引擎缺失不影响 health
+            engine_version = None
+        return {
+            "status": "ok",
+            "version": __version__,  # 平台自身版本（0.2.0）
+            "asset_version": asset_model.version,  # 资产模型版本
+            "engine_version": engine_version,  # 上游 tcms 引擎版本（可能为 None）
+        }
 
     @app.get("/api/stats")
     def stats() -> dict:
