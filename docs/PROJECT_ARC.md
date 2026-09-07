@@ -99,7 +99,7 @@
 | 报文 / 信号 | 8 / 36 | DBC |
 | 故障(FMEA) / 场景 | 22 / 19 | faults.yaml / scenarios/ |
 | 需求(RTM) / 功能 / 设备 | 18 / 4 / 5 | rtm.csv / 手工锚定 |
-| 图谱节点 / 边 | 230 / 372 | 资产 + 领域知识(EBM/网络/安全/列车系统分类) |
+| 图谱节点 / 边 | 239 / 385 | 资产 + 领域知识(EBM/网络/安全/列车系统分类) |
 | 向量文档 | 216 | 资产 + 领域(离线 HashedEmbedder) |
 | Agent 内置任务 | 8 | 真实故障锚定防漂移 |
 
@@ -112,7 +112,7 @@
 ### 5.3 简历可主张（三句话叙事，附追问弹药）
 
 1. **从 0 建了一条"LLM→受约束 DSL→真实 pytest→变异杀毒→反思自愈→双 judge"的 AI 测试用例工厂流水线**，用量化证据（parse/compile/exec/kill_rate/self-heal）证明"AI 写的测试好不好"，规避了"只求通过+覆盖会放过真 bug"的业界陷阱。
-2. **把它做成了一个本地可复现的 TCMS 测试平台**：真实资产模型→知识图谱(230 节点,含列车系统族)+GraphRAG→Agent Harness(检索→真实执行→6 维语义评审→轨迹可审计)→Web 端到端可见（双主题/图谱 2D+3D/故障动画逐帧溯源）。
+2. **把它做成了一个本地可复现的 TCMS 测试平台**：真实资产模型→知识图谱(239 节点,含列车系统族)+GraphRAG→Agent Harness(检索→真实执行→6 维语义评审→轨迹可审计)→Web 端到端可见（双主题/图谱 2D+3D/故障动画逐帧溯源）。
 3. **工程纪律全程机器自证**：数字全由真实资产派生、任务库锚定真实故障字典(漂移即失败)、LLM 决策可落回离线 Mock、API key 永不入库——项目本身先有最好的测试。
 
 ---
@@ -170,7 +170,7 @@ objects/（根，gitlink 聚合 + 导航）
 
 ### 7.1 本项目已沉淀进图记忆的条目（避免重复劳动）
 
-- `tcms-platform-recon-baseline`(TASK)：2026-09 实测基线——26故障/24场景/18需求/8报文/36信号/4功能/5设备；图谱236/377(含6系统族)；向量225；8 Agent 任务硬编码防漂移；FaultLab `_profiles()` 与前端 `FAULT_SPOT_META` 双表无同步校验；testgen 的 venv editable 指向已删除 D: 路径(需 PYTHONPATH=src)。
+- `tcms-platform-recon-baseline`(TASK)：2026-09 实测基线——26故障/25场景/18需求/8报文/38信号/4功能/5设备；图谱239/385(含6系统族)；向量234；8 Agent 任务硬编码防漂移；FaultLab `_profiles()` 与前端 `FAULT_SPOT_META` 双表无同步校验；testgen 的 venv editable 指向已删除 D: 路径(需 PYTHONPATH=src)。
 - `tcms-gh-push-and-clone-verified`(EVENT)：GitHub 推送/克隆验证全链路通过的方法（git credential fill 取 token → API → push → clone 验证）。
 - 其他可复用：`glob-file-search` / `read-file-utf8-windows` / `dump-trial-traces`(SUMO 线) 等工具型 SKILL。
 

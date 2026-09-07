@@ -122,7 +122,7 @@ python -m tcms_ai_testgen.cli --llm --target "TCMS 超速防护"   # 真 LLM（�
 tcms-ai-platform/
 ├── src/tcms_ai_platform/      平台 Python 包
 │   ├── core/                  L1 资产模型 + loader + 三级资产源
-│   ├── knowledge/             知识底座：图谱(230节点/含6系统族) + 向量 + GraphRAG + 沉淀
+│   ├── knowledge/             知识底座：图谱(239节点/含6系统族) + 向量 + GraphRAG + 沉淀
 │   ├── agent/                 Agent Harness：8任务/自由目标/advisor/reviewer/LLM后端
 │   ├── faultlab.py            故障演示数据重建器（事件时间线 + 通道曲线）
 │   ├── domain/                领域知识注入 JSON（EBM/网络/安全三套真实知识）
