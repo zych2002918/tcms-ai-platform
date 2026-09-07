@@ -282,7 +282,7 @@ export interface AgentRunResp {
     reflected: boolean;
     scenario: string | null;
     duration_ms: number;
-    score: { score: number; achieved: boolean; evidence_count: number; exec_passed: boolean; reflected: boolean };
+    score: { score: number; achieved: boolean; evidence_count: number; exec_passed: boolean; reflected: boolean; radar?: { goal_achieved: number; evidence_used: number; exec_pass: number; reflection: number } };
     review: {
       task_id: string;
       passed: boolean;

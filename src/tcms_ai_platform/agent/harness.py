@@ -111,6 +111,13 @@ class TaskRun:
             "exec_passed": bool(self.execution and self.execution.get("all_passed")),
             "reflected": self.reflected,
             "attempts": self.attempts,
+            # Q7 fresume 式四维雷达（各轴 0-100，语义直观可解释）
+            "radar": {
+                "goal_achieved": 100 if self.achieved else 0,  # 达成
+                "evidence_used": min(100, len(self.evidence) * 25),  # 证据覆盖
+                "exec_pass": 100 if (self.execution and self.execution.get("all_passed")) else 0,  # 真实执行
+                "reflection": 100 if self.reflected else (50 if self.attempts > 1 else 0),  # 反思/自愈
+            },
         }
 
 

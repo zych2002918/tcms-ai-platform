@@ -5,6 +5,43 @@ import { Panel, Tag, EmptyState, SkeletonRows } from "../components/ui";
 
 type AgentRun = AgentRunResp["runs"][number];
 
+/** Q7：四维雷达 SVG（达成/证据/执行/反思），fresume 式质量可视化 */
+function RadarFour({ axes }: { axes: { goal_achieved: number; evidence_used: number; exec_pass: number; reflection: number } }) {
+  const SIZE = 96;
+  const CX = SIZE / 2;
+  const CY = SIZE / 2;
+  const R = 34;
+  const vals = [axes.goal_achieved, axes.evidence_used, axes.exec_pass, axes.reflection];
+  const labels = ["达成", "证据", "执行", "反思"];
+  const colors = ["var(--ok)", "var(--info)", "var(--vio)", "var(--warn)"];
+  // 4 轴：上、右、下、左
+  const pt = (i: number, ratio: number): [number, number] => {
+    const ang = (Math.PI / 2) + (i * 2 * Math.PI) / 4;
+    return [CX + Math.cos(ang) * R * ratio, CY - Math.sin(ang) * R * ratio];
+  };
+  const poly = vals.map((v, i) => pt(i, Math.max(0.06, v / 100)).join(",")).join(" ");
+  return (
+    <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label="四维质量雷达">
+      {[0.33, 0.66, 1].map((g) => (
+        <polygon key={g} points={[0, 1, 2, 3].map((i) => pt(i, g).join(",")).join(" ")} fill="none" stroke="var(--line)" strokeWidth="0.6" />
+      ))}
+      {[0, 1, 2, 3].map((i) => {
+        const [x, y] = pt(i, 1.12);
+        return (
+          <text key={i} x={x} y={y} textAnchor="middle" dominantBaseline="middle" fontSize="8" fill="var(--ink-faint)">
+            {labels[i]}
+          </text>
+        );
+      })}
+      <polygon points={poly} fill="var(--info)" fillOpacity="0.18" stroke="var(--info)" strokeWidth="1.3" />
+      {vals.map((v, i) => {
+        const [x, y] = pt(i, Math.max(0.06, v / 100));
+        return <circle key={i} cx={x} cy={y} r="2" fill={colors[i]} />;
+      })}
+    </svg>
+  );
+}
+
 type SysStatus = {
   engine: { ok: boolean; version?: string };
   llm_key: boolean;
@@ -562,6 +599,25 @@ export function AgentPage() {
                     <div className="text-[10px] text-ink-dim">执行场景</div>
                   </div>
                 </div>
+                {/* Q7：四维雷达（fresume 式质量可视化：达成/证据/执行/反思） */}
+                {run.score.radar && (
+                  <div className="px-4 py-2.5 border-t border-line-soft flex flex-wrap items-center gap-x-6 gap-y-2">
+                    <RadarFour axes={run.score.radar} />
+                    <div className="space-y-0.5 text-[10.5px] text-ink-dim leading-4">
+                      {[
+                        ["达成", run.score.radar.goal_achieved, "text-ok"],
+                        ["证据", run.score.radar.evidence_used, "text-info"],
+                        ["执行", run.score.radar.exec_pass, "text-vio"],
+                        ["反思", run.score.radar.reflection, "text-warn"],
+                      ].map(([l, v, c]) => (
+                        <div key={String(l)}>
+                          <span className={String(c)}>●</span> {l} {String(v)}
+                          <span className="text-ink-faint">/100</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {/* 看动画：把本次真实执行的场景送进 FaultLab 演示（资产化动画，非额定设置） */}
                 {run.scenario && (
                   <div className="px-4 py-2 border-t border-line-soft flex items-center gap-2 flex-wrap">
