@@ -59,7 +59,7 @@ def test_bundled_snapshot_loads_22_scenarios():
     assert s["scenarios"] == 25
     assert s["faults"] == 26
     assert s["messages"] == 8
-    assert s["signals"] == 36
+    assert s["signals"] == 38
     assert s["req_ids"] == 18
     assert s["functions"] == 4
     assert m.load_stats["bad"] == []

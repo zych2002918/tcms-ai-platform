@@ -66,7 +66,9 @@ BO_ 1280 AlarmEvent: 8 VCU
  SG_ DoorNotClosed : 17|1@1+ (1,0) [0|1] "" TCMS
  SG_ FireAlarm : 18|1@1+ (1,0) [0|1] "" TCMS
  SG_ PantographDrop : 19|1@1+ (1,0) [0|1] "" TCMS
- SG_ Reserved1 : 20|4@1+ (1,0) [0|15] "" TCMS
+ SG_ HvacFault : 20|1@1+ (1,0) [0|1] "" TCMS
+ SG_ BogieVibration : 21|1@1+ (1,0) [0|1] "" TCMS
+ SG_ Reserved1 : 22|2@1+ (1,0) [0|3] "" TCMS
 
 BO_ 1536 PantographStatus: 8 BCU
  SG_ PantographUp : 0|1@1+ (1,0) [0|1] "" TCMS

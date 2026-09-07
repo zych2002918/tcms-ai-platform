@@ -23,7 +23,7 @@ def test_load_real_assets_counts():
     m = load_asset_model(UPSTREAM)
     s = m.stats()
     assert s["messages"] == 8
-    assert s["signals"] == 36
+    assert s["signals"] == 38
     assert s["faults"] == 26
     assert s["scenarios"] == 25
     assert s["req_ids"] == 18
