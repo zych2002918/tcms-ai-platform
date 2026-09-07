@@ -178,3 +178,43 @@ def test_agent_free_endpoint_no_match_even_with_llm_no_fake(client, monkeypatch)
     assert b.get("no_match") is True  # 规则零候选仍拒绝，LLM 猜键不放行
     assert "parsed" not in b or b["parsed"] is None
     assert not b["suggested_faults"]
+
+
+# ---- Q3：一句话 → 原子资产组合 → 真实执行（/api/agent/compose） ----
+
+
+@NEEDS_UPSTREAM
+def test_agent_compose_two_faults_executes(client, monkeypatch):
+    """组合意图语句 → 生成错峰注入/恢复步骤 → 真实引擎执行全部通过。"""
+    for k in ("DASH_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("DSH_CREDENTIALS_FILE", str(Path("Z:/no-cred.yaml")))
+    r = client.post(
+        "/api/agent/compose",
+        json={"message": "编排一个场景：先车门故障再叠加超速，最后都恢复"},
+    )
+    assert r.status_code == 200
+    b = r.json()
+    assert b["composed"] is True
+    assert b["intent"] == "compose_scenario"
+    faults = {f["key"] for f in b["fault_matches"]}
+    assert faults >= {"door_fault", "overspeed"}  # 至少识别出这两个真实故障
+    assert len(b["steps"]) >= 4  # 2 注入 + 2 恢复
+    assert b["run"]["all_passed"] is True  # 真实引擎执行通过
+    # 注入时刻错峰（防止同时注入互相掩盖）
+    injects = [s["at"] for s in b["steps"] if s["action"] == "inject"]
+    assert injects == sorted(injects)
+    assert len(set(injects)) == len(injects)
+
+
+@NEEDS_UPSTREAM
+def test_agent_compose_non_compose_returns_clarify(client, monkeypatch):
+    """非组合意图（单故障问句）→ composed=False，不回执行。"""
+    for k in ("DASH_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("DSH_CREDENTIALS_FILE", str(Path("Z:/no-cred.yaml")))
+    r = client.post("/api/agent/compose", json={"message": "车门故障了还能发车吗"})
+    assert r.status_code == 200
+    b = r.json()
+    assert b["composed"] is False
+    assert b["intent"] in ("match_fault", "clarify")

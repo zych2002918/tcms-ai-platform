@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type AgentFreeResp, type AgentRunResp } from "../api";
+import { api, type AgentComposeResp, type AgentFreeResp, type AgentRunResp } from "../api";
 import { Panel, Tag, EmptyState, SkeletonRows } from "../components/ui";
 
 type AgentRun = AgentRunResp["runs"][number];
@@ -145,6 +145,8 @@ export function AgentPage() {
   const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
   const [result, setResult] = useState<AgentRunResp | null>(null);
   const [freeResp, setFreeResp] = useState<AgentFreeResp | null>(null);
+  const [composeResp, setComposeResp] = useState<AgentComposeResp | null>(null);
+  const [composing, setComposing] = useState(false);
   const [visible, setVisible] = useState(0); // 事件流逐条揭示
   const [err, setErr] = useState("");
   const [goal, setGoal] = useState("");
@@ -250,6 +252,33 @@ export function AgentPage() {
 
   const runs: AgentRun[] = result?.runs ?? freeResp?.runs ?? [];
 
+  /** Q3：一句话 → 原子资产组合 → 真实执行（/api/agent/compose） */
+  const runCompose = async () => {
+    const g = goal.trim();
+    if (!g || phase === "running" || composing) return;
+    if (sys && !sys.engine.ok) {
+      setErr("engine_missing");
+      return;
+    }
+    setComposing(true);
+    setErr("");
+    setGoalHint("");
+    setComposeResp(null);
+    begin();
+    try {
+      const r = await api.agentCompose(g);
+      setComposeResp(r);
+      setPhase("done");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/^422:|^400:/.test(msg)) setGoalHint(msg.replace(/^4\d\d:\s*/, ""));
+      else setErr(msg);
+      setPhase("done");
+    } finally {
+      setComposing(false);
+    }
+  };
+
   return (
     <div className="space-y-4 max-w-[1100px]">
       {/* 自由目标（像 DSH 一样：给 Agent 一句话，它先理解再查证） */}
@@ -263,7 +292,7 @@ export function AgentPage() {
           aria-label="自由目标输入"
           disabled={phase === "running"}
         />
-        <div className="mt-2 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+        <div className="mt-2 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center flex-wrap">
           <button
             className="btn justify-center sm:w-auto"
             onClick={() => void runFree()}
@@ -272,8 +301,16 @@ export function AgentPage() {
           >
             {phase === "running" ? "执行中…" : "✦ 让 Agent 去查证"}
           </button>
+          <button
+            className="btn-ghost justify-center sm:w-auto"
+            onClick={() => void runCompose()}
+            disabled={composing || !goal.trim() || engineBlocked}
+            title={engineBlocked ? "需先启用 TCMS 引擎" : "让 Agent 把这句话理解成「多个故障的组合场景」并真实执行"}
+          >
+            {composing ? "组合中…" : "⧉ 组合成场景并执行"}
+          </button>
           <span className="text-[11px] text-ink-faint leading-4">
-            不用选任务、不用懂报文——Agent 会先把你的话理解成「故障 → 期望处置」，再去知识库查证。
+            查证 = 单故障验证；组合 = 一句话编排多故障时序（如「先车门故障再叠加超速最后恢复」）→ 原子资产组合 → 真实执行。
           </span>
         </div>
       </Panel>
@@ -336,7 +373,7 @@ export function AgentPage() {
       )}
 
       {/* 运行中：Agent 思考中…（步骤提示轮换 + pulse） */}
-      {phase === "running" && !result && !freeResp && !goalHint && (
+      {phase === "running" && !result && !freeResp && !composeResp && !goalHint && (
         <div className="panel px-4 py-4 flex items-start gap-3 step-in">
           <span className="mt-1.5 flex h-2.5 w-2.5">
             <span className="h-2.5 w-2.5 rounded-full bg-info pulse-dot" />
@@ -381,6 +418,69 @@ export function AgentPage() {
               </Tag>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Q3：组合结果（一句话 → 原子资产组合 → 真实执行） */}
+      {composeResp && (
+        <div className="step-in space-y-4">
+          <Panel
+            title={
+              <>
+                ⧉ Agent 组合的场景 <code className="kbd-mono ml-1">{composeResp.goal.slice(0, 40)}</code>
+              </>
+            }
+            right={
+              composeResp.composed ? (
+                composeResp.run?.all_passed ? <Tag tone="ok">✓ 真实执行全部通过</Tag> : <Tag tone="bad">✗ 有断言未通过</Tag>
+              ) : (
+                <Tag tone="warn">需澄清</Tag>
+              )
+            }
+            bodyClass="p-4"
+          >
+            {composeResp.composed ? (
+              <>
+                {/* 组合步骤（原子资产错峰注入/恢复） */}
+                <div className="text-[11px] text-ink-faint uppercase tracking-wide mb-1.5">组合步骤（原子资产）</div>
+                <div className="space-y-1 mb-3">
+                  {composeResp.steps?.map((s, i) => (
+                    <div key={i} className="text-[12px] font-mono text-ink-dim">
+                      <span className="num text-ink">{s.at}s</span>{" "}
+                      <span className={s.action === "inject" ? "text-warn" : "text-ok"}>{s.action}</span>{" "}
+                      <span className="text-ink">{s.fault}</span>
+                      {s.node ? <span className="text-ink-faint">@{s.node}</span> : null}
+                      {s.expect ? <span className="text-info"> → 期望 {s.expect}</span> : null}
+                    </div>
+                  ))}
+                </div>
+                {/* 执行结果 */}
+                {composeResp.run && (
+                  <div className="panel bg-surface-2/40 p-3">
+                    <div className="text-[11px] text-ink-faint mb-1.5">
+                      真实引擎执行（v{composeResp.run.engine_version}）· PASS {composeResp.run.passed} / FAIL {composeResp.run.failed}
+                    </div>
+                    {composeResp.run.assertions?.map((a, i) => (
+                      <div key={i} className="text-[11.5px] text-ink-dim leading-5">
+                        <span className={a.passed ? "text-ok" : "text-bad"}>{a.passed ? "✓" : "✗"}</span>{" "}
+                        {a.fault} @{a.ts}s 期望 {a.expected} → 实际 {a.actual}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="text-[13px] text-ink-dim leading-6">{composeResp.reply}</p>
+                {composeResp.fault_matches && composeResp.fault_matches.length > 0 && (
+                  <div className="mt-2 text-[11px] text-ink-faint">
+                    识别到：{composeResp.fault_matches.map((f) => f.name ?? f.key).join("、")}
+                    {composeResp.followup_question ? ` —— ${composeResp.followup_question}` : ""}
+                  </div>
+                )}
+              </>
+            )}
+          </Panel>
         </div>
       )}
 

@@ -924,6 +924,70 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             **resp,
         }
 
+    @app.post("/api/agent/compose")
+    def agent_compose(req: AdvisorTurnRequest) -> dict:
+        """一句话 → 原子资产组合 → 真实执行（Q3 组合器闭环入口）。
+
+        输入任意编排语句（如「编排一个场景：先车门故障再叠加超速最后恢复」）：
+        1. 经 advisor 语义理解 → 若意图为 compose_scenario（识别出 ≥1 真实故障）→
+           生成错峰注入/恢复步骤草稿；
+        2. 直接提交 /api/run/custom 真实引擎执行（含 sink 沉淀）；
+        3. 返回组合步骤 + 执行报告（前端可展示步骤并跳转 FaultLab 动画）。
+
+        语义不明时返回 advisor 澄清回复（不 422）。依赖引擎，缺失时 503 引导。
+        """
+        from ..agent.advisor import advisor_turn
+        from ..agent.llm_backend import llm_available as _llm_ok
+
+        turn = advisor_turn(
+            asset_model,
+            retriever,
+            req.message,
+            draft_steps=req.draft_steps,
+            history=req.history,
+            use_llm=_llm_ok(),
+        )
+        if turn.intent != "compose_scenario" or not turn.suggested_steps:
+            # 不是组合意图（或需澄清）→ 返回顾问回复，前端引导
+            return {
+                "goal": req.message,
+                "composed": False,
+                "intent": turn.intent,
+                "reply": turn.reply,
+                "fault_matches": turn.fault_matches,
+                "needs_clarification": turn.needs_clarification,
+                **({"followup_question": turn.followup_question} if turn.followup_question else {}),
+                **({"rag_evidence": turn.rag_evidence} if turn.rag_evidence else {}),
+            }
+        steps = [dict(s) for s in turn.suggested_steps]
+        rep = _run_custom_steps(
+            asset_model,
+            req.message[:40] or "compose",
+            steps,
+            _app_upstream,  # type: ignore[arg-type]
+        )
+        _run_counter["n"] += 1
+        sink.record_run(
+            f"run-{_run_counter['n']:03d}",
+            "compose",
+            {"passed": rep.get("passed"), "failed": rep.get("failed"), "all_passed": rep.get("all_passed")},
+        )
+        return {
+            "goal": req.message,
+            "composed": True,
+            "intent": "compose_scenario",
+            "fault_matches": turn.fault_matches,
+            "steps": steps,
+            "run": {
+                "scenario": rep.get("scenario"),
+                "passed": rep.get("passed"),
+                "failed": rep.get("failed"),
+                "all_passed": rep.get("all_passed"),
+                "assertions": rep.get("assertions"),
+                "engine_version": __import__("tcms").__version__,
+            },
+        }
+
     @app.post("/api/agent/advisor")
     def agent_advisor(req: AdvisorTurnRequest) -> dict:
         """编排顾问：多轮对话（输入无法匹配内存故障时**绝不 422**）。

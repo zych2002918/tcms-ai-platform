@@ -256,6 +256,8 @@ export const api = {
     req<AgentRunResp>("/agent/run", { method: "POST", body: JSON.stringify({ task_id: taskId ?? null }) }),
   agentFree: (goal: string) =>
     req<AgentFreeResp>("/agent/free", { method: "POST", body: JSON.stringify({ goal }) }),
+  agentCompose: (message: string) =>
+    req<AgentComposeResp>("/agent/compose", { method: "POST", body: JSON.stringify({ message }) }),
   advisorTurn: (body: AdvisorTurnRequest) =>
     req<AdvisorTurnResp>("/agent/advisor", { method: "POST", body: JSON.stringify(body) }),
   runCustom: (body: CustomScenarioRequest) =>
@@ -338,6 +340,27 @@ export interface AgentFreeResp extends AgentRunResp {
   }[];
   rag_evidence?: { doc_id: string; kind: string; score: number; text: string }[];
   followup_question?: string;
+}
+
+/** /api/agent/compose：一句话 → 原子资产组合 → 真实执行（Q3）。 */
+export interface AgentComposeResp {
+  goal: string;
+  composed: boolean;
+  intent: string;
+  fault_matches?: { key: string; name: string; action: string; level: string }[];
+  steps?: CustomStep[];
+  run?: {
+    scenario: string;
+    passed: number;
+    failed: number;
+    all_passed: boolean;
+    assertions: { fault: string; ts: number; expected: string; actual: string; passed: boolean }[];
+    engine_version: string;
+  };
+  reply?: string;
+  needs_clarification?: boolean;
+  followup_question?: string;
+  rag_evidence?: unknown[];
 }
 
 // ---- 自定义场景执行（/api/run/custom）----
