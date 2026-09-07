@@ -130,7 +130,7 @@ tcms-ai-platform/
 ├── web/                       React + Vite + Tailwind v4 前端（双主题）
 ├── ai-testgen/                独立包：LLM 测试生成流水线（原 tcms-ai-testgen）
 ├── e2e/                       浏览器走查脚本（playwright + Edge）
-├── docs/                      设计 / 截图 / 研究
+├── docs/                      设计 / 截图 / 研究；**PROJECT_ARC.md = 开发路径复盘+方法论**
 └── packaging/                 PyInstaller 打包说明
 ```
 
