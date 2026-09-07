@@ -170,3 +170,47 @@ def test_unrouted_query_falls_back_global(kb):
     r = kb["retriever"].retrieve("今天天气不错", k=3)
     assert r["bounded"] is False
     assert r["hits"]  # 仍返回（虽有噪，但诚实不空）
+
+
+# ---- Q2 语义层：列车系统分类框架（system 节点 + 故障隶属 + 系统视角路由） ----
+
+
+@NEEDS_UPSTREAM
+def test_systems_injected_and_all_faults_linked():
+    """enrich 后 system 节点存在，且 22 条故障全部 belongs_to 某系统。"""
+    from tcms_ai_platform.core import load_asset_model
+    from tcms_ai_platform.domain import enrich_graph
+    from tcms_ai_platform.knowledge import VectorStore, build_knowledge_graph
+
+    m = load_asset_model(UPSTREAM)
+    g = build_knowledge_graph(m)
+    vs = VectorStore()
+    enrich_graph(g, vs)
+    systems = {n.id for n in g.nodes.values() if n.kind == "system"}
+    assert len(systems) >= 6  # SYS-TRAIN/BRAKE/TRACTION/DOOR/POWER/SENSING
+    linked = {e.src for e in g.edges if e.kind == "belongs_to" and e.src.startswith("fault:")}
+    assert len(linked) == 22  # 全部故障归属系统
+
+
+@NEEDS_UPSTREAM
+def test_system_view_routing_returns_system():
+    """系统视角查询（"制动系统有哪些故障"）→ 路由到域且顶层命中 system 节点。"""
+    from tcms_ai_platform.core import load_asset_model
+    from tcms_ai_platform.domain import enrich_graph
+    from tcms_ai_platform.knowledge import (
+        HybridRetriever,
+        VectorStore,
+        build_docs_from_asset,
+        build_knowledge_graph,
+    )
+
+    m = load_asset_model(UPSTREAM)
+    g = build_knowledge_graph(m)
+    vs = VectorStore()
+    vs.add_many(build_docs_from_asset(m))
+    enrich_graph(g, vs)
+    hr = HybridRetriever(vs, g)
+    r = hr.retrieve("制动系统有哪些故障", k=4)
+    assert "brake" in r["routed_domains"]
+    ids = [h["doc_id"] for h in r["hits"]]
+    assert "system:SYS-BRAKE" in ids  # 先给出系统视角答案

@@ -23,6 +23,7 @@ const KIND_VAR: Record<string, string> = {
   standard: "var(--kind-standard)",
   hazard: "var(--kind-hazard)",
   concept: "var(--kind-concept)",
+  system: "var(--kind-system)",
 };
 const kindHex = (kind: string): string => KIND_VAR[kind] ?? "var(--kind-run)";
 
@@ -138,7 +139,7 @@ export function GraphWorkspace() {
     const src = sub ? subKinds : kbStats?.graph.by_kind;
     if (!src) return [];
     const present = Object.keys(src);
-    return ["fault", "message", "signal", "function", "requirement", "scenario", "device", "run", "mode", "state", "interlock", "threshold", "mechanism", "standard", "hazard", "concept"].filter(
+    return ["system", "fault", "message", "signal", "function", "requirement", "scenario", "device", "run", "mode", "state", "interlock", "threshold", "mechanism", "standard", "hazard", "concept"].filter(
       (k) => present.includes(k)
     );
   }, [sub, subKinds, kbStats]);

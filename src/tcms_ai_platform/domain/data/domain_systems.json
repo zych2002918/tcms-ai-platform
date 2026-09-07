@@ -1,0 +1,76 @@
+{
+  "_meta": {
+    "name": "列车系统分类框架（S1000D 思想对齐 + 本项目资产实际子系统）",
+    "purpose": "让知识图谱与 Agent 站在『列车系统视角』：每个真实故障/场景属于哪个系统家族、服务什么运营功能、由哪些设备承载。检索/路由可先定位系统再进细节。",
+    "honesty": "系统族名称与 S1000D 动车组 01-13 系统分类思想对齐；本项目资产为教学演示级子集，非真实车型完整系统清单（不编造车型数据）。"
+  },
+  "systems": [
+    {
+      "code": "SYS-TRAIN",
+      "name": "列车级控制与管理",
+      "families": ["列车网络控制 TCMS", "列车级联锁"],
+      "subsystems": ["VCU", "网络"],
+      "owned_devices": ["VCU", "TCMS"],
+      "typical_functions": ["列车级联锁", "网络完整性监督", "心跳/看门狗", "多节点拓扑管理"],
+      "standard_anchor": "IEC 61375（列车通信网络）/ UIC 556（列车级信息接口）",
+      "asset_evidence": "VCU 心跳丢失 / 节点重启风暴 / 总线短路断路 / CRC / 仲裁错误 / 短帧 / 位翻转 / 噪声突发 / 计数器跳变"
+    },
+    {
+      "code": "SYS-BRAKE",
+      "name": "制动系统",
+      "families": ["紧急制动 EBM/EBR", "常用制动", "防滑/执行器"],
+      "subsystems": ["制动"],
+      "owned_devices": ["BCU"],
+      "typical_functions": ["紧急制动请求与执行", "硬线回路 EBR", "制动缸压力闭环"],
+      "standard_anchor": "EN 50126 RAMS / IEC 62290（城轨）安全功能",
+      "asset_evidence": "紧急制动执行失败 eb_failure / 制动执行器卡滞 / 牵引制动冲突"
+    },
+    {
+      "code": "SYS-TRACTION",
+      "name": "牵引系统",
+      "families": ["牵引控制", "超速防护 ATP"],
+      "subsystems": ["牵引"],
+      "owned_devices": ["VCU"],
+      "typical_functions": ["牵引指令控制", "速度监督（超速分级干预）", "牵引丢失处置"],
+      "standard_anchor": "ATP 速度监督（Warning/SBI/EBI 分级）",
+      "asset_evidence": "超速 overspeed / 牵引丢失 traction_loss / 速度传感器漂移 / 传感器卡死"
+    },
+    {
+      "code": "SYS-DOOR",
+      "name": "车门系统",
+      "families": ["车门控制", "车门联锁", "门状态监督"],
+      "subsystems": ["车门"],
+      "owned_devices": ["BOGIE"],
+      "typical_functions": ["车门开闭控制", "发车联锁（门未关禁发车）", "门故障级联降级"],
+      "standard_anchor": "车门联锁安全需求 SR（门-车联锁）",
+      "asset_evidence": "车门故障 door_fault / 门传感器噪声 door_sensor_noise"
+    },
+    {
+      "code": "SYS-POWER",
+      "name": "高压与能源",
+      "families": ["受电弓/高压", "电池储能", "辅助电源"],
+      "subsystems": ["受电弓", "能源"],
+      "owned_devices": ["BMS"],
+      "typical_functions": ["受电弓升降", "网压监测", "SOC/温度管理"],
+      "standard_anchor": "高压联锁（弓×网压）",
+      "asset_evidence": "受电弓拉弧 pantograph_arc / SOC 低 / 电池温度高"
+    },
+    {
+      "code": "SYS-SENSING",
+      "name": "传感与信号采集",
+      "families": ["信号采集", "传感器监督"],
+      "subsystems": ["信号"],
+      "owned_devices": [],
+      "typical_functions": ["模拟量采集", "传感器新鲜度/变化率检查"],
+      "standard_anchor": "2oo3 表决 / 变化率监测",
+      "asset_evidence": "速度传感器漂移 / 传感器卡死"
+    }
+  ],
+  "device_system": {
+    "VCU": "SYS-TRAIN",
+    "TCMS": "SYS-TRAIN",
+    "BCU": "SYS-BRAKE",
+    "BOGIE": "SYS-DOOR",
+    "BMS": "SYS-POWER"
+  }
+}

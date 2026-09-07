@@ -1,4 +1,4 @@
-@import "tailwindcss";
+﻿@import "tailwindcss";
 
 /* ===== TCMS × AI 设计 token（双主题：dark 默认 · light 覆盖）=====
    html.theme-dark / 无标记 → 驾驶台夜视底；html.theme-light → 明亮驾驶舱。
@@ -43,6 +43,7 @@ html.theme-dark {
   --kind-standard: #60a5fa;
   --kind-hazard: #ef4444;
   --kind-concept: #34d399;
+  --kind-system: #5f8fbf;
 }
 
 html.theme-light {
@@ -83,6 +84,7 @@ html.theme-light {
   --kind-standard: #2563a8;
   --kind-hazard: #b91c1c;
   --kind-concept: #15803d;
+  --kind-system: #4a76a8;
 }
 
 /* Tailwind 色板映射（inline：类名里的 /opacity 修饰符走 color-mix，可随变量联动） */
@@ -337,3 +339,4 @@ body {
   @apply inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium
     bg-surface-2/70 border border-line text-ink-dim hover:text-ink hover:border-ink-dim/50 transition-all select-none cursor-pointer;
 }
+

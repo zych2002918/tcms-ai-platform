@@ -30,6 +30,7 @@ NODE_TYPES = {
     "requirement",
     "fault",
     "scenario",
+    "system",  # Q2 语义层：列车系统分类框架（S1000D 思想对齐）
 }
 
 # 关系类型（展示标签）

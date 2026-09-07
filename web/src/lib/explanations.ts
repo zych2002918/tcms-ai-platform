@@ -26,6 +26,7 @@ export const KIND_META: Record<string, KindMeta> = {
   standard: { label: "标准", what: "引用的行业标准（EN 50128 / IEC 61508 等）。", color: "info" },
   hazard: { label: "安全危害", what: "一种需要被防止的危险场景（H-01 起）。", color: "bad" },
   concept: { label: "领域概念", what: "面向新人的概念解释（EBM / ATP / SIL 等）。", color: "ok" },
+  system: { label: "列车系统", what: "列车系统分类框架（S1000D 思想对齐）：一个系统族（如制动/车门/网络），聚合它的故障与设备，让检索先定位到系统视角。", color: "dim" },
 };
 
 /** 给一条命中文档生成小白解释 */

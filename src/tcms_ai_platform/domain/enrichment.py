@@ -368,6 +368,81 @@ def _link_faults_to_safety(g: KnowledgeGraph) -> int:
     return count
 
 
+def inject_systems(g: KnowledgeGraph, store: VectorStore | None, data: dict) -> int:
+    """列车系统分类框架（S1000D 思想对齐）：system 节点 + 设备/故障 → 系统 隶属边。
+
+    让图谱/Agent 站到『列车系统视角』：SYS-BRAKE 下能看到该系统的故障与设备，
+    检索可先定位系统族再进细节。每条 system 都带 standard_anchor 与 asset_evidence
+    （真实故障键），可溯源不编造车型数据。
+    """
+    count = 0
+    device_system = data.get("device_system", {})
+    # 设备 → 系统（已有 device 节点时连）
+    for dev_name, sys_code in device_system.items():
+        dev_id = f"device:{dev_name}"
+        sys_id = f"system:{sys_code}"
+        if sys_id in g.nodes and dev_id in g.nodes:
+            g.add_edge_raw(dev_id, sys_id, "part_of_system")
+    # 系统节点 + 向量文档（先建全部 system 节点，再连故障）
+    for sys in data.get("systems", []):
+        code = sys["code"]
+        sys_id = f"system:{code}"
+        g.add_node("system", code, sys["name"], {"families": sys["families"], "anchor": sys.get("standard_anchor", "")})
+        if store is not None:
+            store.add(
+                Doc(
+                    doc_id=sys_id,
+                    kind="system",
+                    text=f"{sys['name']}：{'，'.join(sys['families'])}。"
+                    f"承载功能：{'，'.join(sys.get('typical_functions', []))}。"
+                    f"标准锚点：{sys.get('standard_anchor', '')}。涉及资产：{sys.get('asset_evidence', '')}",
+                    meta={"label": sys["name"], "code": code, "domain": _system_domain_of(code, sys)},
+                )
+            )
+        count += 1
+    # 故障 → 系统（按故障键在 system.asset_evidence 文本中命中）
+    # 子系统名 → 系统码（完整覆盖 22 故障；比纯文本匹配更稳）
+    _SUB_TO_SYS = {
+        "VCU": "SYS-TRAIN",
+        "网络": "SYS-TRAIN",
+        "制动": "SYS-BRAKE",
+        "牵引": "SYS-TRACTION",
+        "车门": "SYS-DOOR",
+        "能源": "SYS-POWER",
+        "受电弓": "SYS-POWER",
+        "信号": "SYS-SENSING",
+    }
+    for n in g.nodes.values():
+        if n.kind != "fault":
+            continue
+        fk = n.id.split(":", 1)[1]
+        subsystem = str(n.props.get("subsystem", ""))
+        sys_code = _SUB_TO_SYS.get(subsystem)
+        if sys_code and f"system:{sys_code}" in g.nodes:
+            g.add_edge_raw(n.id, f"system:{sys_code}", "belongs_to")
+        else:
+            # 兜底：文本命中（兼容非标准 subsystem 值）
+            for sys in data.get("systems", []):
+                ev = sys.get("asset_evidence", "")
+                if fk in ev:
+                    g.add_edge_raw(n.id, f"system:{sys['code']}", "belongs_to")
+                    break
+    return count
+
+
+def _system_domain_of(code: str, sys: dict) -> str:
+    """system 文档的分区标签 → 复用到 Q4 域路由（brake/door/network/...）。"""
+    mapping = {
+        "SYS-TRAIN": "network",
+        "SYS-BRAKE": "brake",
+        "SYS-TRACTION": "traction",
+        "SYS-DOOR": "door",
+        "SYS-POWER": "power",
+        "SYS-SENSING": "signal",
+    }
+    return mapping.get(code, "")
+
+
 def enrich_graph(g: KnowledgeGraph, store: VectorStore | None = None) -> dict:
     """注入全部可用领域知识。返回注入统计（files: {name: count}）。"""
     report: dict = {"files": {}}
@@ -375,6 +450,7 @@ def enrich_graph(g: KnowledgeGraph, store: VectorStore | None = None) -> dict:
         ("domain_ebm.json", inject_ebm),
         ("domain_network.json", inject_network),
         ("domain_safety.json", inject_safety),
+        ("domain_systems.json", inject_systems),
     ]:
         data = load_domain_json(fname)
         if data:
