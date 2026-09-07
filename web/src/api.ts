@@ -307,11 +307,24 @@ export interface AgentFreeParsed {
   matched_on: string;
 }
 
-/** /api/agent/free 响应：解析结果 + 与 /api/agent/run 同构的执行报告。 */
+/** /api/agent/free 响应：解析结果 + 与 /api/agent/run 同构的执行报告。
+ *  规则未命中真实故障时返回 no_match=true + suggested_faults（RAG 候选，可点选续跑）。 */
 export interface AgentFreeResp extends AgentRunResp {
   goal: string;
-  parsed: AgentFreeParsed;
-  matched_task_id: string; // T-FREE-1（自由任务动态生成）
+  parsed?: AgentFreeParsed;
+  matched_task_id?: string; // T-FREE-1（自由任务动态生成）
+  no_match?: boolean; // true = 未锚定，见 suggested_faults
+  detail?: string;
+  suggested_faults?: {
+    key: string;
+    name: string;
+    action: string;
+    level: string;
+    confidence: number;
+    matched_on: string;
+  }[];
+  rag_evidence?: { doc_id: string; kind: string; score: number; text: string }[];
+  followup_question?: string;
 }
 
 // ---- 自定义场景执行（/api/run/custom）----

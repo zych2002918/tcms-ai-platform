@@ -227,15 +227,18 @@ export function AgentPage() {
     }
     begin();
     try {
-      // 契约（t1 已落地并经 be-contracts 核验）：命中 → 200 恒带 parsed；
-      // 未命中 → HTTP 422，detail 为中文提示（req() 统一抛 "422: <detail>"）。
+      // 契约：命中 → 200 恒带 parsed；规则未命中 → 200 no_match + suggested_faults（RAG 候选）
       const r = await api.agentFree(g);
       setFreeResp(r);
-      scheduleReveal(r.runs);
+      if (r.no_match) {
+        setGoalHint(r.detail ?? "");
+      } else {
+        scheduleReveal(r.runs);
+      }
       setPhase("done");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      // 422/400 = 没锚定到具体故障 → 中文空态引导换个说法；其余 → 错误条
+      // 后端意外 422/400（异常路径）→ 中文空态引导；其余 → 错误条
       if (/^422:|^400:/.test(msg)) {
         setGoalHint(msg.replace(/^4\d\d:\s*/, ""));
       } else {
@@ -348,15 +351,30 @@ export function AgentPage() {
         </div>
       )}
 
-      {/* 自由目标没锚定（422 中文 detail）→ 换个说法引导（在事件流容器外，422 时无 runs 可显示） */}
+      {/* 自由目标没锚定 → 引导：RAG 候选（可点选续跑）或换说法示例 */}
       {goalHint && phase === "done" && (
         <div className="panel px-4 py-5 step-in">
           <EmptyState
             icon="?"
             title="这句我没法锚定到具体故障"
-            desc={`${goalHint} —— 试试让目标里出现故障对象（如：车门故障 / 超速 / 心跳丢失）和期望（如：不能发车 / 降级 / 停车）。`}
+            desc={`${goalHint}${freeResp?.suggested_faults?.length ? " —— 但 AI 检索到了几个可能相关的真实故障，点选即可让 Agent 去查证：" : " —— 试试让目标里出现故障对象（如：车门故障 / 超速 / 心跳丢失）和期望（如：不能发车 / 降级 / 停车）。"}`}
           />
-          <div className="flex flex-wrap gap-1.5 justify-center pb-2">
+          {freeResp && freeResp.suggested_faults && freeResp.suggested_faults.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 justify-center pb-3">
+              {freeResp.suggested_faults.map((s) => (
+                <button
+                  key={s.key}
+                  type="button"
+                  className="tag text-info border-info/40 bg-info/10 hover:bg-info/20 cursor-pointer transition-colors text-left"
+                  title={`等级 ${s.level ?? "?"} · 期望处置 ${s.action ?? "?"}`}
+                  onClick={() => setGoal(`验证${s.name ?? s.key}必须${s.action ?? ""}的处置`)}
+                >
+                  {s.name ?? s.key} <span className="opacity-70">({s.key})</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-1.5 justify-center">
             {["车门故障了还能发车吗", "超速后系统该怎么办", "验证紧急制动失败必须停车"].map((ex) => (
               <Tag key={ex} tone="dim" onClick={() => setGoal(ex)}>
                 {ex}
@@ -366,10 +384,10 @@ export function AgentPage() {
         </div>
       )}
 
-      {/* 运行中 / 结果：真实事件流（含管线进程视图） */}
-      {phase !== "idle" && (result || freeResp) && (
+      {/* 运行中 / 结果：真实事件流（含管线进程视图）；no_match 时 runs 为空，不渲染 */}
+      {phase !== "idle" && !freeResp?.no_match && (result || freeResp) && (
         <div className="step-in space-y-4">
-          {/* 自由目标命中 → 先给人看 Agent 怎么理解这句话（后端契约：200 恒带 parsed） */}
+          {/* 自由目标命中 → 先给人看 Agent 怎么理解这句话（后端契约：命中恒带 parsed） */}
           {freeResp && <GoalParseCard resp={freeResp} />}
 
           {runs.map((run, ri) => {

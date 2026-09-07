@@ -55,9 +55,13 @@ def test_advisor_endpoint_weather_no_422(client, monkeypatch):
     assert b["intent"] == "out_of_domain"
     assert b["out_of_domain"] is True  # 前端「域外/离线」标注键
     assert b["needs_clarification"] is True
-    # 对照：同样输入 /api/agent/free 仍 422（自由执行路径的红线不变）
+    # 对照：域外输入到 /api/agent/free → 200 no_match + 无伪造候选（非 422 死路，
+    # 也不让 LLM 猜键——产品红线升级为「不 422 + 不硬猜」）
     r2 = client.post("/api/agent/free", json={"goal": "今天天气不错"})
-    assert r2.status_code == 422
+    assert r2.status_code == 200
+    b2 = r2.json()
+    assert b2["no_match"] is True
+    assert not b2["suggested_faults"]
 
 
 @NEEDS_UPSTREAM

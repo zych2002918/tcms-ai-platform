@@ -870,7 +870,12 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
 
         像 DSH Harness 一样自由：不给任务 id，只给一句话目标。
         返回解析结果（命中故障/期望处置/置信度）+ 与 /api/agent/run 同构的执行报告。
+
+        未命中真实故障时**不裸 422 死路**：复用顾问的 RAG 语义澄清，返回
+        HTTP 200 + { no_match: true, suggested_faults, followup_question }，
+        前端据此引导用户点选候选故障继续 —— 让 AI 参与理解（而非只报错）。
         """
+        from ..agent.advisor import _rag_fault_candidates
         from ..agent.freeform import NoFaultMatch, parse_free_goal
         from ..agent.llm_backend import llm_available as _llm_ok
 
@@ -879,7 +884,16 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
                 asset_model, req.goal, seq=1, use_llm=_llm_ok()
             )
         except NoFaultMatch as e:
-            raise HTTPException(422, str(e)) from None
+            # 规则零命中 → RAG 语义澄清（"你可能指这些"），给候选而非硬 422
+            rag_cands, evidence = _rag_fault_candidates(asset_model, retriever, req.goal)
+            return {
+                "goal": req.goal,
+                "no_match": True,
+                "detail": str(e),
+                "suggested_faults": rag_cands[:5],
+                "rag_evidence": evidence,
+                "followup_question": "上面哪个最接近你想验证的？回复/点选故障名即可继续。",
+            }
         task = parsed.to_task(req.goal, seq=1)
         resp = _make_harness().run_tasks([task])
         return {

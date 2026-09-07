@@ -126,22 +126,43 @@ def test_agent_free_endpoint_door(client):
 
 
 @NEEDS_UPSTREAM
-def test_agent_free_endpoint_no_match_422(client, monkeypatch):
-    """目标不含任何故障 → 422 中文提示（与 LLM key 有无无关：
-    规则零候选在触发 LLM 仲裁前即拒绝，LLM 不允许自由发明故障）。"""
+def test_agent_free_endpoint_no_match_domain_suggest(client, monkeypatch):
+    """自由目标规则零候选但有 TCMS 域语义 → 200 no_match + RAG 候选
+    （AI 参与理解：不裸 422 死路，给「你可能指这些」真实故障候选）。"""
+    for k in ("DASH_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("DSH_CREDENTIALS_FILE", str(Path("Z:/no-cred.yaml")))
+    r = client.post("/api/agent/free", json={"goal": "车门卡住关不上还能发车吗"})
+    assert r.status_code == 200
+    b = r.json()
+    assert b["no_match"] is True
+    assert b["detail"]
+    assert b["suggested_faults"], "应返回 RAG 候选而非空"
+    keys = {f["key"] for f in b["suggested_faults"]}
+    assert "door_fault" in keys
+    assert b["followup_question"]
+
+
+@NEEDS_UPSTREAM
+def test_agent_free_endpoint_no_match_out_of_domain_200(client, monkeypatch):
+    """产品红线（HTTP 面）：域外目标「今天天气不错」规则零候选 → 不硬猜真实键，
+    仍 200 但 suggested_faults 为空（LLM 仲裁不自由发明故障；不回 422 死路）。"""
     # 显式无 LLM key：即使本机配了 live key，也锁死走「无仲裁」确定性路径
     for k in ("DASH_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("DSH_CREDENTIALS_FILE", str(Path("Z:/no-cred.yaml")))
     r = client.post("/api/agent/free", json={"goal": "今天天气不错"})
-    assert r.status_code == 422
-    assert "故障" in r.json()["detail"]
+    assert r.status_code == 200
+    b = r.json()
+    assert b["no_match"] is True
+    assert b["detail"]
+    assert not b["suggested_faults"], "域外目标不得给伪造候选"
 
 
 @NEEDS_UPSTREAM
-def test_agent_free_endpoint_no_match_422_even_with_llm(client, monkeypatch):
+def test_agent_free_endpoint_no_match_even_with_llm_no_fake(client, monkeypatch):
     """产品红线（HTTP 面）：即便 LLM 仲裁「可用且会猜一个真实键」，
-    规则零候选目标仍必须 422（防 LLM 硬猜返回 200 的回归）。
+    规则零候选的域外目标仍不得被 LLM 硬猜返回 200 parsed（防 LLM 猜键回归）。
     模拟本机有 live key：patch _api_key 返回假 key + _chat 防真实联网。"""
     import tcms_ai_platform.agent.llm_backend as lb
 
@@ -152,5 +173,8 @@ def test_agent_free_endpoint_no_match_422_even_with_llm(client, monkeypatch):
         lambda self, s, u: '{"fault": "overspeed", "expected": "derate"}',
     )
     r = client.post("/api/agent/free", json={"goal": "今天天气不错"})
-    assert r.status_code == 422  # 修复：零候选直接拒绝，LLM 猜键不再放行
-    assert "故障" in r.json()["detail"]
+    assert r.status_code == 200
+    b = r.json()
+    assert b.get("no_match") is True  # 规则零候选仍拒绝，LLM 猜键不放行
+    assert "parsed" not in b or b["parsed"] is None
+    assert not b["suggested_faults"]
