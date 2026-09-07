@@ -1,6 +1,83 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, type FaultLabCurvePoint, type FaultLabEvent, type FaultLabResp } from "../api";
 import { Panel, Tag, EmptyState, SkeletonRows } from "../components/ui";
+
+/* ================= t4 资产化：任意序列 / 跳转演示初始化 =================
+ * 通道契约（与 fe-jump t5 写入端对齐，2026-09 第三轮 ③）：
+ *  - 内置场景直连：/faultlab?scenario=<file>[&from=scenario-exec|agent-exec]
+ *  - 任意步骤序列：sessionStorage 键 tcms.faultlab.draft
+ *      { name?, from?: "scenario-exec"|"agent-exec",
+ *        steps: [{ at, action, fault, node, level, expect, impact }] }
+ *    与 POST /api/faultlab/demo-steps body 同构（faultlabDemoSteps 后端合入前用本地 fetch）。
+ *    写端写入后 navigate("/faultlab")，读端 onMount 一次性消费并清除 → 资产组合渲染。
+ *  - 来源 Tag：from=scenario-exec →「来自场景执行」；agent-exec →「来自 Agent 执行」。
+ *    用户手动重新加载（下拉/演示按钮）后来源态清空，不粘滞。
+ * ------------------------------------------------------------------ */
+type FaultLabStepPayload = {
+  at: number;
+  action: "inject" | "recover";
+  fault?: string | null;
+  node?: string | null;
+  level?: string | null;
+  expect?: string | null;
+  impact?: string | null;
+};
+type FaultLabDemoStepsBody = { name?: string; steps: FaultLabStepPayload[] };
+type FaultLabDemoStepsFn = (body: FaultLabDemoStepsBody) => Promise<FaultLabResp>;
+type DraftSource = "scenario-exec" | "agent-exec";
+type DraftPayload = { name?: string; from?: DraftSource; steps: FaultLabStepPayload[] };
+const DRAFT_KEY = "tcms.faultlab.draft";
+
+/** demo-steps 本地 fetch 兜底：api.faultlabDemoSteps 由后端契约接线（TODO(t2)）后删除。 */
+const demoStepsLocal = async (body: FaultLabDemoStepsBody): Promise<FaultLabResp> => {
+  const fn = (api as unknown as { faultlabDemoSteps?: FaultLabDemoStepsFn }).faultlabDemoSteps;
+  if (fn) return fn(body);
+  const r = await fetch("/api/faultlab/demo-steps", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    let detail = r.statusText;
+    try {
+      const j = await r.json();
+      if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`${r.status}: ${detail}`);
+  }
+  return r.json() as Promise<FaultLabResp>;
+};
+
+/** 读取 + 清除共享演示请求通道（t4：跳转/演示初始化）。返回 null = 无待消费请求。 */
+const takeDraft = (): { name?: string; from?: DraftSource; steps: FaultLabStepPayload[] } | null => {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    sessionStorage.removeItem(DRAFT_KEY);
+    const o = JSON.parse(raw) as Partial<DraftPayload>;
+    if (!Array.isArray(o.steps) || !o.steps.length) return null;
+    return { name: o.name || undefined, from: o.from, steps: o.steps };
+  } catch {
+    return null;
+  }
+};
+
+/** 归一化步骤：容忍字段缺省/null，确保 {at, action} 合法可发给 demo-steps。 */
+const normStep = (x: unknown): FaultLabStepPayload | null => {
+  if (!x || typeof x !== "object") return null;
+  const o = x as Record<string, unknown>;
+  if (typeof o.at !== "number" || (o.action !== "inject" && o.action !== "recover")) return null;
+  const s: FaultLabStepPayload = { at: o.at, action: o.action };
+  if (o.fault != null) s.fault = String(o.fault);
+  if (o.node != null) s.node = String(o.node);
+  if (o.level != null) s.level = String(o.level);
+  if (o.expect != null) s.expect = String(o.expect);
+  if (o.impact != null) s.impact = String(o.impact);
+  return s;
+};
 
 const KIND_COLOR: Record<string, string> = {
   inject: "#f5b84c",
@@ -58,33 +135,38 @@ const STEP_META: Record<string, { label: string; color: string }> = {
   model: { label: "示意模型", color: "#8ca0c0" },
 };
 
-/* 故障 → 列车部位高亮锚点 + 中文名（在 520×150 的 SVG 视口内） */
+/* 故障 → 列车部位高亮锚点 + 中文名（在 520×150 的 SVG 视口内）
+ * t4：22 个故障键全覆盖（对照 tcms/faults.yaml），每个键有专属部位与标签；
+ * 同族故障沿对应部件错开 ≥20px，多故障同时激活时不重叠、仍可读。
+ * 布局参考：驾驶室/鼻锥 x42-78 · 车窗 y52-72 · 总线干线 y82(x88-432) ·
+ * 车门 y92-110 · 车底电池 y121 · 转向架 y112 · 受电弓 y10-38 · 天线 y21。
+ */
 type SpotTone = "red" | "amber";
 const SPOT_RED = "#f4645a";
 const SPOT_AMBER = "#f5b84c";
 const FAULT_SPOT_META: Record<string, { zh: string; tone: SpotTone; anchor?: [number, number] }> = {
   overspeed: { zh: "超速", tone: "red", anchor: [52, 62] }, // 驾驶室 / ATP 速度监督
   traction_loss: { zh: "牵引丢失", tone: "amber", anchor: [150, 112] }, // 牵引转向架
-  door_fault: { zh: "车门故障", tone: "red" }, // 门本身红框闪烁
-  door_sensor_noise: { zh: "门传感器噪声", tone: "amber" },
-  eb_failure: { zh: "紧急制动执行失败", tone: "red", anchor: [206, 112] }, // 制动轴
-  brake_actuator_stuck: { zh: "制动执行器卡滞", tone: "amber", anchor: [206, 112] },
-  traction_brake_conflict: { zh: "牵引制动冲突", tone: "red", anchor: [260, 55] },
-  pantograph_arc: { zh: "受电弓拉弧", tone: "red", anchor: [380, 10] },
-  soc_low: { zh: "SOC 偏低", tone: "amber", anchor: [260, 55] },
-  temp_high: { zh: "电池温度偏高", tone: "amber", anchor: [260, 55] },
+  door_fault: { zh: "车门故障", tone: "red" }, // 门本身红框闪烁（不重复画点）
+  door_sensor_noise: { zh: "门传感器噪声", tone: "amber", anchor: [297, 101] }, // 2 号门门磁传感器
+  eb_failure: { zh: "紧急制动执行失败", tone: "red", anchor: [206, 112] }, // 前制动轴 / EBR 回路
+  brake_actuator_stuck: { zh: "制动执行器卡滞", tone: "amber", anchor: [330, 112] }, // 后制动轴执行器
+  traction_brake_conflict: { zh: "牵引制动冲突", tone: "red", anchor: [70, 72] }, // 驾驶室手柄联锁
+  pantograph_arc: { zh: "受电弓拉弧", tone: "red", anchor: [380, 10] }, // 弓头（降弓点）
+  soc_low: { zh: "SOC 偏低", tone: "amber", anchor: [246, 121] }, // 车底动力电池前段
+  temp_high: { zh: "电池温度偏高", tone: "amber", anchor: [276, 121] }, // 车底动力电池后段（热管理）
   heartbeat_loss_vcu: { zh: "VCU 心跳丢失", tone: "red", anchor: [220, 22] }, // 车顶通信天线
-  node_restart_storm: { zh: "节点重启风暴", tone: "red", anchor: [220, 22] },
-  crc_error_frame: { zh: "CRC 校验错误", tone: "amber", anchor: [300, 82] }, // 总线
-  bit_flip_frame: { zh: "位翻转丢帧", tone: "amber", anchor: [300, 82] },
-  rolling_counter_gap: { zh: "计数器跳变", tone: "amber", anchor: [300, 82] },
-  bus_short: { zh: "总线短路", tone: "red", anchor: [300, 82] },
-  bus_open_circuit: { zh: "总线断路", tone: "red", anchor: [300, 82] },
-  bus_noise_burst: { zh: "总线噪声", tone: "amber", anchor: [300, 82] },
-  arbitration_error: { zh: "仲裁错误", tone: "amber", anchor: [300, 82] },
-  short_frame: { zh: "短帧 DLC 不足", tone: "amber", anchor: [300, 82] },
-  speed_sensor_drift: { zh: "速度传感器漂移", tone: "amber", anchor: [260, 55] },
-  sensor_stuck: { zh: "传感器卡死", tone: "amber", anchor: [260, 55] },
+  node_restart_storm: { zh: "节点重启风暴", tone: "red", anchor: [368, 24] }, // 车顶中继节点箱
+  crc_error_frame: { zh: "CRC 校验错误", tone: "amber", anchor: [236, 82] }, // 总线干线前段
+  bit_flip_frame: { zh: "位翻转丢帧", tone: "amber", anchor: [316, 82] }, // 总线干线中段
+  rolling_counter_gap: { zh: "计数器跳变", tone: "amber", anchor: [356, 82] }, // 总线干线中后段
+  bus_short: { zh: "总线短路", tone: "red", anchor: [300, 82] }, // 总线干线中央（短路点）
+  bus_open_circuit: { zh: "总线断路", tone: "red", anchor: [172, 82] }, // 总线干线前段（断点）
+  bus_noise_burst: { zh: "总线噪声突发", tone: "amber", anchor: [404, 82] }, // 总线干线末段
+  arbitration_error: { zh: "仲裁错误", tone: "amber", anchor: [140, 82] }, // 总线干线起点
+  short_frame: { zh: "短帧 DLC 不足", tone: "amber", anchor: [264, 82] }, // 总线干线前中段
+  speed_sensor_drift: { zh: "速度传感器漂移", tone: "amber", anchor: [320, 105] }, // 后轮速度传感器
+  sensor_stuck: { zh: "传感器卡死", tone: "amber", anchor: [94, 58] }, // 前部传感器舱
 };
 const FALLBACK_SPOT = { zh: "系统异常", tone: "amber" as SpotTone, anchor: [260, 55] as [number, number] };
 
@@ -208,9 +290,9 @@ function TrainGlyph({
           Array.from({ length: 4 }).map((_, i) => (
             <circle key={i} cx={48 - i * 14} cy={84 + (i % 2) * 8} r={3 - i * 0.5} fill="#4ca6ff" opacity={0.5 - i * 0.1} />
           ))}
-        {/* 故障部位脉冲环（每个激活故障一个锚点；门故障由门框闪烁表达，不重复画） */}
+        {/* 故障部位脉冲环（每个激活故障一个锚点；door_fault 由门框闪烁表达，不重复画） */}
         {spots.map((s) =>
-          s.anchor && s.key !== "door_fault" && s.key !== "door_sensor_noise" ? (
+          s.anchor && s.key !== "door_fault" ? (
             <PulseDot key={s.key} x={s.anchor[0]} y={s.anchor[1]} color={s.tone === "red" ? SPOT_RED : SPOT_AMBER} />
           ) : null
         )}
@@ -341,6 +423,7 @@ function SourceNote({ e }: { e: FaultLabEventEx }) {
 }
 
 export function FaultLabPage() {
+  const [searchParams] = useSearchParams();
   const [scenarios, setScenarios] = useState<{ file: string; name: string; steps: number; fault_keys: string[] }[]>([]);
   const [sel, setSel] = useState("");
   const [phase, setPhase] = useState<"idle" | "loading" | "ready" | "error">("idle");
@@ -350,19 +433,39 @@ export function FaultLabPage() {
   const [scrubbing, setScrubbing] = useState(false); // 拖动进度条中（暂停播放，便于观察）
   const [speed, setSpeed] = useState(1); // 回放倍速
   const [err, setErr] = useState("");
+  const [entry, setEntry] = useState<{ mode: "demo" | "steps"; label: string; tone: "info" | "vio"; note: string } | null>(null);
   const rafRef = useRef<number>(0);
   const lastRef = useRef<number>(0);
   const playingRef = useRef(false);
   const tRef = useRef(0);
+  const loadRef = useRef<((file: string, keepEntry?: boolean) => void) | null>(null); // 由后续 effect 注入，boot 与列表加载共用
+  const bootedRef = useRef(false); // boot 只消费一次（URL 直达 / 共享通道）
   playingRef.current = playing;
   tRef.current = t;
 
-  useEffect(() => {
-    api.faultlabScenarios().then((s) => {
-      setScenarios(s);
-      if (s.length) setSel(s[0].file);
-    }).catch((e) => setErr(String(e)));
-  }, []);
+  /** 消费待演示步骤：sessionStorage tcms.faultlab.draft → POST demo-steps → 资产组合动画 */
+  const loadSteps = useCallback(async (draft: { name?: string; from?: DraftSource; steps: FaultLabStepPayload[] }) => {
+    if (phase === "loading") return;
+    setPhase("loading");
+    setPlaying(false);
+    setErr("");
+    setEntry({
+      mode: "steps",
+      label: draft.from === "agent-exec" ? "来自 Agent 执行" : "来自场景执行",
+      tone: draft.from === "agent-exec" ? "vio" : "info",
+      note: draft.name ? `自定义序列 · ${draft.name}` : "自定义故障序列",
+    });
+    try {
+      const r = (await demoStepsLocal({ name: draft.name, steps: draft.steps })) as unknown as FaultLabRespEx;
+      setData(r);
+      setT(0);
+      setPhase("ready");
+      setPlaying(true); // 加载即自动播放：让观众立刻看到「注入→检测→处置→恢复」的过程
+    } catch (e) {
+      setErr(String(e));
+      setPhase("error");
+    }
+  }, [phase]);
 
   // 回放主循环（rAF，按场景秒推进；playing=false 时不推进）
   useEffect(() => {
@@ -383,11 +486,13 @@ export function FaultLabPage() {
     return () => cancelAnimationFrame(rafRef.current);
   }, [data, speed]);
 
-  const load = async (file: string) => {
+  const load = async (file: string, keepEntry = false) => {
     if (!file || phase === "loading") return;
     setPhase("loading");
     setPlaying(false);
     setErr("");
+    // 手动加载（下拉 + 演示按钮）清掉「来自…」来源态；URL 直达等程序化加载保留已设的 entry
+    if (!keepEntry) setEntry(null);
     try {
       const r = (await api.faultlabDemo(file)) as unknown as FaultLabRespEx;
       setData(r);
@@ -400,6 +505,51 @@ export function FaultLabPage() {
       setPhase("error");
     }
   };
+  loadRef.current = load;
+
+  // 场景列表就绪后，若 URL 带 ?scenario=file 且尚无数据 → 直达演示（t4 内置场景跳转）
+  useEffect(() => {
+    if (scenarios.length === 0) return;
+    const qScenario = searchParams.get("scenario");
+    if (qScenario && !data && phase === "idle") {
+      const file = scenarios.find((s) => s.file === qScenario) ? qScenario : null;
+      if (file) {
+        setSel(file);
+        const from = searchParams.get("from");
+        if (from === "scenario-exec" || from === "agent-exec") {
+          setEntry({
+            mode: "demo",
+            label: from === "agent-exec" ? "来自 Agent 执行" : "来自场景执行",
+            tone: from === "agent-exec" ? "vio" : "info",
+            note: scenarios.find((s) => s.file === file)?.name ?? "内置场景",
+          });
+        }
+        // keepEntry=true：保留上面（若有）设的来源 Tag，load 不清它
+        loadRef.current?.(file, true);
+      }
+    }
+  }, [scenarios, searchParams, data, phase]);
+
+  // 场景列表（基础装载，仅一次）
+  useEffect(() => {
+    api.faultlabScenarios().then((s) => {
+      setScenarios(s);
+      if (s.length) setSel(s[0].file);
+    }).catch((e) => setErr(String(e)));
+  }, []);
+
+  // boot：消费共享通道 tcms.faultlab.draft（跳转/外部传入的任意序列）——只消费一次，避免手动加载后再触发
+  useEffect(() => {
+    if (bootedRef.current) return;
+    bootedRef.current = true;
+    const draft = takeDraft();
+    if (draft) {
+      const steps = draft.steps.map(normStep).filter((x): x is FaultLabStepPayload => x !== null);
+      if (steps.length) {
+        loadSteps(draft);
+      }
+    }
+  }, [loadSteps]);
 
   const currentPt = useMemo(() => (data ? nearestPoint(data.curve, t) : null), [data, t]);
   const activeEvents = useMemo(() => {
@@ -478,8 +628,19 @@ export function FaultLabPage() {
             {phase === "loading" ? "加载中…" : "▶ 演示此场景"}
           </button>
         </div>
+        {entry && phase === "ready" && data && (
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10.5px]" style={{ borderColor: "var(--color-line)", background: "var(--color-surface-2)" }}>
+            <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: entry.tone === "vio" ? "#8b7cf6" : "#4ca6ff" }} />
+            <span className="text-ink-dim">
+              当前演示 = <span className="text-ink font-medium">{entry.label}</span>
+              {entry.note ? ` · ${entry.note}` : ""}
+              <span className="text-ink-faint">（下拉选择 + 「演示此场景」可回到手动挑选）</span>
+            </span>
+          </div>
+        )}
         <p className="mt-2 text-[11px] text-ink-faint leading-5">
-          这是一条可逐帧观察的数据管线：事件时刻来自真实场景 YAML；处置结果由真实引擎断言（若已执行），否则取故障字典 action；
+          动画 = 真实场景资产 + 故障部位资产 + 处置效果资产组合渲染：事件时刻来自真实场景 YAML（或你从场景执行 / Agent 执行跳转过来的本次执行步骤）；
+          处置结果由真实引擎断言（若已执行），否则取故障字典 action；
           速度/压力曲线是按真实阈值（160 km/h 限速、300 kPa 制动缸）的示意物理模型。每条事件与下方「数据管线 · 引擎观察窗」都可溯源。
           拖动进度条会暂停回放，方便停在故障发生的瞬间观察部位高亮。
         </p>
@@ -490,7 +651,9 @@ export function FaultLabPage() {
       {phase === "loading" && (
         <Panel title="正在重建演示…" bodyClass="py-2">
           <SkeletonRows rows={3} cols={3} />
-          <p className="text-[11px] text-ink-faint mt-1">装载场景 → 真实执行（若引擎可用）→ 生成事件时间线与通道曲线</p>
+          <p className="text-[11px] text-ink-faint mt-1">
+            装载场景/步骤 → 真实执行（若引擎可用）→ 组合故障部位与处置效果资产 → 生成事件时间线与通道曲线
+          </p>
         </Panel>
       )}
 
@@ -500,11 +663,16 @@ export function FaultLabPage() {
 
       {phase === "ready" && data && currentPt && (
         <div className="step-in space-y-4">
-          {/* 顶部摘要：场景 + 处置来源 */}
+          {/* 顶部摘要：场景 + 处置来源（t4：跳转/外部序列 → 来源 Tag） */}
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <Tag tone="info">{data.demo.scenario_name}</Tag>
             <code className="kbd-mono">{data.demo.scenario}</code>
             <span className="text-ink-faint">总时长 {data.demo.duration}s · {data.demo.events.length} 个事件</span>
+            {entry && (
+              <Tag tone={entry.tone} title={entry.note}>
+                {entry.label}
+              </Tag>
+            )}
             {engineAsserted ? (
               <Tag tone="ok">处置已由真实引擎断言</Tag>
             ) : (
@@ -744,7 +912,7 @@ export function FaultLabPage() {
           <EmptyState
             icon="⚙"
             title="选一个真实故障场景，看它如何发生"
-            desc="FaultLab 把真实场景 YAML 变成可播放的事件时间线：故障注入 → 检测 → 处置 → 恢复。列车状态、故障部位高亮、速度曲线会随时间轴同步推进；拖动进度条即暂停，方便停在关键瞬间。"
+            desc="FaultLab 把真实场景 YAML（或场景执行 / Agent 执行跳转过来的步骤序列）变成可播放的事件时间线：故障注入 → 检测 → 处置 → 恢复。动画由场景资产 + 故障部位资产 + 处置效果资产组合渲染；列车状态、故障部位高亮、速度曲线会随时间轴同步推进；拖动进度条即暂停，方便停在关键瞬间。"
           />
         </Panel>
       )}

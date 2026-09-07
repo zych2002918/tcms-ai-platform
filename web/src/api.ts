@@ -235,12 +235,16 @@ export const api = {
     req<{ file: string; name: string; steps: number; fault_keys: string[]; duration_hint: number }[]>("/faultlab/scenarios"),
   faultlabDemo: (scenario: string) =>
     req<FaultLabResp>("/faultlab/demo", { method: "POST", body: JSON.stringify({ scenario }) }),
+  faultlabDemoSteps: (body: DemoFromStepsRequest) =>
+    req<FaultLabResp>("/faultlab/demo-steps", { method: "POST", body: JSON.stringify(body) }),
   agentTasks: () =>
     req<{ task_id: string; title: string; goal: string; target_fault: string; expected_action: string }[]>("/agent/tasks"),
   agentRun: (taskId?: string) =>
     req<AgentRunResp>("/agent/run", { method: "POST", body: JSON.stringify({ task_id: taskId ?? null }) }),
   agentFree: (goal: string) =>
     req<AgentFreeResp>("/agent/free", { method: "POST", body: JSON.stringify({ goal }) }),
+  advisorTurn: (body: AdvisorTurnRequest) =>
+    req<AdvisorTurnResp>("/agent/advisor", { method: "POST", body: JSON.stringify(body) }),
   runCustom: (body: CustomScenarioRequest) =>
     req<RunScenarioResult & { custom: boolean }>("/run/custom", { method: "POST", body: JSON.stringify(body) }),
   settingsGet: () => req<SettingsView>("/settings"),
@@ -325,4 +329,44 @@ export interface CustomStep {
 export interface CustomScenarioRequest {
   name?: string;
   steps: CustomStep[];
+}
+
+// ---- FaultLab 任意序列动画（/api/faultlab/demo-steps）----
+
+/** 从任意故障序列（非已存场景文件）生成演示动画的请求。
+ *  steps 与 CustomStep 同构：{at, action, fault, node?, level?, expect?, impact?}。 */
+export interface DemoFromStepsRequest {
+  name?: string; // 自定义序列名（demo.scenario = "custom/<name>"）
+  steps: CustomStep[];
+}
+
+// ---- 编排顾问对话（/api/agent/advisor）----
+
+/** 顾问单步请求：用户一句话（任何内容都不该 422）+ 可选当前编排草稿/历史。 */
+export interface AdvisorTurnRequest {
+  message: string;
+  draft_steps?: CustomStep[];
+  history?: { role: string; content: string }[];
+}
+
+/** 顾问输出：reply 中文回复；intent 见注释；fault_matches 候选（可指回真实故障）。 */
+export interface AdvisorTurnResp {
+  message: string;
+  reply: string;
+  intent: "match_fault" | "compose_scenario" | "clarify" | "out_of_domain" | "custom_proposal";
+  fault_matches: {
+    key: string;
+    name: string;
+    action: string;
+    level: string;
+    confidence: number;
+    matched_on: string;
+  }[];
+  needs_clarification: boolean;
+  llm_generated: boolean; // true = 回复文案由真 LLM 润色；false = 离线规则模板（诚实标注）
+  suggested_steps?: CustomStep[]; // compose_scenario：可被 /api/run/custom 消费的草稿
+  rag_evidence?: { doc_id: string; kind: string; score: number; text: string }[]; // clarify/custom 证据链
+  followup_question?: string; // clarify/custom：引导用户下一步补充
+  matched_fault?: string; // match_fault：命中的真实故障键
+  scenario_suggestions?: { file: string; name: string; steps: number }[]; // match_fault：覆盖该故障的现成场景
 }

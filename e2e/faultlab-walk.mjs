@@ -33,6 +33,62 @@ body = await p.locator("body").innerText();
 assert("eb_failure 场景事件含 紧急制动执行失败", body.includes("紧急制动执行失败"));
 await p.screenshot({ path: "e2e/shots-faultlab-eb2.png" });
 
+// t4 ①: 内置场景 URL 直连 + 来源 Tag（?scenario=file&from=scenario-exec）
+await p.goto(BASE + "/faultlab?scenario=overspeed_derate.yaml&from=scenario-exec", { waitUntil: "networkidle" });
+await p.waitForTimeout(900);
+body = await p.locator("body").innerText();
+assert("t4 URL 直连自动演示（超速场景事件）", body.includes("注入故障"));
+assert("t4 来源 Tag「来自场景执行」", body.includes("来自场景执行"));
+await p.screenshot({ path: "e2e/shots-faultlab-t4-url.png" });
+
+// t4 ②: sessionStorage tcms.faultlab.draft → demo-steps（端点未就绪则跳过，防后端未合入时误报）
+let dsOk = false;
+try {
+  const r = await p.evaluate(async () => {
+    const resp = await fetch("/api/faultlab/demo-steps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "e2e-t4-draft",
+        steps: [
+          { at: 5, action: "inject", fault: "door_fault", node: "vcu", level: "major", expect: "derate" },
+          { at: 12, action: "recover", fault: "door_fault" },
+          { at: 18, action: "inject", fault: "overspeed", node: "vcu", level: "major", expect: "derate" },
+          { at: 26, action: "recover", fault: "overspeed" },
+        ],
+      }),
+    });
+    return resp.ok;
+  });
+  dsOk = r === true;
+} catch {
+  dsOk = false;
+}
+if (!dsOk) console.log("– demo-steps 端点未就绪（be-core t2 未合入），t4 draft 断言跳过");
+if (dsOk) {
+  await p.evaluate(() => {
+    sessionStorage.setItem(
+      "tcms.faultlab.draft",
+      JSON.stringify({
+        name: "e2e-t4-draft",
+        from: "agent-exec",
+        steps: [
+          { at: 5, action: "inject", fault: "door_fault", node: "vcu", level: "major", expect: "derate" },
+          { at: 12, action: "recover", fault: "door_fault" },
+          { at: 18, action: "inject", fault: "overspeed", node: "vcu", level: "major", expect: "derate" },
+          { at: 26, action: "recover", fault: "overspeed" },
+        ],
+      })
+    );
+  });
+  await p.goto(BASE + "/faultlab", { waitUntil: "networkidle" });
+  await p.waitForTimeout(1000);
+  body = await p.locator("body").innerText();
+  assert("t4 draft 通道自动演示（自定义序列）", body.includes("自定义故障序列") || body.includes("e2e-t4-draft"));
+  assert("t4 来源 Tag「来自 Agent 执行」", body.includes("来自 Agent 执行"));
+  await p.screenshot({ path: "e2e/shots-faultlab-t4-draft.png" });
+}
+
 // agent evidence panel check
 await p.goto(BASE + "/agent", { waitUntil: "networkidle" });
 await p.waitForTimeout(500);

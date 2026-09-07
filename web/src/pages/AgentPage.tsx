@@ -23,6 +23,13 @@ const STEP_META: Record<string, { label: string; tone: "info" | "ok" | "warn" | 
 /** 管线顺序（与后端真实轨迹的 step 对齐：plan→retrieve→act→exec→verify→reflect→report） */
 const STEP_ORDER = ["plan", "retrieve", "act", "exec", "verify", "reflect", "report"];
 
+/** 跳 FaultLab：run.scenario 是真实场景文件名（含 .yaml）→ 直达 ?scenario= 演示本次执行的场景动画
+ * 通道契约与 fe-faultlab t4 对齐：from=agent-exec → FaultLab 顶部标注「来自 Agent 执行」 */
+function faultlabHref(scenario: string, from: string): string {
+  const p = new URLSearchParams({ scenario, from });
+  return `/faultlab?${p.toString()}`;
+}
+
 const DIM_LABELS: Record<string, string> = {
   result_grounded: "真实断言",
   evidence_used: "证据使用",
@@ -437,6 +444,21 @@ export function AgentPage() {
                     <div className="text-[10px] text-ink-dim">执行场景</div>
                   </div>
                 </div>
+                {/* 看动画：把本次真实执行的场景送进 FaultLab 演示（资产化动画，非额定设置） */}
+                {run.scenario && (
+                  <div className="px-4 py-2 border-t border-line-soft flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] text-ink-faint">
+                      场景 <code className="kbd-mono">{run.scenario}</code> 已真实执行完成
+                    </span>
+                    <a
+                      className="btn-ghost btn-sm ml-auto shrink-0"
+                      href={faultlabHref(run.scenario, "agent-exec")}
+                      title="跳转 FaultLab，用动画回放这个场景的故障注入 → 检测 → 处置 → 恢复"
+                    >
+                      ▶ 看动画
+                    </a>
+                  </div>
+                )}
                 {/* 证据链（RAG 检索到哪些知识 → 供 Agent 决策） */}
                 {run.evidence && run.evidence.length > 0 && (
                   <div className="px-4 py-2.5 border-t border-line-soft">

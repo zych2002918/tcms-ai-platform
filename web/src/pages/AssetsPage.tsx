@@ -20,6 +20,31 @@ const LEVEL_TONE: Record<string, "ok" | "warn" | "bad" | "info"> = {
   critical: "bad",
 };
 
+/** 场景步骤精简视图（时间线迷你预览用；来自只读 GET /api/scenarios/{file}，不依赖 api.ts 扩展） */
+type ScenarioStepLite = { at: number; action: string; fault: string | null };
+const STEP_LABEL: Record<string, string> = { inject: "注入", recover: "恢复" };
+
+async function fetchScenarioSteps(file: string): Promise<ScenarioStepLite[]> {
+  try {
+    const r = await fetch(`/api/scenarios/${encodeURIComponent(file)}`);
+    if (!r.ok) return [];
+    const d = (await r.json()) as { steps?: unknown[] };
+    if (!Array.isArray(d.steps)) return [];
+    return d.steps
+      .map((st) => {
+        const s = st as { at?: unknown; action?: unknown; fault?: unknown };
+        return {
+          at: Number(s.at),
+          action: String(s.action ?? ""),
+          fault: s.fault == null ? null : String(s.fault),
+        };
+      })
+      .filter((st) => Number.isFinite(st.at) && (st.action === "inject" || st.action === "recover"));
+  } catch {
+    return [];
+  }
+}
+
 /** 合法 tab 值（URL query 校验；未知回默认 messages） */
 const TAB_IDS: Tab[] = ["messages", "signals", "faults", "requirements", "scenarios", "functions"];
 
@@ -39,6 +64,8 @@ export function AssetsPage() {
   const [q, setQ] = useState("");
   const [focusId, setFocusId] = useState<string | null>(null);
   const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
+  // 场景资产库：按需懒加载每个场景的步骤细节（时间线迷你预览数据源）
+  const [stepLite, setStepLite] = useState<Record<string, ScenarioStepLite[]>>({});
 
   // 一次拉全六类资产（场景/功能也一并加载，tab 切换即时）
   useEffect(() => {
@@ -121,6 +148,22 @@ export function AssetsPage() {
   const filteredFaults = useMemo(() => filter(faults, ["fid", "key", "name", "subsystem", "action"]) as FaultInfo[], [faults, kw]);
   const filteredScenarios = useMemo(() => filter(scenarios, ["file", "name"]) as ScenarioInfo[], [scenarios, kw]);
   const filteredFunctions = useMemo(() => filter(functions, ["fid", "name", "description"]) as FunctionInfo[], [functions, kw]);
+
+  // 场景资产库：场景 tab 可见时，为当前行懒加载步骤细节（19 条也不卡：只对当前筛出行 fetch）
+  useEffect(() => {
+    if (tab !== "scenarios" || loading) return;
+    const missing = filteredScenarios.filter((s) => !(s.file in stepLite));
+    if (missing.length === 0) return;
+    let alive = true;
+    missing.forEach((s) => {
+      fetchScenarioSteps(s.file).then((steps) => {
+        if (alive) setStepLite((m) => (m[s.file] ? m : { ...m, [s.file]: steps }));
+      });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [tab, loading, filteredScenarios, stepLite]);
 
   const focusCls = (id: string) =>
     focusId === id ? "!bg-info/10 transition-colors duration-700" : "";
@@ -389,59 +432,108 @@ export function AssetsPage() {
             </div>
           )}
 
-          {/* 场景（资产浏览：可真实执行的故障场景；执行入口在「场景执行」页） */}
+          {/* 场景（资产库视图：每场景含故障等级 chip + 步骤时间线预览 + 执行/看动画入口） */}
           {tab === "scenarios" && (
-            <Panel title="故障场景" right={<Tag tone="dim">{scenarios.length} 个 · 可真实执行</Tag>} bodyClass="p-0">
-              <Explain text="场景 = 一份按时间编排的故障注入/恢复剧本（YAML）。每一步注入什么故障、期望系统怎么处置、何时恢复，都由真实引擎执行并断言。" />
+            <Panel
+              title={
+                <>
+                  场景资产库
+                  <span className="ml-1 text-xs font-normal text-ink-faint num">（{scenarios.length} 个 · 来自资产源 scenarios/）</span>
+                </>
+              }
+              right={<Tag tone="dim">可真实执行</Tag>}
+              bodyClass="p-0"
+            >
+              <Explain text="场景 = 一份按时间编排的故障注入/恢复剧本（YAML）。每行展示注入哪些故障（等级色 chip）、几步编排、时间线前段预览；「执行」去场景执行页真实运行，「看动画」跳 FaultLab 把该场景资产变成动画。" />
               <div className="table-scroll mt-1">
                 <table>
                   <thead>
                     <tr>
                       <th className="th">场景</th>
-                      <th className="th">文件</th>
-                      <th className="th">步数</th>
                       <th className="th">注入故障</th>
+                      <th className="th">编排步数</th>
+                      <th className="th">时间线预览</th>
                       <th className="th">涉及节点</th>
                       <th className="th">动作</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredScenarios.map((s) => (
-                      <tr
-                        key={s.file}
-                        ref={(el) => {
-                          rowRefs.current[s.file] = el;
-                        }}
-                        className={`tr-hover ${focusCls(s.file)}`}
-                      >
-                        <td className="td font-medium text-ink">{s.name}</td>
-                        <td className="td kbd-mono">{s.file}</td>
-                        <td className="td num">{s.steps}</td>
-                        <td className="td">
-                          <div className="flex flex-wrap gap-1">
-                            {s.fault_keys.map((fk) => (
-                              <Tag key={fk} tone="warn">
-                                {fk}
-                              </Tag>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="td">
-                          <div className="flex flex-wrap gap-1">
-                            {s.nodes.map((n) => (
-                              <Tag key={n} tone="dim">
-                                {n}
-                              </Tag>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="td">
-                          <button className="btn-ghost btn-sm" title={`在场景执行页运行 ${s.file}`} onClick={() => (window.location.href = "/scenarios")}>
-                            去执行 →
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredScenarios.map((s) => {
+                      const steps = stepLite[s.file] ?? [];
+                      const preview = steps.slice(0, 3).map((st) => `${st.at}s ${STEP_LABEL[st.action] ?? st.action}${st.fault ? " " + st.fault : ""}`);
+                      return (
+                        <tr
+                          key={s.file}
+                          ref={(el) => {
+                            rowRefs.current[s.file] = el;
+                          }}
+                          className={`tr-hover ${focusCls(s.file)}`}
+                        >
+                          <td className="td">
+                            <div className="font-medium text-ink">{s.name}</div>
+                            <div className="kbd-mono text-[11px]">{s.file}</div>
+                          </td>
+                          <td className="td">
+                            <div className="flex flex-wrap gap-1">
+                              {s.fault_keys.map((fk) => {
+                                const f = faults.find((x) => x.key === fk);
+                                return (
+                                  <Tag key={fk} tone={f ? LEVEL_TONE[f.level] ?? "warn" : "warn"} title={f ? `${f.name} · ${f.level}` : undefined}>
+                                    {fk}
+                                  </Tag>
+                                );
+                              })}
+                            </div>
+                          </td>
+                          <td className="td num">含 {s.steps} 步</td>
+                          <td className="td">
+                            {steps.length > 0 ? (
+                              <div className="flex flex-col gap-0.5 max-w-[300px]">
+                                {preview.map((p, i) => (
+                                  <span key={i} className="text-[11px] text-ink-dim truncate mono">· {p}</span>
+                                ))}
+                                {steps.length > preview.length && (
+                                  <span className="text-[10px] text-ink-faint num">…共 {steps.length} 步</span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-ink-faint">{s.steps} 步编排（加载中…）</span>
+                            )}
+                          </td>
+                          <td className="td">
+                            <div className="flex flex-wrap gap-1">
+                              {s.nodes.map((n) => (
+                                <Tag key={n} tone="dim">
+                                  {n}
+                                </Tag>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="td">
+                            <div className="flex flex-col gap-1 items-start">
+                              <a
+                                className="btn-ghost btn-sm shrink-0"
+                                href="/scenarios"
+                                title={`在场景执行页真实运行 ${s.file}`}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  window.location.href = `/scenarios?file=${encodeURIComponent(s.file)}`;
+                                }}
+                              >
+                                执行 →
+                              </a>
+                              <a
+                                className="btn-ghost btn-sm shrink-0"
+                                href={`/faultlab?scenario=${encodeURIComponent(s.file)}`}
+                                title={`跳 FaultLab 演示 ${s.file} 的动画`}
+                              >
+                                ▶ 看动画
+                              </a>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {filteredScenarios.length === 0 && (
                       <tr>
                         <td colSpan={6}>

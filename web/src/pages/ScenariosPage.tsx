@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, type FaultInfo, type RunScenarioResult, type ScenarioInfo } from "../api";
 import { Panel, Tag, EmptyState, SkeletonRows } from "../components/ui";
 
@@ -40,8 +41,247 @@ const LEVELS = ["major", "minor", "critical", "info"];
 const EXPECTS = ["emergency_brake", "derate", "shutdown", "warning", "none"];
 const NODES = ["vcu", "bcu", "bms"];
 
+/* ===== 跳 FaultLab（t5 跳转链）：把「这次真实执行」变成 FaultLab 动画 =====
+ * 内置场景 → /faultlab?scenario=<file>&from=scenario-exec（fe-faultlab t4 读 ?scenario 直达加载）；
+ * 自定义 runCustom → 步骤序列写 sessionStorage 通道 tcms.faultlab.draft（与 t4 键名一致），导航到纯 /faultlab
+ * （t4 onMount 一次性消费并 removeItem → POST /api/faultlab/demo-steps；不带 query，按 t4 读取端约定）。
+ * 通道契约对齐 t4：{ name?, from?: "scenario-exec"|"agent-exec", steps: FaultLabStepPayload[] }。 */
+const FAULTLAB_DRAFT_KEY = "tcms.faultlab.draft";
+
+function jumpToFaultLab(opts: { file?: string; name?: string; steps?: CustomStepPayload[] }) {
+  if (opts.file) {
+    const p = new URLSearchParams({ scenario: opts.file, from: "scenario-exec" });
+    window.location.href = `/faultlab?${p.toString()}`;
+    return;
+  }
+  if (opts.steps && opts.steps.length > 0) {
+    try {
+      sessionStorage.setItem(FAULTLAB_DRAFT_KEY, JSON.stringify({ name: opts.name || "自定义场景", from: "scenario-exec", steps: opts.steps }));
+    } catch {
+      /* sessionStorage 不可用（隐私模式等）→ 退化为纯导航，FaultLab 展示空态 */
+    }
+    window.location.href = `/faultlab`;
+  }
+}
+
+/* ===== AI 编排顾问 —— POST /api/agent/advisor（be-core t2 已落盘，契约权威在 api.ts AdvisorTurnResp）=====
+ * 请求：{ message, draft_steps?, history? }；响应永远 200（不 422）：
+ *   reply + intent(match_fault|compose_scenario|clarify|out_of_domain|custom_proposal) +
+ *   fault_matches（{key,name,action,level,confidence,matched_on} 候选，供一键填入步骤行）+
+ *   suggested_steps（建议编排，供一键采纳）+ needs_clarification/followup_question（语义澄清）+
+ *   rag_evidence（证据链透明）+ llm_generated（true=LLM 润色 / false=离线规则模板，诚实标注）+
+ *   matched_fault + scenario_suggestions（覆盖该故障的现成场景，可一键运行）。
+ * 本页先 UI 后接线：api.advisorTurn 挂上后自动走契约；未挂上 → 本地 fetch POST /api/agent/advisor；
+ * 端点也 405/404/服务异常 → 本地启发式回复（绝不向用户抛“无法匹配/接口错误”）。 */
+type AdvisorFaultMatch = {
+  key?: string; // be-core 契约主字段（{key,name,...}）
+  fault?: string; // 兼容本地兜底旧字段
+  name?: string;
+  level?: string;
+  action?: string;
+  confidence?: number;
+  matched_on?: string;
+};
+type AdvisorStep = {
+  at: number;
+  action: "inject" | "recover";
+  fault?: string | null;
+  node?: string | null;
+  level?: string | null;
+  expect?: string | null;
+  impact?: string | null;
+};
+type AdvisorHistoryItem = { role: "user" | "assistant"; content: string };
+type AdvisorTurnRequest = { message: string; draft_steps?: AdvisorStep[]; history?: AdvisorHistoryItem[] };
+type AdvisorRagEvidence = string | { doc_id?: string; kind?: string; text?: string; score?: number };
+type AdvisorIntent = "match_fault" | "compose_scenario" | "clarify" | "out_of_domain" | "custom_proposal";
+type AdvisorScenarioSuggestion = { file?: string; name?: string; steps?: number };
+type AdvisorTurnResponse = {
+  reply?: string;
+  intent?: AdvisorIntent;
+  fault_matches?: (AdvisorFaultMatch | string)[];
+  suggested_steps?: AdvisorStep[];
+  needs_clarification?: boolean;
+  followup_question?: string | null;
+  rag_evidence?: AdvisorRagEvidence[];
+  llm_generated?: boolean; // true=LLM 润色文案；false=离线规则模板（诚实标注）
+  matched_fault?: string;
+  scenario_suggestions?: AdvisorScenarioSuggestion[];
+};
+type AdvisorFn = (body: AdvisorTurnRequest) => Promise<AdvisorTurnResponse>;
+
+/** 对话消息（UI 态：把后端结构化字段摊平，便于渲染 chips / 采纳按钮） */
+type ChatMsg = {
+  id: number;
+  role: "user" | "ai";
+  text: string;
+  matches?: AdvisorFaultMatch[];
+  suggested?: AdvisorStep[];
+  clarify?: boolean;
+  followup?: string | null;
+  evidence?: AdvisorRagEvidence[];
+  offline?: boolean; // 本地兜底（顾问服务/LLM 未接线时）
+  llmGenerated?: boolean; // 后端诚实标注：true=LLM 润色 / false=离线规则模板
+  intent?: AdvisorIntent;
+  scenarios?: AdvisorScenarioSuggestion[];
+};
+
 let _rid = 0;
 const nextId = () => ++_rid;
+
+/** 归一化 fault_matches：容忍 string[] 或 {key|fault,name,action,level,confidence,matched_on}[]。
+ *  be-core 契约元素是 {key,name,action,level,confidence,matched_on}；key 是主键。 */
+const normMatches = (m: unknown): AdvisorFaultMatch[] | undefined => {
+  if (!Array.isArray(m) || !m.length) return undefined;
+  const out: AdvisorFaultMatch[] = [];
+  for (const x of m) {
+    if (typeof x === "string") {
+      if (x) out.push({ key: x, fault: x });
+      continue;
+    }
+    if (x && typeof x === "object") {
+      const o = x as Record<string, unknown>;
+      const key = String(o.key ?? o.fault ?? "");
+      if (key)
+        out.push({
+          key,
+          fault: key,
+          name: o.name != null ? String(o.name) : undefined,
+          level: o.level != null ? String(o.level) : undefined,
+          action: o.action != null ? String(o.action) : undefined,
+          confidence: typeof o.confidence === "number" ? o.confidence : undefined,
+          matched_on: o.matched_on != null ? String(o.matched_on) : undefined,
+        });
+    }
+  }
+  return out.length ? out : undefined;
+};
+
+/** 候选故障的主键（key ?? fault） */
+const matchKey = (f: AdvisorFaultMatch): string => f.key ?? f.fault ?? "";
+
+/** 归一化 suggested_steps：只收合法行，字段同 CustomStepPayload */
+const normSteps = (m: unknown): AdvisorStep[] | undefined => {
+  if (!Array.isArray(m) || !m.length) return undefined;
+  const out: AdvisorStep[] = [];
+  for (const x of m) {
+    if (!x || typeof x !== "object") continue;
+    const o = x as Record<string, unknown>;
+    if (typeof o.at !== "number" || (o.action !== "inject" && o.action !== "recover")) continue;
+    const s: AdvisorStep = { at: o.at, action: o.action };
+    if (o.fault != null) s.fault = String(o.fault);
+    if (o.node != null) s.node = String(o.node);
+    if (o.level != null) s.level = String(o.level);
+    if (o.expect != null) s.expect = String(o.expect);
+    if (o.impact != null) s.impact = String(o.impact);
+    out.push(s);
+  }
+  return out.length ? out : undefined;
+};
+
+/** 手动编排步骤行 → 提交/建议 payload（供 draft_steps 与 runCustom 共用） */
+const rowsToSteps = (rows: Row[]): AdvisorStep[] =>
+  rows.map((r) => {
+    const step: AdvisorStep = {
+      at: Number.parseFloat(r.at) || 0,
+      action: r.action,
+      fault: r.fault || null,
+      node: r.node || null,
+      level: r.level || null,
+      expect: r.expect || null,
+      impact: r.impact.trim() || null,
+    };
+    return step;
+  });
+
+/* ===== 本地兜底编排顾问（fetch 兜底也 404 时）=====
+ * 目的：无论后端/LLM 是否就绪，任何输入都有友好回复（「不 422」语义）。
+ * 用故障字典做轻量模糊匹配：key/name 子串 + 中文双字命中，给出候选 chips
+ * 与澄清问题，绝不报「无法匹配」。后端就绪后此路径不再触发。 */
+
+const zhBigrams = (s: string): string[] => {
+  const out: string[] = [];
+  for (let i = 0; i + 1 < s.length; i++) {
+    if (/[\u4e00-\u9fff]/.test(s[i]) && /[\u4e00-\u9fff]/.test(s[i + 1])) out.push(s.slice(i, i + 2));
+  }
+  return out;
+};
+const faultScore = (f: FaultInfo, msg: string): number => {
+  const m = msg.toLowerCase();
+  let s = 0;
+  if (f.key && m.includes(f.key.toLowerCase())) s += 20;
+  const nm = (f.name || "").toLowerCase();
+  if (nm && m.includes(nm)) s += 20;
+  const big = zhBigrams(f.name || "");
+  if (big.length) {
+    const mb = zhBigrams(msg);
+    for (const b of big) if (mb.includes(b)) s += 4;
+  }
+  return s;
+};
+
+const turnLocalAdvisor = (
+  message: string,
+  faults: FaultInfo[],
+  draft?: Row[]
+): AdvisorTurnResponse => {
+  // 域外闲聊（天气/问候/与故障编排无关）→ 友好引导，不做故障匹配、不假装理解
+  if (/^(今天|明天|天气|你好|hi|hello|谢谢|感谢|再见|拜拜|在吗|你会|你是谁|吃|饿|累|困)/i.test(message.trim()) || /天气|你好|吃饭|笑话|唱歌/.test(message)) {
+    return {
+      reply:
+        "这个话题我帮不上编排的忙——我是 TCMS 故障编排顾问，只擅长把你的测试意图变成可执行的注入/恢复步骤。说说你想验证的故障或行为吧，比如「车门故障不能发车」「超速时会不会降级」「恢复后状态是否复原」。",
+      intent: "out_of_domain",
+      needs_clarification: false,
+      rag_evidence: [{ kind: "local-dict", text: "域外闲聊 → 本地兜底引导回故障编排域（顾问服务未接线）" }],
+    };
+  }
+  const scored = faults
+    .map((f) => ({ f, s: faultScore(f, message) }))
+    .filter((x) => x.s > 0)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, 4);
+  const lastAt = draft?.length ? Math.max(...draft.map((d) => Number.parseFloat(d.at) || 0)) : 0;
+
+  if (scored.length) {
+    const top = scored[0];
+    const matches: AdvisorFaultMatch[] = scored.map(({ f, s }) => ({
+      key: f.key,
+      fault: f.key,
+      name: f.name,
+      level: f.level,
+      action: f.action,
+      confidence: Math.min(0.99, Math.round((s / 30) * 100) / 100),
+    }));
+    const uncertain = top.s < 8;
+    const wantArrange = /排|时序|顺序|组合|帮我|建议/.test(message);
+    const suggested: AdvisorStep[] = wantArrange
+      ? [
+          { at: Math.round(lastAt + 10), action: "inject", fault: top.f.key, level: top.f.level, expect: top.f.action },
+          ...(draft?.some((d) => d.fault === top.f.key && d.action === "inject")
+            ? [{ at: Math.round(lastAt + 20), action: "recover" as const, fault: top.f.key }]
+            : []),
+        ]
+      : [];
+    return {
+      reply: uncertain
+        ? `我按故障字典做了模糊匹配，下面几个可能相关（${matches.map((x) => x.name ?? x.key).join("、")}）。点一个 chip 就能把它作为新步骤加进编排；或再描述下你观察到的现象/想验证的行为。`
+        : `这个我能对上——「${top.f.name}（${top.f.key}）」在字典里：注入后期望处置 ${top.f.action ?? "—"}。点 chip 直接把它加为新步骤（会预填等级/期望），也可以继续说你的意图。`,
+      intent: uncertain ? "clarify" : "match_fault",
+      fault_matches: matches,
+      suggested_steps: suggested.length ? suggested : undefined,
+      rag_evidence: [{ kind: "local-dict", text: "故障字典模糊匹配（顾问服务未接线时的本地兜底，非 RAG 证据）" }],
+    };
+  }
+  const hot = faults.slice(0, 5).map((f) => f.name).join("、");
+  return {
+    reply: `我先不猜——内存故障字典里没有直接对应你说的描述。为了帮你排出能真实执行的步骤，麻烦补充：① 想验证什么故障或行为（如「车门故障」「超速」）？② 大概在哪个设备、什么时候注入？你也可以直接说意图，我从这些热门故障里帮你找：${hot}。`,
+    fault_matches: undefined,
+    intent: "custom_proposal",
+    needs_clarification: true,
+    followup_question: "想验证的是哪类故障或行为？大概在什么设备/时间？",
+    rag_evidence: [{ kind: "local-dict", text: "无匹配 → 本地兜底转向澄清（顾问服务未接线）" }],
+  };
+};
 
 const defaultRows = (): Row[] => [
   { id: nextId(), at: "10", action: "inject", fault: "overspeed", node: "vcu", level: "major", expect: "derate", impact: "速度超过限速，期望降级", err: "" },
@@ -60,6 +300,45 @@ export function ScenariosPage() {
   // 手动编排状态
   const [sceneName, setSceneName] = useState("");
   const [rows, setRows] = useState<Row[]>(defaultRows);
+  // 编排指引（默认展开；用户收起后保持收起——状态跨模式保留）
+  const [guideOpen, setGuideOpen] = useState(true);
+  // AI 编排顾问对话状态
+  const [chat, setChat] = useState<ChatMsg[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatPending, setChatPending] = useState(false);
+  const chatBoxRef = useRef<HTMLDivElement | null>(null);
+  // t5 跳转链：记住最近一次「真实执行的场景」（内置=文件；自定义=步骤序列），供结果区「看动画」跳 FaultLab
+  const [lastRun, setLastRun] = useState<{ kind: "builtin" | "custom"; file?: string; name?: string; steps?: CustomStepPayload[] } | null>(null);
+  // 行选故障的懒加载详情（检测/处置/恢复——列表接口不含，单条接口才有）
+  const [faultDetail, setFaultDetail] = useState<Record<string, FaultInfo>>({});
+  // t5 跳转链：AssetsPage「执行」可带 ?file=<场景文件> 直达并预选该场景
+  const [searchParams] = useSearchParams();
+  const selByFile = searchParams.get("file");
+  const prevQueryFile = useRef<string | null>(null);
+
+  // 读取 AssetsPage 跳转的 ?file=：预选该场景（不自动运行，留给人点「运行此场景」）
+  useEffect(() => {
+    if (!selByFile) return;
+    if (prevQueryFile.current === selByFile) return; // 同一 file 只消费一次
+    if (scenarios.some((s) => s.file === selByFile)) {
+      prevQueryFile.current = selByFile;
+      setSel(selByFile);
+    }
+    // scenarios 未就绪时本 effect 随 scenarios 更新重跑，直到命中
+  }, [selByFile, scenarios]);
+
+  // 首次进入自定义模式时给一条顾问引导语（含示例提问）
+  useEffect(() => {
+    if (mode !== "custom" || chat.length) return;
+    setChat([
+      {
+        id: nextId(),
+        role: "ai",
+        text: "我是你的编排顾问：把「想验证的情形」说给我听，我会用故障知识库（RAG）+ AI 把它翻译成可执行的注入/恢复步骤。比如：",
+        offline: false,
+      },
+    ]);
+  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     api
@@ -117,6 +396,7 @@ export function ScenariosPage() {
     setPhase("running");
     setResult(null);
     setErr("");
+    setLastRun({ kind: "builtin", file: sel }); // t5：记住本次执行的场景文件，完成后可跳 FaultLab
     try {
       const r = await api.runScenario(sel);
       setResult(r);
@@ -157,6 +437,7 @@ export function ScenariosPage() {
     setPhase("running");
     setResult(null);
     setErr("");
+    setLastRun({ kind: "custom", name: sceneName.trim() || undefined, steps }); // t5：记住步骤序列，完成后可跳 FaultLab 按资产组合演示
     try {
       const r = await fn(body);
       setResult(r);
@@ -167,6 +448,167 @@ export function ScenariosPage() {
     }
   };
 
+  /* ===== AI 编排顾问 ===== */
+
+  const chatPush = (m: ChatMsg) => setChat((c) => [...c, m]);
+
+  /** 发送用户消息 → api.advisorTurn → 渲染回复（永不因“无匹配”拒绝） */
+  const sendChat = async () => {
+    const message = chatInput.trim();
+    if (!message || chatPending) return;
+    setChatInput("");
+    chatPush({ id: nextId(), role: "user", text: message });
+    setChatPending(true);
+    const lastTurn = (() => {
+      // 取最后一条「完整回合」：跳过最近一条可能还在兜底的 AI 消息
+      const out: AdvisorHistoryItem[] = [];
+      const msgs = [...chat];
+      if (msgs.length && msgs[msgs.length - 1].role === "ai") msgs.pop();
+      for (const m of msgs.slice(-6)) out.push({ role: m.role === "user" ? "user" : "assistant", content: m.text });
+      return out;
+    })();
+    const req: AdvisorTurnRequest = { message, draft_steps: rowsToSteps(rows), history: lastTurn };
+    let resp: AdvisorTurnResponse | null = null;
+    let offline = false;
+
+    // 1) 契约优先：api.advisorTurn（be-core t2 挂上后自动走这条）
+    const fn = (api as unknown as { advisorTurn?: AdvisorFn }).advisorTurn;
+    if (fn) {
+      try {
+        resp = await fn(req);
+      } catch {
+        resp = null; // 掉到 fetch 兜底
+      }
+    }
+    // 2) 本地 fetch 兜底（后端已实现但 t2 未同步 api.ts）
+    if (!resp) {
+      let httpNote = "";
+      try {
+        const r = await fetch("/api/agent/advisor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(req),
+        });
+        if (r.ok) {
+          resp = (await r.json()) as AdvisorTurnResponse;
+        } else if (r.status === 404 || r.status === 405) {
+          httpNote = `顾问服务尚未接线（HTTP ${r.status}）——先用本地故障字典兜底`;
+          resp = null; // 端点尚未实现 → 本地启发式
+        } else {
+          const detail = await r.text();
+          httpNote = `顾问服务暂时没接上（${r.status} ${detail.slice(0, 120)}）——先用本地故障字典兜底`;
+          resp = null; // 服务异常 → 也走本地启发式，绝不空手
+        }
+      } catch (e) {
+        httpNote = `顾问服务未就绪（${String(e).slice(0, 100)}）——先用本地故障字典兜底`;
+        resp = null;
+      }
+      // 3) 本地启发式兜底（端点未实现 / 服务异常 / 网络失败——一律接管，保证有可用回复）
+      if (!resp) {
+        offline = true;
+        resp = turnLocalAdvisor(message, faults, rows);
+        if (httpNote) resp.reply = `${httpNote}：\n${resp.reply ?? ""}`;
+      }
+    }
+
+    chatPush({
+      id: nextId(),
+      role: "ai",
+      text: resp.reply ?? "收到，我再看一下怎么帮你。",
+      matches: normMatches(resp.fault_matches),
+      suggested: normSteps(resp.suggested_steps),
+      clarify: !!resp.needs_clarification,
+      followup: resp.followup_question ?? null,
+      evidence: resp.rag_evidence,
+      offline,
+      llmGenerated: resp.llm_generated,
+      intent: resp.intent,
+      scenarios: resp.scenario_suggestions,
+    });
+    setChatPending(false);
+  };
+
+  /** 点候选故障 chip：优先填选中行的 fault；否则新增一步 */
+  const adoptFault = (f: AdvisorFaultMatch) => {
+    const fk = matchKey(f);
+    if (!fk) return;
+    const row = rows.find((r) => r.fault === "" || r.fault === fk) ?? rows.find((r) => r.action === "inject" && !r.fault);
+    if (row) {
+      const patch: Partial<Row> = { fault: fk };
+      if (f.level && LEVELS.includes(f.level)) patch.level = f.level;
+      if (f.action && EXPECTS.includes(f.action)) patch.expect = f.action;
+      patchRow(row.id, patch);
+      return;
+    }
+    setRows((rs) => [
+      ...rs,
+      {
+        id: nextId(),
+        at: String(Math.max(0, ...rs.map((r) => Number.parseFloat(r.at) || 0)) + 10),
+        action: "inject",
+        fault: fk,
+        node: "vcu",
+        level: f.level && LEVELS.includes(f.level) ? f.level : "",
+        expect: f.action && EXPECTS.includes(f.action) ? f.action : "",
+        impact: f.name ? `${f.name}——期望 ${f.action ?? "处置"}（顾问推荐）` : "",
+        err: "",
+      },
+    ]);
+  };
+
+  /** 采纳顾问建议步骤：时间偏移防冲突后追加 */
+  const adoptSteps = (steps: AdvisorStep[]) => {
+    const next: Row[] = [...rows];
+    let base = rows.length ? Math.max(...rows.map((r) => Number.parseFloat(r.at) || 0)) : 0;
+    for (const s of steps) {
+      const at = Math.max(0.1, s.at > base ? s.at : base + 10); // 与已有行时间错开
+      next.push({
+        id: nextId(),
+        at: String(Math.round(at * 10) / 10),
+        action: s.action,
+        fault: s.fault ?? "",
+        node: s.node ?? "vcu",
+        level: s.level ?? "",
+        expect: s.expect ?? "",
+        impact: s.impact ?? "",
+        err: "",
+      });
+      base = at;
+    }
+    setRows(next);
+  };
+
+  /** 问句一键填充到输入框 */
+  const askFollowup = () => {
+    if (!chatInput.trim() && chat.length) {
+      const last = chat[chat.length - 1];
+      if (last.role === "ai" && last.followup) setChatInput(last.followup);
+    }
+  };
+
+  // 新 AI 消息后自动滚到底
+  useEffect(() => {
+    if (chatBoxRef.current) chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
+  }, [chat, chatPending]);
+
+  // 懒加载行故障详情（检测/注入/恢复——列表接口不含详情，避免逐行请求）
+  useEffect(() => {
+    if (mode !== "custom") return;
+    let alive = true;
+    for (const r of rows) {
+      if (!r.fault || faultDetail[r.fault]) continue;
+      api
+        .fault(r.fault)
+        .then((f) => {
+          if (alive) setFaultDetail((d) => ({ ...d, [f.key]: f }));
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      alive = false;
+    };
+  }, [rows, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const modeTab = (m: "builtin" | "custom", label: string) => (
     <button
       onClick={() => setMode(m)}
@@ -176,6 +618,133 @@ export function ScenariosPage() {
     >
       {label}
     </button>
+  );
+
+  /** 编排指引开合 */
+  const toggleGuide = () => setGuideOpen((o) => !o);
+
+  /** 渲染单条 AI 顾问消息（文本 + 候选 chips + 建议步骤 + 澄清 + 证据折叠） */
+  const renderAiMsg = (m: ChatMsg) => (
+    <div className="space-y-2">
+      {m.text && <p className="text-[13px] text-ink leading-5 whitespace-pre-wrap">{m.text}</p>}
+      {m.intent === "out_of_domain" && (
+        <p className="text-[10px] text-warn/80">（这句话偏离了 TCMS 故障编排域——顾问已给出引导；说故障/现象/意图才能排步骤）</p>
+      )}
+      {m.intent === "custom_proposal" && (
+        <p className="text-[10px] text-vio/80">（字典未收录 → 自定义新故障引导流程：补齐注入方式/影响/期望处置，顾问组装草稿）</p>
+      )}
+      {m.offline && (
+        <p className="text-[10px] text-ink-faint">（顾问服务未接线 · 本地故障字典兜底回复）</p>
+      )}
+      {m.llmGenerated === false && !m.offline && (
+        <p className="text-[10px] text-ink-faint">（离线规则模板回复 · 未接 LLM，建议真实、可解释）</p>
+      )}
+      {m.llmGenerated === true && (
+        <p className="text-[10px] text-ok/70">（回复文案由 LLM 润色 · 决策仍锚定真实故障字典）</p>
+      )}
+      {m.matches && m.matches.length > 0 && (
+        <div className="pt-0.5">
+          <div className="text-[10px] text-ink-faint mb-1">候选故障（点一下填入步骤）：</div>
+          <div className="flex flex-wrap gap-1.5">
+            {m.matches.map((f, i) => {
+              const fk = matchKey(f);
+              const meta = f.name
+                ? `${f.name} · ${fk}`
+                : `${faults.find((x) => x.key === fk)?.name ?? ""} ${fk}`.trim();
+              return (
+                <button
+                  key={`${fk}-${i}`}
+                  type="button"
+                  onClick={() => adoptFault(f)}
+                  className="tag text-info border-info/40 bg-info/10 hover:bg-info/20 cursor-pointer transition-colors text-left"
+                  title={f.level && f.action ? `等级 ${f.level} · 期望处置 ${f.action}` : "点击填入步骤"}
+                >
+                  + {meta}
+                  {f.confidence != null && <span className="opacity-60 num">{Math.round(f.confidence * 100)}%</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {m.suggested && m.suggested.length > 0 && (
+        <div className="panel bg-surface-2/50 p-2 rounded-lg">
+          <div className="text-[10px] text-ink-faint mb-1">建议编排（已按你的现有步骤避让时间）：</div>
+          <ol className="space-y-0.5">
+            {m.suggested.map((s, i) => (
+              <li key={i} className="text-[11px] font-mono text-ink-dim">
+                {s.at}s · {s.action === "inject" ? "注入" : "恢复"} {s.fault ?? "—"}
+                {s.node ? ` @${s.node}` : ""}
+                {s.expect ? ` → 期望 ${s.expect}` : ""}
+              </li>
+            ))}
+          </ol>
+          <button type="button" className="btn-ghost btn-sm mt-1.5" onClick={() => adoptSteps(m.suggested!)}>
+            ＋ 采纳建议步骤（追加到下方编排表）
+          </button>
+        </div>
+      )}
+      {m.clarify && (
+        <div className="panel border-warn/30 bg-warn/5 px-2.5 py-2 rounded-lg">
+          <div className="text-[11px] text-warn flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-warn pulse-dot" />
+            顾问需要澄清一下，才能给出能真实执行的步骤
+          </div>
+          {m.followup && (
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="text-[12px] text-ink-dim">{m.followup}</span>
+              <button type="button" className="btn-ghost btn-sm !py-1 shrink-0" onClick={askFollowup}>
+                用这句问我 →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {m.evidence && m.evidence.length > 0 && (
+        <details className="text-[11px]">
+          <summary className="text-ink-faint cursor-pointer select-none hover:text-ink-dim">查看检索证据（透明）</summary>
+          <ul className="mt-1.5 space-y-1 pl-1 border-l-2 border-line-soft">
+            {m.evidence.map((e, i) => {
+              const line =
+                typeof e === "string"
+                  ? e
+                  : [e?.kind, e?.doc_id, e?.text, e?.score != null ? `score ${e.score}` : ""].filter(Boolean).join(" · ");
+              return (
+                <li key={i} className="text-ink-faint leading-4.5 pl-2">
+                  {line}
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      )}
+      {m.intent === "match_fault" && m.scenarios && m.scenarios.length > 0 && (
+        <div className="panel bg-surface-2/50 p-2 rounded-lg">
+          <div className="text-[10px] text-ink-faint mb-1">现成场景可直接验证（点一下真实执行）：</div>
+          <div className="flex flex-wrap gap-1.5">
+            {m.scenarios.map((s, i) => {
+              const file = s.file ?? "";
+              return (
+                <button
+                  key={`${file}-${i}`}
+                  type="button"
+                  className="tag text-ok border-ok/40 bg-ok/10 hover:bg-ok/20 cursor-pointer transition-colors"
+                  onClick={() => {
+                    if (file) {
+                      setSel(file);
+                      setMode("builtin");
+                    }
+                  }}
+                  title={`${file} · ${s.steps ?? "?"} 步编排`}
+                >
+                  ▶ {s.name ?? file}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 
   /** 单步行控件（带小标签） */
@@ -240,6 +809,70 @@ export function ScenariosPage() {
         ) : (
           /* ---------- 手动编排编辑器 ---------- */
           <div className="space-y-2">
+            {/* 编排指引（场景名 = 叙事标签；步骤 = 注入脚本） */}
+            <div className="panel border-info/25 bg-info/5 overflow-hidden">
+              <button
+                type="button"
+                onClick={toggleGuide}
+                className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] font-medium text-ink hover:bg-info/5"
+                aria-expanded={guideOpen}
+              >
+                <span className={`inline-block transition-transform ${guideOpen ? "rotate-90" : ""}`}>▸</span>
+                <span>编排指引：场景名称与故障步骤是什么关系？</span>
+                <span className="ml-auto text-[10px] text-ink-faint font-normal">{guideOpen ? "收起" : "展开"}</span>
+              </button>
+              {guideOpen && (
+                <div className="px-3.5 pb-3 space-y-2.5 text-[12px] leading-5">
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    <div className="panel bg-surface/70 p-2.5 rounded-lg">
+                      <div className="text-info text-[11px] font-semibold mb-1">场景名称 = 叙事标签</div>
+                      <p className="text-ink-dim text-[12px] leading-4.5">
+                        给人看的：这段测试在验证什么情形。像一幕剧的<b>剧名</b>——方便沉淀、汇报与复用，
+                        引擎不执行它。例：<span className="text-ink">「车门故障后超速级联」</span>。
+                      </p>
+                    </div>
+                    <div className="panel bg-surface/70 p-2.5 rounded-lg">
+                      <div className="text-info text-[11px] font-semibold mb-1">故障步骤 = 注入脚本</div>
+                      <p className="text-ink-dim text-[12px] leading-4.5">
+                        给引擎执行的：<b>何时(at)</b> 往哪个设备(node) 注入/恢复(recover) 哪个故障(fault)，
+                        注入时断言期望处置(expect)。像剧的<b>台词与走位</b>——决定真实结果。
+                      </p>
+                    </div>
+                  </div>
+                  <div className="panel bg-surface/70 p-2.5 rounded-lg">
+                    <div className="text-[11px] font-semibold text-ink-dim mb-1.5">微型示例：名称一句话 + 步骤三行（索引 vs 脚本）</div>
+                    <div className="text-[11px] text-ink-dim mb-1">
+                      <span className="kbd-mono text-ink">场景名称</span>：车门故障级联（我这次想验证：车门故障时超速也会被正确处置，且故障恢复后解除）
+                    </div>
+                    <div className="space-y-0.5">
+                      {[
+                        ["10s", "inject", "door_fault", "bcu", "→ 期望 derate", "车门打不开故障：请求降级"],
+                        ["20s", "inject", "overspeed", "vcu", "→ 期望 derate", "叠加超速：仍应降级而非崩溃"],
+                        ["30s", "recover", "door_fault", "bcu", "", "恢复车门故障：确认解除"],
+                      ].map((c, i) => (
+                        <div key={i} className="font-mono text-[11px] flex flex-wrap gap-x-2 text-ink-dim">
+                          <span className="num text-ink">{c[0]}</span>
+                          <span className={c[1] === "inject" ? "text-warn" : "text-ok"}>{c[1]}</span>
+                          <span className="text-ink">{c[2]}</span>
+                          <span className="text-ink-faint">@{c[3]}</span>
+                          {c[4] && <span className="text-info">{c[4]}</span>}
+                          <span className="text-ink-faint">{c[5]}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-ink-faint mt-1">
+                      名：我要验证什么情形（沉淀/汇报用）；步骤：引擎按时间轴注入/恢复什么故障（决定执行结果）。名与步骤不必一一对应，一个好名字能概括一组步骤的意图。
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-ink-dim">
+                    <span><span className="num text-ok font-semibold">1</span>　起个场景名称（可选，但建议）——想验证什么情形，一句话说清</span>
+                    <span><span className="num text-ok font-semibold">2</span>　加步骤：每步 = 何时(at) + 对哪个设备(node) + 注入/恢复(recover) 哪个故障(fault)，注入可写期望处置(expect)</span>
+                    <span><span className="num text-ok font-semibold">3</span>　点「执行这个自定义场景」真实跑一遍</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="flex items-center gap-2">
               <label className="text-[11px] text-ink-faint">
                 场景名称（可选）
@@ -365,6 +998,15 @@ export function ScenariosPage() {
                       </button>
                     </div>
                     {r.err && <div className="text-[11px] text-bad mt-1">⚠ {r.err}</div>}
+                    {/* 懒加载的故障详情小字：帮用户理解这一步引擎会怎么检测/处置/恢复（不喧宾夺主） */}
+                    {actionOf(r.id) === "inject" && r.fault && faultDetail[r.fault] && (
+                      <div className="text-[10px] text-ink-faint leading-4 mt-1.5 border-t border-line-soft/60 pt-1.5 flex flex-wrap gap-x-4 gap-y-0.5">
+                        {faultDetail[r.fault].detect && <span>检测：{faultDetail[r.fault].detect}</span>}
+                        {faultDetail[r.fault].inject && <span>注入：{faultDetail[r.fault].inject}</span>}
+                        {faultDetail[r.fault].recovery && <span>恢复：{faultDetail[r.fault].recovery}</span>}
+                        {faultDetail[r.fault].desc && <span className="w-full">{faultDetail[r.fault].desc}</span>}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -385,6 +1027,64 @@ export function ScenariosPage() {
             <p className="text-[10px] text-ink-faint">
               步骤按时间先后执行：inject 注入故障并断言期望处置，recover 恢复故障。恢复（recover）步骤需要指定要恢复的故障。
             </p>
+
+            {/* AI 编排顾问 —— 多轮对话；任何输入都有回复，不因无法匹配而拒绝 */}
+            <div className="panel border-vio/25 overflow-hidden">
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-line-soft bg-surface-2/30">
+                <span className="text-vio text-[12px]">◇</span>
+                <span className="text-[12px] font-semibold text-ink">AI 编排顾问</span>
+                <span className="text-[10px] text-ink-faint">把「想验证的情形」说给我听 → 帮你翻译成可执行步骤（RAG 检索 + 真 Agent）</span>
+              </div>
+              <div ref={chatBoxRef} className="px-3 py-2.5 space-y-2.5 max-h-80 overflow-y-auto">
+                {chat.map((m) => (
+                  <div key={m.id} className={m.role === "user" ? "flex justify-end" : ""}>
+                    <div
+                      className={
+                        m.role === "user"
+                          ? "max-w-[85%] bg-info/15 border border-info/30 rounded-xl rounded-tr-sm px-3 py-2 text-[13px] text-ink whitespace-pre-wrap"
+                          : "max-w-[92%] bg-surface-2/50 border border-line/70 rounded-xl rounded-tl-sm px-3 py-2"
+                      }
+                    >
+                      {m.role === "ai" ? renderAiMsg(m) : m.text}
+                    </div>
+                  </div>
+                ))}
+                {chatPending && (
+                  <div className="flex items-center gap-2 text-[11px] text-ink-faint">
+                    <span className="h-1.5 w-1.5 rounded-full bg-vio pulse-dot" />
+                    顾问思考中：语义检索故障知识 → 匹配意图…
+                  </div>
+                )}
+                {chat.length === 0 && (
+                  <p className="text-[11px] text-ink-faint">
+                    示例提问：「验证车门故障时不能发车」「门好像有问题」「我想测紧急停车时空调会不会关」。
+                  </p>
+                )}
+              </div>
+              <div className="flex items-end gap-2 border-t border-line-soft px-3 py-2.5 bg-surface-2/20">
+                <input
+                  className="input !py-2 text-[13px]"
+                  placeholder="说你的意图 / 故障现象 / 编排求助…（回车发送）"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      void sendChat();
+                    }
+                  }}
+                  disabled={chatPending}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm justify-center shrink-0"
+                  onClick={() => void sendChat()}
+                  disabled={chatPending || !chatInput.trim()}
+                >
+                  {chatPending ? "…" : "发送"}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </Panel>
@@ -448,6 +1148,38 @@ export function ScenariosPage() {
             }
             bodyClass="p-3"
           >
+            {/* t5 跳转链：把「这次执行」送进 FaultLab 用动画重放（资产化动画，不是额定设置） */}
+            {(() => {
+              const canJump = lastRun?.kind === "builtin" && lastRun.file
+                ? { href: `/faultlab?scenario=${encodeURIComponent(lastRun.file)}&from=scenario-exec` }
+                : lastRun?.kind === "custom" && lastRun.steps && lastRun.steps.length > 0
+                  ? { draft: true, name: lastRun.name }
+                  : null;
+              return canJump ? (
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
+                  <a
+                    className="btn btn-sm justify-center"
+                    href={canJump.draft ? "/faultlab" : (canJump as { href: string }).href}
+                    onClick={
+                      canJump.draft
+                        ? (e) => {
+                            e.preventDefault();
+                            jumpToFaultLab({ name: canJump.name, steps: lastRun?.steps });
+                          }
+                        : undefined
+                    }
+                    title="跳转 FaultLab，用动画回放本次执行的故障注入 → 检测 → 处置 → 恢复"
+                  >
+                    ▶ 用动画看这次执行
+                  </a>
+                  <span className="text-[11px] text-ink-faint">
+                    {lastRun?.kind === "custom"
+                      ? `把刚才手动编排的 ${lastRun.steps?.length ?? 0} 步序列作为资产组合送进 FaultLab`
+                      : `场景 ${lastRun?.file} 按真实资产时间线回放`}
+                  </span>
+                </div>
+              ) : null;
+            })()}
             <div className="grid grid-cols-3 gap-3 max-w-sm">
               <div className="panel bg-surface-2/50 px-3 py-2">
                 <div className="stat-num text-ok num">{result.passed}</div>

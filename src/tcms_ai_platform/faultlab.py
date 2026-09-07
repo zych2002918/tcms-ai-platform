@@ -20,8 +20,9 @@
 则以 `derived: true` 标注，保持诚实。
 
 用法：
-    from tcms_ai_platform.faultlab import build_demo
+    from tcms_ai_platform.faultlab import build_demo, build_demo_from_steps
     demo = build_demo(asset_model, "overspeed_derate.yaml", run_result=None)
+    demo = build_demo_from_steps(asset_model, "my_seq", steps, run_result=None)
 """
 
 from __future__ import annotations
@@ -310,8 +311,82 @@ def build_demo(
         demo["pipeline"] —— 数据管线静态描述 + 真实/示意常量表（透明自证）。
       既有字段(events/curve 结构、derived、params、duration、honesty)不变，
       前端向后兼容。
+
+    与 build_demo_from_steps 共享同一套时间线重建核心
+    （_demo_from_step_sources）：平台测试引用本签名，保持向后兼容。
     """
     scen = m.scenario(scenario_file)
+    demo = _demo_from_step_sources(
+        m,
+        name=scen.name,
+        file=scenario_file,
+        ref_label=f"scenarios/{scenario_file}",
+        steps=[_step_to_dict(st) for st in scen.steps],
+        run_result=run_result,
+    )
+    return demo
+
+
+def build_demo_from_steps(
+    m: AssetModel,
+    name: str,
+    steps: list[dict],
+    run_result: dict | None = None,
+) -> dict:
+    """从任意故障序列（与 ScenarioStep 同构的 dict 列表）重建演示时间线。
+
+    - steps: [{at, action, fault, node, level, expect, impact}]，逐条与场景
+      YAML 步骤同构；fault 必须是资产故障字典真实键（build_demo 由场景 YAML
+      保证，本变体由调用方/端点预校验；越界键在重建时按 KeyError 诚实上抛，
+      不做静默猜写）。
+    - run_result: 可选真实引擎 run 报告（语义同 build_demo）。
+    - 与 build_demo 输出同构（events/curve 输入面、engine、pipeline、honesty、
+      params、duration）；区别仅在命名与数据来源标注：
+        demo["scenario"]  = f"custom/{name}"（非 asset 场景文件，诚实标注）
+        demo["scenario_name"] = name
+        source.scenario_yaml 的 ref 对自定义序列显示 "custom/<name>"，
+        desc 注明「来源为前端/编排自定义步骤序列（非资产场景 YAML）」。
+    - 复用 build_demo 的事件重建/曲线/引擎窗口/管线逻辑（经共享核心）。
+    """
+    return _demo_from_step_sources(
+        m,
+        name=name,
+        file=f"custom/{name}",
+        ref_label=f"custom/{name}",
+        steps=steps,
+        run_result=run_result,
+        custom=True,
+    )
+
+
+def _step_to_dict(st) -> dict:
+    """ScenarioStep(或同构对象) → dict（供共享核心统一消费）。"""
+    return {
+        "at": float(st.at),
+        "action": st.action,
+        "fault": st.fault,
+        "node": st.node,
+        "level": st.level,
+        "expect": st.expect,
+        "impact": st.impact,
+    }
+
+
+def _demo_from_step_sources(
+    m: AssetModel,
+    name: str,
+    file: str,
+    ref_label: str,
+    steps: list[dict],
+    run_result: dict | None,
+    custom: bool = False,
+) -> dict:
+    """共享核心：把「步骤序列」重建为演示时间线（build_demo 两变体共用）。
+
+    - steps 为 dict 列表 [{at,action,fault,node,level,expect,impact}]；
+    - custom=True 时数据来源标注使用 "custom/<name>" 前缀（诚实标注：
+      这些步骤是编排的自定义序列，不是资产场景 YAML）；否则用资产场景文件。
+    """
     prof = _profiles()
     events: list[DemoEvent] = []
     active: dict[str, float] = {}  # fault -> inject ts（用于派生检测事件去重）
@@ -324,41 +399,50 @@ def build_demo(
                 asserted_action.setdefault(a["fault"], a.get("actual", ""))
                 assert_index.setdefault(a["fault"], i)
 
-    steps = sorted(scen.steps, key=lambda s: s.at)
-    last_t = steps[-1].at if steps else 0.0
+    if custom:
+        steps = [dict(s) for s in steps]  # 防御：不修改调用方列表
+    else:
+        steps = list(steps)
+    steps.sort(key=lambda s: float(s["at"]))
+    last_t = float(steps[-1]["at"]) if steps else 0.0
 
     for st in steps:
-        if st.action == "inject" and st.fault:
-            fk = st.fault
+        if st.get("action") == "inject" and st.get("fault"):
+            fk = st["fault"]
             p = prof.get(fk, {})
-            name = _fault_name(m, fk)
+            name_zh = _fault_name(m, fk)
             fd = m.fault(fk) if fk in m.faults_by_key else None
-            scen_ref = f"scenarios/{scenario_file}（step @{st.at:.1f}s）"
-            # 1) 注入（真实：场景 YAML 步骤）
+            scen_ref = f"{ref_label}（step @{float(st['at']):.1f}s）"
+            src_desc_inject = (
+                "注入时刻/故障来自前端编排的自定义步骤序列（非资产场景 YAML，自定义编排）"
+                if custom
+                else "注入时刻/故障/期望处置来自真实场景 YAML 步骤（资产派生，真实）"
+            )
+            # 1) 注入（真实：场景 YAML 步骤 / 自定义：编排序列）
             events.append(
                 DemoEvent(
-                    t=st.at,
+                    t=float(st["at"]),
                     kind="inject",
                     fault=fk,
-                    label=f"注入故障：{name}",
-                    detail=st.impact or (fd.desc if fd else ""),
-                    level=st.level or (fd.level if fd else ""),
-                    action=st.expect or (fd.action if fd else ""),
+                    label=f"注入故障：{name_zh}",
+                    detail=st.get("impact") or (fd.desc if fd else ""),
+                    level=st.get("level") or (fd.level if fd else ""),
+                    action=st.get("expect") or (fd.action if fd else ""),
                     source_kind="scenario_yaml",
                     source_ref=scen_ref,
-                    source_desc="注入时刻/故障/期望处置来自真实场景 YAML 步骤（资产派生，真实）",
+                    source_desc=src_desc_inject,
                 )
             )
             # 2) 检测（文本真实：故障字典 detect；时刻示意：注入 + DETECT_DELAY_S）
             detect_zh = p.get("detect_zh") or (fd.detect if fd else "系统检测到异常")
             events.append(
                 DemoEvent(
-                    t=round(st.at + DETECT_DELAY_S, 2),
+                    t=round(float(st["at"]) + DETECT_DELAY_S, 2),
                     kind="detect",
                     fault=fk,
                     label="检测到异常",
                     detail=detect_zh,
-                    level=st.level or "",
+                    level=st.get("level") or "",
                     derived=True,
                     source_kind="derived_phys",
                     source_ref=f"示意规则 DETECT_DELAY_S={DETECT_DELAY_S}s",
@@ -384,12 +468,12 @@ def build_demo(
                 )
             events.append(
                 DemoEvent(
-                    t=round(st.at + DETECT_DELAY_S, 2),
+                    t=round(float(st["at"]) + DETECT_DELAY_S, 2),
                     kind="action",
                     fault=fk,
                     label=f"处置：{_action_zh(actual)}",
-                    detail=f"来源：{src_ref} · 期望 {st.expect or fd.action}",
-                    level=st.level or "",
+                    detail=f"来源：{src_ref} · 期望 {st.get('expect') or fd.action}",
+                    level=st.get("level") or "",
                     action=actual,
                     derived=False,
                     source_kind=src_kind,
@@ -398,21 +482,25 @@ def build_demo(
                 )
             )
             if p:
-                active[fk] = st.at
-        elif st.action == "recover" and st.fault:
-            fk = st.fault
+                active[fk] = float(st["at"])
+        elif st.get("action") == "recover" and st.get("fault"):
+            fk = st["fault"]
             fd = m.fault(fk) if fk in m.faults_by_key else None
             events.append(
                 DemoEvent(
-                    t=st.at,
+                    t=float(st["at"]),
                     kind="recover",
                     fault=fk,
                     label=f"恢复：{_fault_name(m, fk)}",
                     detail=(fd.recovery if fd else "故障消除"),
                     level=fd.level if fd else "",
                     source_kind="scenario_yaml",
-                    source_ref=f"scenarios/{scenario_file}（step @{st.at:.1f}s）",
-                    source_desc="恢复时刻来自真实场景 YAML 步骤（资产派生，真实）",
+                    source_ref=f"{ref_label}（step @{float(st['at']):.1f}s）",
+                    source_desc=(
+                        "恢复时刻来自前端编排的自定义步骤序列（非资产场景 YAML，自定义编排）"
+                        if custom
+                        else "恢复时刻来自真实场景 YAML 步骤（资产派生，真实）"
+                    ),
                 )
             )
             active.pop(fk, None)
@@ -428,17 +516,17 @@ def build_demo(
                 label="场景结束，故障仍处处置状态",
                 detail="本场景未编排恢复步骤；真实恢复语义见故障字典 recovery 字段。",
                 source_kind="note",
-                source_ref=f"scenarios/{scenario_file}（无 recover 步骤）",
+                source_ref=f"{ref_label}（无 recover 步骤）",
                 source_desc="备注：场景步骤未含恢复，演示不虚构恢复时刻（事实陈述）",
             )
         )
 
     duration = round(last_t + TAIL_S, 2)
     return {
-        "scenario": scen.file,
-        "scenario_name": scen.name,
+        "scenario": file,
+        "scenario_name": name,
         "faults": sorted({e.fault for e in events if e.kind in ("inject",)}),
-        "steps": len(scen.steps),
+        "steps": len(steps),
         "duration": duration,
         "sample_s": SAMPLE_S,
         "events": [e.to_dict() for e in sorted(events, key=lambda e: e.t)],
@@ -455,8 +543,10 @@ def build_demo(
         "pipeline": _pipeline_block(),
         # 诚实性（保留字段名，前端/测试引用；内容改为积极客观的管线透明表述）
         "honesty": (
-            "数据管线透明：每条事件标注 source——注入/恢复时刻与期望处置 = 真实场景 YAML；"
-            "处置 actual = 真实引擎断言（若已执行）或故障字典 action；检测文本 = 真实故障字典；"
+            "数据管线透明：每条事件标注 source——注入/恢复时刻与期望处置 = "
+            + ("自定义编排步骤序列" if custom else "真实场景 YAML")
+            + "；处置 actual = 真实引擎断言（若已执行）或故障字典 action；"
+            "检测文本 = 真实故障字典；"
             "检测时刻与通道波形由示意物理模型生成（规则与真实/示意常量见 pipeline.constants）。"
         ),
     }

@@ -32,6 +32,93 @@ _app_model: AssetModel | None = None
 _app_upstream: Path | None = None
 
 
+def _validate_steps(m: AssetModel, steps: list[dict]) -> None:
+    """校验任意编排步骤序列（/run/custom、/faultlab/demo-steps 共用）。
+
+    - 步骤非空；action ∈ inject/recover；inject 必须有 fault 且 fault ∈ 真实
+      故障字典（未知 → 422 中文，防拼写错误静默通过）。
+    """
+    if not steps:
+        raise HTTPException(422, "自定义场景至少需要一个步骤")
+    for st in steps:
+        at = st.get("at")
+        action = st.get("action")
+        fault = st.get("fault")
+        if action == "inject":
+            if not fault:
+                raise HTTPException(422, f"at={at} 的 inject 步骤缺少 fault")
+            if fault not in m.faults_by_key:
+                raise HTTPException(
+                    422,
+                    f"未知故障键: {fault}（可用故障见 /api/faults，共 {len(m.faults_by_key)} 个）",
+                )
+        elif action != "recover":
+            raise HTTPException(422, f"at={at} 的未知动作: {action!r}（仅支持 inject/recover）")
+        elif not fault:
+            raise HTTPException(422, f"at={at} 的 recover 步骤缺少 fault")
+
+
+def _run_custom_steps(
+    m: AssetModel,
+    name: str,
+    steps: list[dict],
+    scenario_dir: Path,
+) -> dict:
+    """把任意编排步骤（dict 列表）在真实引擎上执行（不落盘）。
+
+    /api/run/custom 与 /api/faultlab/demo-steps 共用的执行管线：
+    校验 → 组装 YAML → parse_scenario → VirtualClock(virtual) + FaultLedger
+    → ScenarioRunner.run → 与 run_yaml 同构的报告（含 assertions/ledger）。
+
+    引擎缺失时抛 HTTPException 503（引导文案与 run_scenario 一致）。
+    步骤校验失败时抛 HTTPException 422（中文，防拼写错误静默通过）。
+    """
+    try:
+        import tcms.scenarios as sc  # noqa: PLC0415
+        import tcms.timebase as _tb  # noqa: PLC0415
+    except ImportError as e:  # 引擎缺失 → 明确引导（与 run_scenario 文案一致）
+        raise HTTPException(
+            503,
+            f"TCMS 引擎不可用：自定义场景执行需要 tcms-can-test。请 pip install tcms-can-test，"
+            f"或设置 TCMS_UPSTREAM_DIR 指向其目录。({e})",
+        ) from None
+    _validate_steps(m, steps)
+
+    # 组装 YAML（显式 inject/recover 写法；level/impact/expect 缺省由引擎字典兜底）
+    lines = [f"name: {name or 'custom'}", "steps:"]
+    for st in sorted(steps, key=lambda s: float(s.get("at", 0))):
+        at = st["at"]
+        if st["action"] == "inject":
+            lines.append(f"  - at: {at}")
+            lines.append("    inject:")
+            lines.append(f"      fault: {st['fault']}")
+            if st.get("node"):
+                lines.append(f"      node: {st['node']}")
+            if st.get("level"):
+                lines.append(f"      level: {st['level']}")
+            if st.get("impact"):
+                lines.append(f"      impact: {st['impact']}")
+            if st.get("expect"):
+                lines.append(f"      expect: {st['expect']}")
+        else:
+            lines.append(f"  - at: {at}")
+            lines.append(f"    recover: {st['fault']}")
+    yaml_text = "\n".join(lines)
+
+    try:
+        scenario = sc.parse_scenario(yaml_text, name=name or "custom")
+        clock = _tb.VirtualClock(mode="virtual")
+        from tcms.faultlife import FaultLedger, ScenarioRunner  # noqa: PLC0415
+
+        rep = ScenarioRunner(FaultLedger(clock), scenario, clock).run()
+    except Exception as e:  # 组装/执行异常 → 500 含信息
+        raise HTTPException(500, f"自定义场景执行失败: {e}") from None
+    # 补引擎版本（run_yaml 报告不带；供 faultlab._engine_block 填 version）
+    rep = dict(rep)
+    rep["engine_version"] = __import__("tcms").__version__
+    return rep
+
+
 class RunScenarioRequest(BaseModel):
     """单场景执行请求。
 
@@ -70,9 +157,25 @@ class AgentRunRequest(BaseModel):
 
 
 class FaultLabRequest(BaseModel):
-    """FaultLab 演示请求：选一个真实场景。"""
+    """FaultLab 演示请求：选一个真实场景（兼容旧调用）。
 
-    scenario: str  # 场景文件名（含 .yaml）
+    steps 可选：若提供（自定义步骤序列）则等价于 POST /api/faultlab/demo-steps
+    （与 demo-steps 同一条校验/执行/重建管线，向后兼容复用）。
+    """
+
+    scenario: str | None = None  # 场景文件名（含 .yaml）；steps 提供时可为空
+    steps: list[dict] | None = None  # [{at,action,fault,node,level,expect,impact}]
+    name: str = "custom"  # steps 变体时自定义序列名
+
+
+class DemoFromStepsRequest(BaseModel):
+    """FaultLab 任意序列演示请求：从编排步骤（非已存场景）生成动画。
+
+    模块级（FastAPI 前向引用约束，同 FaultLabRequest）。
+    """
+
+    name: str = "custom"
+    steps: list[dict]  # [{at,action,fault,node,level,expect,impact}]
 
 
 class AgentFreeRequest(BaseModel):
@@ -82,6 +185,18 @@ class AgentFreeRequest(BaseModel):
     """
 
     goal: str  # 自然语言目标（如「验证车门故障不能发车」）
+
+
+class AdvisorTurnRequest(BaseModel):
+    """编排顾问对话请求（模块级：FastAPI 前向引用约束）。
+
+    永不 422 拒绝任何 message——无法匹配内存故障时进入多轮对话
+    （RAG 语义澄清 / 候选确认 / 自定义新故障流程草稿）。
+    """
+
+    message: str
+    draft_steps: list[dict] | None = None  # 当前前端手动编排的步骤草稿（可选）
+    history: list[dict] | None = None  # [{role, content}]（可选，供上下文）
 
 
 class CustomStepRequest(BaseModel):
@@ -530,36 +645,45 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             for s in asset_model.scenarios.values()
         ]
 
-    @app.post("/api/faultlab/demo")
-    def faultlab_demo(req: FaultLabRequest) -> dict:
-        """重建一个场景的演示时间线（事件 + 曲线一次返回）。
+    def _faultlab_demo_from(
+        name: str,
+        steps: list[dict] | None,
+        scenario_file: str | None,
+    ) -> dict:
+        """FaultLab 演示公共管线（真实场景文件 或 自定义步骤序列）。
 
-        引擎可用时先真实执行该场景，用真实断言作为处置来源；
-        引擎不可用时退化为故障字典 action（诚实标注 derived）。
+        引擎可用时先真实执行（场景文件走 run_yaml；自定义步骤走
+        _run_custom_steps 同一执行管线），用真实断言作处置来源；
+        引擎不可用时退化为故障字典 action（诚实标注，engine_asserted=false）——
+        自定义序列主要用于「看动画」，无引擎仍能出（前端场景执行/编排结果
+        一键跳转 FaultLab 演示），但 honesty 标注不接入引擎。
         """
-        try:
-            asset_model.scenario(req.scenario)
-        except KeyError:
-            raise HTTPException(404, f"场景不存在: {req.scenario}") from None
+        from ..faultlab import build_curve, build_demo, build_demo_from_steps
 
-        from ..faultlab import build_curve, build_demo
+        # 校验必须在引擎 try 之外：422/404 属契约错误，不得被引擎降级吞掉
+        if steps is not None:
+            _validate_steps(asset_model, steps)
 
         run_result: dict | None = None
         engine_ok = _probe_engine()["ok"]
         if engine_ok:
             try:
-                import tcms.scenarios as sc  # noqa: PLC0415
+                if steps is not None:
+                    run_result = _run_custom_steps(asset_model, name, steps, _app_upstream)  # type: ignore[arg-type]
+                else:
+                    import tcms.scenarios as sc  # noqa: PLC0415
 
-                run_result = sc.run_yaml(str(_app_upstream / req.scenario))
-                # 真实引擎 run_yaml 报告不带版本 → 补 engine_version，供
-                # faultlab._engine_block 填 demo.engine.version（不臆造 None）。
-                if run_result is not None:
-                    run_result = dict(run_result)
-                    run_result["engine_version"] = __import__("tcms").__version__
+                    run_result = sc.run_yaml(str(_app_upstream / scenario_file))
+                    if run_result is not None:
+                        run_result = dict(run_result)
+                        run_result["engine_version"] = __import__("tcms").__version__
             except Exception:  # noqa: BLE001 - 引擎失败退化为字典来源（诚实标注）
                 run_result = None
 
-        demo = build_demo(asset_model, req.scenario, run_result)
+        if steps is not None:
+            demo = build_demo_from_steps(asset_model, name, steps, run_result)
+        else:
+            demo = build_demo(asset_model, scenario_file, run_result)  # type: ignore[arg-type]
         curve = build_curve(asset_model, demo)
         return {
             "demo": demo,
@@ -567,6 +691,39 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             "engine_asserted": run_result is not None,
             "honesty_note": demo["honesty"],
         }
+
+    @app.post("/api/faultlab/demo")
+    def faultlab_demo(req: FaultLabRequest) -> dict:
+        """重建演示时间线（事件 + 曲线一次返回）。
+
+        向后兼容：只传 scenario → 真实资产场景（引擎可用时真实执行，用真实
+        断言作处置来源；不可用退化为故障字典 action，诚实标注）。
+        传 steps（可选，复用旧端点）→ 走 demo-steps 逻辑（任意序列动画）。
+        """
+        if req.steps is not None:
+            return _faultlab_demo_from(name=req.name, steps=req.steps, scenario_file=None)
+        if not req.scenario:
+            raise HTTPException(422, "FaultLab 请求需提供 scenario 或 steps")
+        try:
+            asset_model.scenario(req.scenario)
+        except KeyError:
+            raise HTTPException(404, f"场景不存在: {req.scenario}") from None
+        return _faultlab_demo_from(name=req.name, steps=None, scenario_file=req.scenario)
+
+    @app.post("/api/faultlab/demo-steps")
+    def faultlab_demo_steps(req: DemoFromStepsRequest) -> dict:
+        """从任意故障序列（非已存场景）生成演示动画。
+
+        - 校验 steps 中每个 fault ∈ 真实故障字典（未知 → 422 中文）。
+        - 引擎可用 → 先真实执行该序列（与 /api/run/custom 同一执行管线，
+          复用 _run_custom_steps），用真实断言作为处置来源；
+          引擎缺失 → 不 503：仍出动画（该端点主要用途是"看动画"），
+          engine_asserted=false 且 demo.engine.notes 诚实标注未接引擎执行。
+        - 返回与 /api/faultlab/demo 同构：{demo, curve, engine_asserted, honesty_note}；
+          demo.scenario = "custom/<name>"，demo.engine/pipeline 全字段同真实场景。
+        """
+        _validate_steps(asset_model, req.steps)
+        return _faultlab_demo_from(name=req.name, steps=req.steps, scenario_file=None)
 
     # ---- 资产：需求 / 功能 ----
 
@@ -736,6 +893,55 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             **resp,
         }
 
+    @app.post("/api/agent/advisor")
+    def agent_advisor(req: AdvisorTurnRequest) -> dict:
+        """编排顾问：多轮对话（输入无法匹配内存故障时**绝不 422**）。
+
+        把用户一句自然语言（故障意图/编排请求/不完整描述/任何话）转成结构化
+        顾问回复：
+            - 规则明确命中 → match_fault（解释该故障 + 默认处置 + 现成场景）
+            - 编排意图     → compose_scenario（suggested_steps 可直接 /api/run/custom）
+            - 弱/多候选   → clarify（候选确认，followup_question 引导）
+            - 规则零候选   → 不拒绝：RAG 语义澄清（"你可能指这些"）或
+                             out_of_domain（友好引导回 TCMS 主题）或
+                             custom_proposal（自定义新故障流程草稿）
+        LLM key 可用时回复文案由真 LLM 润色（llm_generated=true）；
+        无 key 用规则模板（诚实标注离线）。
+        """
+        from ..agent.advisor import advisor_turn
+        from ..agent.llm_backend import llm_available as _llm_ok
+
+        turn = advisor_turn(
+            asset_model,
+            retriever,
+            req.message,
+            draft_steps=req.draft_steps,
+            history=req.history,
+            use_llm=_llm_ok(),
+        )
+        return {
+            "message": req.message,
+            "reply": turn.reply,
+            "intent": turn.intent,
+            "fault_matches": turn.fault_matches,
+            "needs_clarification": turn.needs_clarification,
+            "llm_generated": turn.llm_generated,
+            "out_of_domain": turn.intent == "out_of_domain",
+            **(
+                {"suggested_steps": turn.suggested_steps}
+                if turn.suggested_steps is not None
+                else {}
+            ),
+            **({"rag_evidence": turn.rag_evidence} if turn.rag_evidence else {}),
+            **({"followup_question": turn.followup_question} if turn.followup_question else {}),
+            **({"matched_fault": turn.matched_fault} if turn.matched_fault else {}),
+            **(
+                {"scenario_suggestions": turn.scenario_suggestions}
+                if turn.scenario_suggestions
+                else {}
+            ),
+        }
+
     @app.post("/api/run/custom")
     def run_custom(req: CustomScenarioRequest) -> dict:
         """手动编排的自定义故障场景 → 真实引擎执行（不落盘）。
@@ -743,62 +949,14 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         与 /api/run/scenario 同构：校验 → 组装 YAML → parse_scenario →
         VirtualClock(virtual) + FaultLedger 执行 → 同构报告。
         """
-        # 校验引擎（缺失引导文案与 run_scenario 一致）
-        try:
-            import tcms.scenarios as sc  # noqa: PLC0415
-            import tcms.timebase as _tb  # noqa: PLC0415
-        except ImportError as e:
-            raise HTTPException(
-                503,
-                f"TCMS 引擎不可用：自定义场景执行需要 tcms-can-test。请 pip install tcms-can-test，"
-                f"或设置 TCMS_UPSTREAM_DIR 指向其目录。({e})",
-            ) from None
-        if not req.steps:
-            raise HTTPException(422, "自定义场景至少需要一个步骤")
-
-        # 校验故障键存在（在真实故障字典内，防拼写错误静默通过）
-        for st in req.steps:
-            if st.action == "inject":
-                if not st.fault:
-                    raise HTTPException(422, f"at={st.at} 的 inject 步骤缺少 fault")
-                if st.fault not in asset_model.faults_by_key:
-                    raise HTTPException(
-                        422,
-                        f"未知故障键: {st.fault}（可用故障见 /api/faults，共 {len(asset_model.faults_by_key)} 个）",
-                    )
-            elif st.action != "recover":
-                raise HTTPException(422, f"at={st.at} 的未知动作: {st.action!r}（仅支持 inject/recover）")
-            elif not st.fault:
-                raise HTTPException(422, f"at={st.at} 的 recover 步骤缺少 fault")
-
-        # 组装 YAML（显式 inject/recover 写法；level/impact/expect 缺省由引擎字典兜底）
-        lines = [f"name: {req.name or 'custom'}", "steps:"]
-        for st in sorted(req.steps, key=lambda s: s.at):
-            if st.action == "inject":
-                lines.append(f"  - at: {st.at}")
-                lines.append("    inject:")
-                lines.append(f"      fault: {st.fault}")
-                if st.node:
-                    lines.append(f"      node: {st.node}")
-                if st.level:
-                    lines.append(f"      level: {st.level}")
-                if st.impact:
-                    lines.append(f"      impact: {st.impact}")
-                if st.expect:
-                    lines.append(f"      expect: {st.expect}")
-            else:
-                lines.append(f"  - at: {st.at}")
-                lines.append(f"    recover: {st.fault}")
-        yaml_text = "\n".join(lines)
-
-        try:
-            scenario = sc.parse_scenario(yaml_text, name=req.name or "custom")
-            clock = _tb.VirtualClock(mode="virtual")
-            from tcms.faultlife import FaultLedger, ScenarioRunner  # noqa: PLC0415
-
-            rep = ScenarioRunner(FaultLedger(clock), scenario, clock).run()
-        except Exception as e:  # 组装/执行异常 → 500 含信息
-            raise HTTPException(500, f"自定义场景执行失败: {e}") from None
+        # 复用 demo-steps/run-custom 共享执行管线（校验→组装 YAML→真实执行）
+        # 注：引擎缺失时该 helper 抛 503（引导文案与 run_scenario 一致）
+        rep = _run_custom_steps(
+            asset_model,
+            req.name or "custom",
+            [st.model_dump() for st in req.steps],
+            _app_upstream,  # type: ignore[arg-type]
+        )
         _run_counter["n"] += 1
         sink.record_run(
             f"run-{_run_counter['n']:03d}",

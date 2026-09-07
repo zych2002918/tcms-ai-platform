@@ -37,11 +37,11 @@ def kb():
 @NEEDS_UPSTREAM
 def test_graph_stats(kb):
     s = kb["graph"].stats()
-    assert s["nodes"] == 106
+    assert s["nodes"] == 112
     assert s["edges"] >= 150
     assert s["by_kind"]["fault"] == 22
     assert s["by_kind"]["signal"] == 36
-    assert s["by_kind"]["scenario"] == 13
+    assert s["by_kind"]["scenario"] == 19
     assert s["by_kind"]["function"] == 4
 
 
@@ -71,7 +71,7 @@ def test_graph_subgraph_overspeed(kb):
 @NEEDS_UPSTREAM
 def test_vector_store_stats(kb):
     s = kb["store"].stats()
-    assert s["docs"] == 101
+    assert s["docs"] == 107
     assert s["by_kind"]["fault"] == 22
     assert s["by_kind"]["requirement"] == 18
 
