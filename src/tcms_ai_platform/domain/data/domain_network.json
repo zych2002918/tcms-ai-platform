@@ -2,7 +2,7 @@
   "meta": {
     "title": "TCMS 列车通信网络测试域 — 结构化领域知识",
     "description": "由 tcms-can-test/tcms/ 源码(network/nmt/errstate/watchdogs/busfault/schedulability/busload/recorder)提取的可结构化领域知识。机制与数值逐字来自源码常量与逻辑,中文注释为源码原文。",
-    "source_dir": "D:\\DSHworkplace\\objects\\tcms-can-test\\tcms",
+    "source_dir": "tcms-can-test/tcms（引擎源码仓库相对路径，随使用者环境而异）",
     "extracted_at": "2026-09-06",
     "module_count": 8
   },
