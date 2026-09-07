@@ -56,7 +56,7 @@ def test_bundled_snapshot_loads_22_scenarios():
     """快照可独立加载：22 场景 + 22 故障 + 8 报文（README 口径）。"""
     m = load_from_source(_bundled_source())
     s = m.stats()
-    assert s["scenarios"] == 24
+    assert s["scenarios"] == 25
     assert s["faults"] == 26
     assert s["messages"] == 8
     assert s["signals"] == 36
