@@ -17,15 +17,18 @@
 
 **验收**：上游 870 collected 绿；平台 119 passed 绿；ai-testgen 136 passed；双仓 commit 干净。
 
-## ② Q4 分层有界检索落地（兑现"分层向量库"）
+## ② Q4 分层有界检索落地（✅ 完成 2026-09-08）
 
-- [ ] a. 13 域 `domain` 标签铺到**全部资产文档**（当前 448 文档中 242 个 domain=""）
-      —— fault/scenario/message 等按所属系统域打标，system 文档进分区
-- [ ] b. 检索链路：图谱定位域 → **域内** topk（13 分区，非单池）→ 无域信号回退全局
-- [ ] c. 量化指标"分区路由命中率" + 测试（例：查制动域 → 先中 SYS-BRAKE 再域内取 k）
-- [ ] d. `kb/stats` 增加 `by_domain` 覆盖率断言（空域文档 → 0）
+- [x] a. 13 域 `domain` 标签铺全：domain_systems.json 每个 system 增 `domain` 字段（单一真源），
+      vector 打标改由 JSON 派生（system/subsystem/device→域）；故障 66/66、报文 22/22、
+      信号 116/116、场景 59/59、功能 11/11 全部分区；空域仅剩 10 个"基础设施类 SR"（无功能覆盖，属全局层）
+- [x] b. 检索链路：词表路由（13 域）优先 → **图谱定位域**兜底（belongs_to 系统边 + 词元重合闸门防噪声）
+      → 域内 topk（13 分区非单池）→ 域内不足/无域信号回退全局（mixed 标注）
+- [x] c. 量化指标：`route_source`（terms/graph/''）+ `route_precision`（分区命中率，域查询 =1.0）+ 测试
+- [x] d. 覆盖率断言：`test_asset_docs_all_partitioned`（资产类零空域；需求空域==基础设施集）
+      + hvac 域路由精度 + 图谱路由单元测试（含噪声不误路由）
 
-**验收**：空域文档清零；路由查询断言命中分区；既有混合检索测试不回退。
+**验收**：域查询 bounded 且命中率 1.0；无域查询回退全局（bounded=False）；全量 122 passed / ruff clean。
 
 ## ③ Q2-P-A 第二增量扩库（向"数百"推进）
 
