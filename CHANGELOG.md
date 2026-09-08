@@ -1,6 +1,7 @@
 
-## [Unreleased]
+## 0.4.0 (2026-09-08)
 
+- **Q2-P-A 第二增量收口（上游 v1.12.0）**：FMEA 202 / 场景 103 / 958 用例 / 多网段 GenMsgSegment / RTM 四向追溯（doc: docs/rtm_4way.md 上游）；KB 基础图谱 517 / 向量 506。
 - **Q2-P-A Wave A 同步（上游 97 FMEA / 75 场景 / 902 用例）**：快照 faults+16 场景同步；KB 基础图谱 384 节点 / 向量 373 文档；计数测试/README 全链更新（全量 122 passed）。
 - **Q2-P-A Wave B 同步（上游 135 FMEA / 89 场景 / 930 用例）**：快照 faults+14 场景同步；KB 基础图谱 436 节点 / 向量 425 文档；计数测试/README 全链更新（全量 122 passed）。
 - **Q2-P-A Wave C 同步（上游 202 FMEA / 103 场景 / 958 用例 —— ③-a/b 目标达成）**：快照 faults+14 场景同步；KB 基础图谱 517 节点 / 743 边 / 向量 506 文档；/api/kb/nodes 增加显式 limit 参数（默认 200 浏览上限，防计数误读）；计数测试/README 全链更新（全量 122 passed）。
