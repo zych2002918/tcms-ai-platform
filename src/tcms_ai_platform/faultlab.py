@@ -92,6 +92,19 @@ def _fault_name(m: AssetModel, key: str) -> str:
         return key
 
 
+def _domain_alarm(fd) -> str:
+    """⑤ 域特征演示档：未手工建档故障的结构化告警文案（语义真实、曲线明示示意）。
+
+    格式：<故障名> 激活 · <子系统域>/<注入层> · 期望处置 <动作中文>
+    （域特征示意 —— 数值曲线保持巡航基线，故障字典字段才是真实语义来源）
+    """
+    azh = _action_zh(fd.action) if fd.action else fd.action
+    return (
+        f"{fd.name} 激活 · {fd.subsystem}域/{fd.layer} · "
+        f"期望处置 {azh}（域特征示意，曲线为巡航基线；检测/处置语义见故障字典）"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 故障档案：故障激活期间各通道的示意取值 + 检测语义（真实阈值锚定）
 # ---------------------------------------------------------------------------
@@ -828,7 +841,13 @@ def _active_flags(m: AssetModel, demo: dict, t: float) -> dict:
             continue
         p = prof.get(fk)
         if not p:
-            flags["alarms"].append(f"{_fault_name(m, fk)} 激活")
+            # ⑤ 域特征演示档：未手工建档的故障也给出结构化告警文案
+            #（语义真实：名 + 子系统域 + 等级/处置；数值曲线保持巡航基线并明示 derived）
+            fd = m.fault(fk) if fk in m.faults_by_key else None
+            if fd is not None:
+                flags["alarms"].append(_domain_alarm(fd))
+            else:
+                flags["alarms"].append(f"{_fault_name(m, fk)} 激活")
             continue
         if p.get("eb_request"):
             flags["eb_request"] = True
