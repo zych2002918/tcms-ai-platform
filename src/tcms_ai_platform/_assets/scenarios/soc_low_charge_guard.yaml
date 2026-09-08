@@ -1,6 +1,7 @@
 # 场景 21：SOC 偏低 → 充电建议（真实运营：能源管理提示，非安全处置）
 # F-TCMS-001 soc_low (info, none) —— 仅记录/提示，验证低电量不误触发安全动作
 name: 低电量充电建议
+desc: 演示故障序列：SOC 偏低。
 steps:
   - at: 2.0
     action: inject

@@ -242,7 +242,7 @@ def test_unrouted_query_falls_back_global(kb):
 
 @NEEDS_UPSTREAM
 def test_systems_injected_and_all_faults_linked():
-    """enrich 后 system 节点存在（13 系统域），且 97 条故障全部 belongs_to 某系统。"""
+    """enrich 后 system 节点存在（13 系统域），且 202 条故障全部 belongs_to 某系统。"""
     from tcms_ai_platform.core import load_asset_model
     from tcms_ai_platform.domain import enrich_graph
     from tcms_ai_platform.knowledge import VectorStore, build_knowledge_graph
@@ -279,3 +279,287 @@ def test_system_view_routing_returns_system():
     assert "brake" in r["routed_domains"]
     ids = [h["doc_id"] for h in r["hits"]]
     assert "system:SYS-BRAKE" in ids  # 先给出系统视角答案
+
+
+# ---- 症状资产（A 步）与因果边（B 步）：资产校验 / 注入 / 多跳遍历 / 诊断 ----
+# 计数锁定值由 symptoms.yaml + causal_edges.yaml 机器派生（validate 输出），
+# 与 test_platform / 文档同口径 —— 新增/删除资产条目必须同步此段断言与文档。
+
+
+@NEEDS_UPSTREAM
+def _enriched_kb():
+    """装载真实资产 + enrich（含症状/因果注入）的 (model, graph, store, retriever)。"""
+    from tcms_ai_platform.core import load_asset_model
+    from tcms_ai_platform.domain import enrich_graph
+    from tcms_ai_platform.knowledge import (
+        HybridRetriever,
+        VectorStore,
+        build_docs_from_asset,
+        build_knowledge_graph,
+    )
+
+    m = load_asset_model(UPSTREAM)
+    g = build_knowledge_graph(m)
+    vs = VectorStore()
+    vs.add_many(build_docs_from_asset(m))
+    report = enrich_graph(g, vs)
+    return m, g, vs, HybridRetriever(vs, g), report
+
+
+@NEEDS_UPSTREAM
+def test_symptom_assets_validate_counts():
+    """症状资产校验（无孤儿纪律）：12 症状 / indicates 41 / causes 13 / real 41 / derived 13。"""
+    from tcms_ai_platform.core import load_asset_model
+    from tcms_ai_platform.domain import validate_symptom_assets
+
+    m = load_asset_model(UPSTREAM)
+    v = validate_symptom_assets(m)
+    assert v["symptoms"] == 12  # 首批症状条数（symptoms.yaml）
+    assert v["real_symptoms"] == 7  # annotation=real（全部候选真实机制）
+    assert v["mixed_annotation_symptoms"] == 5  # annotation=mixed（含 derived 示意候选）
+    assert v["indicates"] == 41  # symptom -indicates-> fault 边数（= Σ hints）
+    assert v["causes"] == 13  # fault -causes-> fault 工程因果边数
+    assert v["total_edges"] == 54
+    assert v["real_mechanism_edges"] == 41
+    assert v["derived_edges"] == 13  # 示意标注（诚实纪律，绝不静默冒充真实机制）
+
+
+@NEEDS_UPSTREAM
+def test_symptom_keys_no_conflict_and_hints_exist():
+    """症状 key 不与故障键冲突；hints 均为真实故障键/系统域；hints 2-4 个。"""
+    from tcms_ai_platform.core import load_asset_model
+    from tcms_ai_platform.domain import symptoms as load_symptoms
+
+    m = load_asset_model(UPSTREAM)
+    fk = set(m.faults_by_key)
+    for s in load_symptoms():
+        assert s["key"] not in fk, f"症状 key 与故障键冲突: {s['key']}"
+        hints = s.get("hints") or []
+        assert 2 <= len(hints) <= 4, f"{s['key']}: hints 数量 {len(hints)} 应 2-4"
+        for h in hints:
+            assert h.startswith("system:") or h in fk, f"{s['key']}: hint {h} 非真实故障键"
+        assert s.get("domains"), f"{s['key']}: 缺涉及域"
+
+
+@NEEDS_UPSTREAM
+def test_symptom_causal_injected_into_graph():
+    """enrich 后：12 个 symptom 节点/文档入图入库，indicates/causes 边数与表一致。"""
+    m, g, vs, _hr, report = _enriched_kb()
+    sym_nodes = {n.id for n in g.nodes.values() if n.kind == "symptom"}
+    assert len(sym_nodes) == 12
+    kinds = g.stats()["by_kind"]
+    assert kinds["symptom"] == 12
+    # 向量文档数 = 基础 506 + enrich 领域文档 + 12 症状文档（机器自证）
+    sym_docs = [d for d in vs.docs if d.kind == "symptom"]
+    assert len(sym_docs) == 12
+    assert all(d.doc_id in sym_nodes for d in sym_docs)
+    # 因果边数量/依据类型（= causal_edges.yaml 派生）
+    sc = report["symptom_causal"]
+    assert sc == {"symptoms": 12, "docs": 12, "indicates": 41, "causes": 13,
+                  "real_mechanism": 41, "derived": 13, "total_edges": 54}
+    assert sc["indicates"] == sum(1 for e in g.edges if e.kind == "indicates")
+    assert sc["causes"] == sum(1 for e in g.edges if e.kind == "causes")
+    # 每条因果边都带 basis 与 note（可审计）
+    causal = [e for e in g.edges if e.kind in ("indicates", "causes")]
+    assert all(e.basis in ("real_mechanism", "derived") for e in causal)
+    assert all(e.note for e in causal)
+
+
+@NEEDS_UPSTREAM
+def test_retriever_finds_symptom_doc_for_symptom_query():
+    """无码症状查询应命中 symptom 资产文档（而非误进错误域）。"""
+    _m, _g, vs, hr, _report = _enriched_kb()
+    r = hr.retrieve("仪表盘闪烁但无故障码", k=5)
+    ids = [h["doc_id"] for h in r["hits"]]
+    assert any(i == "symptom:dashboard_flicker" for i in ids[:3]), f"顶层未命中症状资产: {ids}"
+    sym_hits = [h for h in r["hits"] if h["kind"] == "symptom"]
+    assert sym_hits and sym_hits[0]["doc_id"] == "symptom:dashboard_flicker"
+
+
+@NEEDS_UPSTREAM
+def test_causal_multi_hop_chain_dashboard():
+    """多跳因果链：dashboard_flicker →(indicates) aux_24v_undervoltage →(causes 反查) 根因。"""
+    _m, g, _vs, _hr, _report = _enriched_kb()
+    walk = g.causal_chain("symptom:dashboard_flicker", depth=3)
+    assert walk["seed"] == "symptom:dashboard_flicker"
+    assert walk["chains"]
+    # 一跳：症状直接指示的嫌疑故障（每条链首跳）
+    hop1 = {hops[0]["to"] for hops in walk["chains"]}
+    assert "fault:aux_24v_undervoltage" in hop1
+    assert "fault:aux_capacitor_aging" in hop1
+    assert "fault:cab_display_blank" in hop1
+    # 二跳：aux_24v_undervoltage 的疑似根因（aux_24v_charger_fail 等，方向 = causes 反查）
+    deeper = {h["to"] for hops in walk["chains"] if len(hops) >= 2 for h in hops[1:]}
+    assert "fault:aux_24v_charger_fail" in deeper
+    assert "fault:aux_converter_fault" in hop1  # 同是辅变供电怀疑对象
+    # 深度限制 ≤ 3 跳；每条 hop 均带 basis/note（逐跳溯源）
+    for hops in walk["chains"]:
+        assert len(hops) <= 3
+        for h in hops:
+            assert h["basis"] in ("real_mechanism", "derived")
+            assert isinstance(h["note"], str)
+
+
+@NEEDS_UPSTREAM
+def test_diagnose_dashboard_flicker_regression():
+    """专项回归：『仪表盘闪烁但无故障码』→ 非空、可溯源、不编造故障码、
+    建议含 供电(aux) 与 显示(网络/列车控制) 域候选。"""
+    from tcms_ai_platform.agent.diagnoser import diagnose_symptom
+
+    m, g, _vs, hr, _report = _enriched_kb()
+    r = diagnose_symptom(m, g, hr, "仪表盘闪烁但无故障码", depth=3)
+    assert r["matched"] is True
+    assert r["no_match"] is False
+    assert r["symptom"]["key"] == "dashboard_flicker"
+    assert r["candidates"], "必须有候选（非空响应）"
+    # 溯源：每个候选都在真实故障字典；都带依据与证据
+    fkeys = set(m.faults_by_key)
+    for c in r["candidates"]:
+        assert c["fault"] in fkeys, f"编造了不存在的故障键: {c['fault']}"
+        assert c["basis"] in ("real_mechanism", "derived")
+        assert c["confidence"] > 0
+    cand_keys = {c["fault"] for c in r["candidates"]}
+    # 供电域候选（24V 欠压 / 支撑电容 / 辅变）
+    assert "aux_24v_undervoltage" in cand_keys
+    assert "aux_capacitor_aging" in cand_keys
+    # 显示/列车控制域候选（司控台显示屏黑屏同域）
+    assert "cab_display_blank" in cand_keys
+    assert r["plan"] and r["plan"][0]["description"]
+    assert r["evidence"].get("symptom_hit", {}).get("doc_id") == "symptom:dashboard_flicker"
+    assert r["no_fault_code_invented"] is True
+    assert "真实故障字典" in r["reply"]
+    # 供电 vs 显示域都出现在建议里（域词汇单一真源派生）
+    domains = {c["domain"] for c in r["candidates"]}
+    assert "aux" in domains and "network" in domains
+
+
+@NEEDS_UPSTREAM
+def test_diagnose_soc_jump_derived_disclosure():
+    """SOC 跳变：真实候选 battery_soc_jump/bms_current_sensor_drift 在前，
+    derived 示意候选带 derived 标注（诚实）。"""
+    from tcms_ai_platform.agent.diagnoser import diagnose_symptom
+
+    m, g, _vs, hr, _report = _enriched_kb()
+    r = diagnose_symptom(m, g, hr, "SOC 跳变")
+    assert r["matched"] is True
+    assert r["symptom"]["key"] == "soc_jump"
+    keys = [c["fault"] for c in r["candidates"]]
+    assert keys[0] == "battery_soc_jump"  # 同现象真实故障键排最前
+    assert "bms_current_sensor_drift" in keys
+    can = {c["fault"]: c for c in r["candidates"]}
+    # derived 候选必须显式标注 derived（不冒充真实机制）
+    assert can["bms_can_link_loss"]["derived"] is True
+    assert can["bms_can_link_loss"]["basis"] == "derived"
+    assert can["battery_soc_jump"]["derived"] is False
+
+
+@NEEDS_UPSTREAM
+def test_diagnose_no_match_is_honest():
+    """无命中（与 TCMS 症状无关）→ no_match/不确定 + 需补充引导，绝不硬答。"""
+    from tcms_ai_platform.agent.diagnoser import diagnose_symptom
+
+    m, g, _vs, hr, _report = _enriched_kb()
+    r = diagnose_symptom(m, g, hr, "车厢地板漏水了")
+    assert r["matched"] is False
+    assert r["no_match"] is True
+    assert r["uncertain"] is True
+    assert r["candidates"] == []
+    assert "补充" in r["reply"] or "把握" in r["reply"]
+    assert r["no_fault_code_invented"] is True
+
+
+# ---- P1-1：词法 BM25 / 混合检索 / golden 检索评测 ----
+
+@NEEDS_UPSTREAM
+def test_lexical_bm25_deterministic_small():
+    """BM25 纯单元：确定性排序 + 词频/IDF 语义（无向量、无依赖）。"""
+    from tcms_ai_platform.knowledge.lexical import BM25Index, LexDoc, rrf
+
+    docs = [
+        LexDoc("d1", "车门 故障 车门 状态 不可信 禁止 发车 车门", "door"),
+        LexDoc("d2", "超速 限速 160 紧急制动", "traction"),
+        LexDoc("d3", "车门 气源 压力 不足 门 操作", "door"),
+    ]
+    idx = BM25Index(docs)
+    top = idx.top("车门 故障 禁止 发车", k=2, domain=None)
+    assert top[0][0] == "d1"  # 词频最高的 d1 第一
+    assert {d for d, _ in top} <= {"d1", "d2", "d3"}
+    # domain 过滤只在该分区打分
+    assert all(d for d, _ in idx.top("车门", k=3, domain="door") if d in ("d1", "d3"))
+    assert idx.top("车门", k=3, domain="traction") == []
+    # rrf 融合确定性（顺序稳定；双榜都靠前的胜出）
+    a = rrf([["a", "b"], ["b", "c"]], top=2)
+    b = rrf([["a", "b"], ["b", "c"]], top=2)
+    assert a == b and a[0][0] == "b"  # b 在两榜中名次总和最小
+
+
+@NEEDS_UPSTREAM
+def test_hybrid_retrieve_shape_and_anchors():
+    """retrieve_hybrid：响应结构同构 + 语义/字面两通道关键命中。"""
+    m, g, vs, hr, _report = _enriched_kb()
+    # 结构契约
+    r = hr.retrieve_hybrid("空调压缩机过流保护 制冷降级", k=5)
+    for key in ("query", "routed_domains", "route_source", "bounded", "mixed_fallback", "hits"):
+        assert key in r
+    assert r["hits"] and all("graph_neighbors" in h for h in r["hits"])
+    ids = [h["doc_id"] for h in r["hits"]]
+    assert "fault:hvac_compressor_overcurrent" in ids[:5]
+    # 无码症状查询经混合通道仍能命中症状资产（diagnose 入口的检索面）
+    d = hr.retrieve_hybrid("仪表盘闪烁但无故障码", k=5)
+    assert "symptom:dashboard_flicker" in [h["doc_id"] for h in d["hits"]][:3]
+
+
+@NEEDS_UPSTREAM
+def test_golden_retrieval_gate():
+    """检索评测集门禁：14 条 golden，混合通道全过；纯向量通道 ≥ 13/14（防回退）。"""
+    from tcms_ai_platform.knowledge.golden import evaluate_retriever
+
+    _m, _g, _vs, hr, _report = _enriched_kb()
+    hy = evaluate_retriever(hr, k=5, hybrid=True)
+    vec = evaluate_retriever(hr, k=5, hybrid=False)
+    fails = [row["q"] for row in hy["rows"] if not row["pass"]]
+    assert hy["total"] == 14
+    assert hy["passed"] == hy["total"], f"混合通道 golden 未全过: {fails}"
+    assert hy["top1"] >= 10
+    assert vec["passed"] >= 13, "纯向量通道回退超标（golden 防回退门禁）"
+    # 确定性：同语料重跑结果一致
+    assert evaluate_retriever(hr, k=5, hybrid=True)["passed"] == hy["passed"]
+
+
+# ---- P1-2：证据图可查询（最短路 + 无损导出） ----
+
+@NEEDS_UPSTREAM
+def test_graph_shortest_path_causal_evidence():
+    """证据路径：dashboard 症状 → 24V 欠压根因链，逐边带 basis/note（证据可溯源）。"""
+    _m, g, _vs, _hr, _report = _enriched_kb()
+    path = g.shortest_path("symptom:dashboard_flicker", "fault:aux_24v_charger_fail", max_depth=4)
+    assert path is not None, "应有可达到的证据路径"
+    assert path[0]["src"] == "symptom:dashboard_flicker"
+    assert path[-1]["dst"] == "fault:aux_24v_charger_fail"
+    for e in path:
+        assert e["kind"] in ("indicates", "causes")
+        assert e["basis"] in ("real_mechanism", "derived")
+        assert e["note"]
+    # 深度限制下不可达 → None（诚实不编造路径）
+    assert g.shortest_path("symptom:dashboard_flicker", "symptom:door_open_light_flicker", max_depth=1) is None
+    # 路径逐边邻接串接
+    for i in range(1, len(path)):
+        assert path[i]["src"] == path[i - 1]["dst"]
+
+
+@NEEDS_UPSTREAM
+def test_graph_export_json_consistent():
+    """无损导出：节点/边计数 = stats，因果边 basis/note 完整保留（供图引擎迁移对拍）。"""
+    from tcms_ai_platform.knowledge.graphio import export_graph_json
+
+    _m, g, _vs, _hr, _report = _enriched_kb()
+    dump = export_graph_json(g)
+    st = g.stats()
+    assert dump["node_count"] == st["nodes"] == len(dump["nodes"])
+    assert dump["edge_count"] == st["edges"] == len(dump["edges"])
+    causal = [e for e in dump["edges"] if e["kind"] in ("indicates", "causes")]
+    assert causal, "导出必须含因果边"
+    assert all(e.get("basis") in ("real_mechanism", "derived") for e in causal)
+    assert all(e.get("note") for e in causal)
+    # 幂等：重复导出一致
+    assert export_graph_json(g) == dump

@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：pantograph_pressure_low, line_voltage_overvoltage
-name: Wave A 域内多故障编排：pantograph_pressure_low/line_voltage_overvoltage
+name: 弓气源压力低与网压过压编排
+desc: 演示故障序列：受电弓气源压力低、网压过压。
 steps:
 - at: 3.0
   inject:

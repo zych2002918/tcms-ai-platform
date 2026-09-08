@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-060 sensor_out_of_range (minor, warning) — 值域校验
 name: 传感器信号超范围
+desc: 演示故障序列：传感器信号超范围。
 steps:
 - at: 3.0
   inject:

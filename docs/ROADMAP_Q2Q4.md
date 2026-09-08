@@ -66,3 +66,16 @@
 
 ---
 进度：① ✅ · ② ✅ · ③ ✅ 全部 · ④ a-d ✅（组合器+多轮）· ⑤-a ✅ + ⑤-b 部分（curated 示例档案）· ⑤-c/d（产品化/UI/e2e）列为后续迭代清单 —— 本文件随完成情况勾选。
+
+# Iteration A/B/C 症状多跳诊断（v0.5.0，2026-09）— ✅ 完成
+
+> 承接 `docs/HANDOFF_SYMPTOM_DIAGNOSTIC.md`；目标：让 Agent 对「无故障码的症状类描述」
+> 做图谱多跳诊断推理（例：仪表盘闪烁无码 → 怀疑供电不稳 → 检查 24V/辅变/电容纹波），
+> 而非空响应或错误域的自信答案。
+
+- [x] a. 症状资产层：`domain/data/symptoms.yaml` **12 症状**（hints 全锚 202 真实故障键/13 域；annotation real 7/mixed 5；无孤儿校验 `validate_symptom_assets`）
+- [x] b. 因果边 + 多跳遍历：`domain/data/causal_edges.yaml` **54 条**（indicates 41/causes 13；real 41/derived 13 逐条标注）；`knowledge/graph.causal_chain` ≤3 跳（症状→indicates→嫌疑→causes 反查根因），逐跳 basis/note；enrich 后服务态 651 节点/1167 边/640 文档
+- [x] c. RAG 多跳诊断规划器：`agent/diagnoser.py` + `POST /api/agent/diagnose` —— 检索症状资产 → 候选链 → 诊断步骤建议（置信度/验证动作/场景复现/溯源）；无命中/证据不足 → “不确定/需补充 X”，derived 显式标注，绝不编造故障码
+- [x] d. 专项回归：仪表盘闪烁但无故障码 —— 函数级 + HTTP 级（非空/可溯源/不编造码/含 aux+network 域候选）
+
+**验收 ✅**：上游 957 passed + 1 skip（未改）；平台 **164 passed** / ruff clean；ai-testgen 136 passed（未涉）；计数同步进 README/CHANGELOG/ACCEPTANCE/PROJECT_ARC（见 ACCEPTANCE_Q2Q4.md 文末 Iteration 台账）。

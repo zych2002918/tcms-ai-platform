@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-054 fire_detector_fault + F-TCMS-055 fire_extinguisher_fault（major）
 name: 烟火探测与灭火装置降级
+desc: 演示故障序列：烟火探测器故障、灭火装置故障。
 steps:
 - at: 3.0
   inject:

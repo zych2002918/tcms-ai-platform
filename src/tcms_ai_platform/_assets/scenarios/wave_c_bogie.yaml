@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：bogie_wheel_flat_detect, bogie_frame_accel_spike, bogie_spring_settle_uneven, bogie_gear_oil_pressure_low, bogie_damper_temp_high
-name: Wave C 域内多故障编排：bogie_wheel_flat_detect/bogie_frame_accel_spike/bogie_spring_settle_uneven/bogie_gear_oil_pressure_low/bogie_damper_temp_high
+name: 踏面擦伤·冲击·沉降·油压·减振器过热编排
+desc: 演示故障序列：车轮踏面擦伤检测、构架冲击事件记录、弹簧沉降不均、齿轮箱润滑压力低、减振器过热。
 steps:
 - at: 3.0
   inject:

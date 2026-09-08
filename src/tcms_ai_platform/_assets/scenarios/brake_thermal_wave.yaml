@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：brake_disc_temp_high, brake_pressure_fluctuation, brake_hold_not_released
-name: Wave A 域内多故障编排：brake_disc_temp_high/brake_pressure_fluctuation/brake_hold_not_released
+name: 制动热负荷族编排（盘温·压力波动·停放制动）
+desc: 演示故障序列：制动盘温度过高、制动压力波动、停放制动未缓解。
 steps:
 - at: 3.0
   inject:

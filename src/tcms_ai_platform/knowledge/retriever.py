@@ -16,7 +16,8 @@ import re
 from dataclasses import dataclass
 
 from .graph import KnowledgeGraph
-from .vector import DOMAIN_ZH, VectorStore, system_domain
+from .lexical import BM25Index, LexDoc, rrf
+from .vector import DOMAIN_ZH, Doc, VectorStore, system_domain
 
 # 域路由词表：查询里的中文/英文域信号 → 分区（13 域与 domain_systems.json 同口径）
 _DOMAIN_TERMS: dict[str, tuple[str, ...]] = {
@@ -70,6 +71,23 @@ class HybridRetriever:
     def __init__(self, store: VectorStore, graph: KnowledgeGraph) -> None:
         self.store = store
         self.graph = graph
+        self._bm25_index: BM25Index | None = None
+        self._docs_map: dict[str, Doc] | None = None
+
+    # ---- 词法通道（懒建；与向量通道同语料，供混合检索/评测） ----
+
+    def _docs_map_of(self) -> dict[str, Doc]:
+        if self._docs_map is None:
+            self._docs_map = {d.doc_id: d for d in self.store.docs}
+        return self._docs_map
+
+    def _bm25(self) -> BM25Index:
+        """懒建 BM25 索引（语料 = 当前 store.docs；确定性、可单测）。"""
+        if self._bm25_index is None:
+            self._bm25_index = BM25Index(
+                [LexDoc(doc_id=d.doc_id, text=d.text, domain=str(d.meta.get("domain", ""))) for d in self.store.docs]
+            )
+        return self._bm25_index
 
     def _route_via_graph(self, query: str, probe: int = 3) -> list[str]:
         """图谱先定位域：查询无显式域词时，用全局 top-k 命中经 belongs_to 边
@@ -81,7 +99,12 @@ class HybridRetriever:
         """
         if not self.graph.nodes:
             return []
-        qchars = set(re.findall(r"[\u4e00-\u9fff]", query or ""))
+        # 通用/诊断中性字（故障、检测、处置、系统…）：两文本只在"故障/处置"等
+        # 词上重合不算语义证据——防止"无码症状"查询（如仪表盘闪烁）被这类词带进错误域。
+        _GENERIC_CJK = frozenset(
+            "故障检测处置注入恢复系统等级动作期望监控告警报警方法分析流程事件影响信息"
+        )
+        qchars = set(re.findall(r"[\u4e00-\u9fff]", query or "")) - _GENERIC_CJK
         probe_hits = self.store.search(query, k=probe, domains=None)
         votes: dict[str, int] = {}
         for h in probe_hits:
@@ -95,8 +118,9 @@ class HybridRetriever:
                     break
             if not dom:
                 continue
-            # 词元重合闸门：查询须与候选文档有实质字符重合（防哈希噪声误路由）
-            shared = len(qchars & set(re.findall(r"[\u4e00-\u9fff]", h.get("text") or "")))
+            # 词元重合闸门（排除通用字后仍需 ≥3 非通用重合）→ 防哈希噪声/假域证据
+            tchars = set(re.findall(r"[\u4e00-\u9fff]", h.get("text") or "")) - _GENERIC_CJK
+            shared = len(qchars & tchars)
             if shared >= 3:
                 votes[dom] = votes.get(dom, 0) + 1
         if not votes:
@@ -105,29 +129,31 @@ class HybridRetriever:
         best = max(votes.items(), key=lambda kv: kv[1])
         return [best[0]]
 
-    def retrieve(self, query: str, k: int = 5, neighbor_limit: int = 6) -> dict:
-        route_source = ""
+    def _route_to(self, query: str) -> tuple[list[str], str]:
+        """路由：词表 → 图谱定位 → 全局（返回 routed_domains 与来源标注）。"""
         routed = _route_domains(query)
         if routed:
-            route_source = "terms"
-        else:
-            routed = self._route_via_graph(query)
-            if routed:
-                route_source = "graph"
-        hits = self.store.search(query, k=max(k * 2, 8), domains=routed if routed else None)
-        # 域内候选可能不足 k → 诚实回退全库补召回（标注 mixed=true）
-        mixed = len(hits) < k and bool(routed)
-        if mixed:
-            extra = self.store.search(query, k=k, domains=None)
-            seen = {h["doc_id"] for h in hits}
-            hits.extend(h for h in extra if h["doc_id"] not in seen)
+            return routed, "terms"
+        routed = self._route_via_graph(query)
+        return (routed, "graph") if routed else ([], "")
+
+    def _pack(
+        self,
+        query: str,
+        ordered: list[dict],
+        k: int,
+        neighbor_limit: int,
+        routed: list[str],
+        route_source: str,
+        mixed: bool,
+    ) -> dict:
+        """把有序命中列表组装成统一响应（补图谱邻接证据 + 路由指标）。"""
         enriched = []
-        for h in hits[: max(k, 8)]:
+        for h in ordered[: max(k, 8)]:
             nid = h["doc_id"]  # 向量 doc_id 与图节点 id 对齐（fault:x / req:x ...）
             neighbors = []
             if nid in self.graph.nodes:
-                nbs = self.graph.neighbors(nid)
-                for nb_id, via in nbs[:neighbor_limit]:
+                for nb_id, via in self.graph.neighbors(nid)[:neighbor_limit]:
                     nb = self.graph.nodes.get(nb_id)
                     if nb:
                         neighbors.append({"id": nb.id, "kind": nb.kind, "label": nb.label, "via": via})
@@ -162,6 +188,65 @@ class HybridRetriever:
             "mixed_fallback": mixed,
             "hits": enriched,
         }
+
+    def retrieve(self, query: str, k: int = 5, neighbor_limit: int = 6) -> dict:
+        """向量检索（GraphRAG 语义通道；保持原行为，兼容既有调用）。"""
+        routed, route_source = self._route_to(query)
+        hits = self.store.search(query, k=max(k * 2, 8), domains=routed if routed else None)
+        # 域内候选可能不足 k → 诚实回退全库补召回（标注 mixed=true）
+        mixed = len(hits) < k and bool(routed)
+        if mixed:
+            extra = self.store.search(query, k=k, domains=None)
+            seen = {h["doc_id"] for h in hits}
+            hits.extend(h for h in extra if h["doc_id"] not in seen)
+        return self._pack(query, hits, k, neighbor_limit, routed, route_source, mixed)
+
+    def retrieve_hybrid(
+        self,
+        query: str,
+        k: int = 5,
+        neighbor_limit: int = 6,
+        vector_pool: int = 20,
+    ) -> dict:
+        """混合检索（向量 + BM25 词法，RRF 融合）：兼顾语义近义与字面精确。
+
+        返回结构与 `retrieve` 完全同构（hits 带图谱邻接证据），前端/Agent 可零改动
+        切换通道。score 字段为融合分（RRF，确定性）。
+        """
+        routed, route_source = self._route_to(query)
+        doms = routed if routed else None
+        vector = self.store.search(query, k=max(vector_pool, k * 2), domains=doms)
+        mixed = len(vector) < k and bool(routed)
+        if mixed:
+            extra = self.store.search(query, k=k, domains=None)
+            seen = {h["doc_id"] for h in vector}
+            vector.extend(h for h in extra if h["doc_id"] not in seen)
+        # 词法通道（单域路由 → 域内词法；多域/全局 → 全库词法）
+        lex_domain = doms[0] if doms and len(doms) == 1 else None
+        lex_top = self._bm25().top(query, k=max(vector_pool, k * 2), domain=lex_domain)
+        vec_ids = [h["doc_id"] for h in vector]
+        lex_ids = [doc_id for doc_id, _ in lex_top]
+        fused = rrf([vec_ids, lex_ids], top=max(k * 2, 8))
+        ordered: list[dict] = []
+        dmap = self._docs_map_of()
+        for doc_id, fscore in fused:
+            vh = next((h for h in vector if h["doc_id"] == doc_id), None)
+            doc = dmap.get(doc_id)
+            if vh is None and doc is None:
+                continue
+            ordered.append(
+                {
+                    "doc_id": doc_id,
+                    "kind": vh["kind"] if vh else (doc.kind if doc else ""),
+                    "text": vh["text"] if vh else (doc.text if doc else ""),
+                    "meta": vh["meta"] if vh else (doc.meta if doc else {}),
+                    "score": round(fscore, 4),
+                }
+            )
+        # 兜底：融合结果为空时退回向量顺序（诚实降级，不空手）
+        if not ordered:
+            ordered = vector
+        return self._pack(query, ordered, k, neighbor_limit, routed, route_source, mixed)
 
     def subgraph(self, seed_id: str, depth: int = 2) -> dict:
         """图谱子图（供可视化 / 前端图谱工作台）。"""

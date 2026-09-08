@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：bogie_damper_fault, bogie_gearbox_overheat
-name: Wave A 域内多故障编排：bogie_damper_fault/bogie_gearbox_overheat
+name: 减振器与齿轮箱过热·运行品质编排
+desc: 演示故障序列：抗蛇行减振器故障、齿轮箱油温过高。
 steps:
 - at: 3.0
   inject:

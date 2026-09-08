@@ -227,6 +227,7 @@ def _read_scenarios(scenarios_dir: Path) -> dict[str, ScenarioDef]:
             steps=tuple(steps),
             fault_keys=frozenset(faults),
             nodes=frozenset(nodes),
+            desc=data.get("desc", "") or "",
         )
     return out
 

@@ -76,6 +76,7 @@ export interface ScenarioInfo {
   steps: number;
   fault_keys: string[];
   nodes: string[];
+  desc?: string; // 场景简短释义（YAML desc，可选）
 }
 
 export interface FunctionInfo {
@@ -149,6 +150,10 @@ export interface FaultLabEvent {
   /** 引擎观察窗：结构化数据来源（引擎断言 / 故障字典 / 场景 YAML / 示意物理），
    *  由 faultlab 各事件 source{kind,ref,desc} 提供（t2 engine-observer 落地）。 */
   source?: { kind: string; ref: string; desc: string };
+  /** 高亮提示增强（哪里异常 + 什么异常）：真实故障字典派生，事件到哪都能自解释 */
+  fault_name?: string;
+  subsystem?: string; // 位置：故障字典子系统（照明/辅助电源/网络…）
+  domain_zh?: string; // 位置：13 系统域中文标签（照明/辅助供电/网络列车控制…）
 }
 
 export interface FaultLabCurvePoint {
@@ -231,6 +236,8 @@ export const api = {
     req<KbSearchResp>("/kb/search", { method: "POST", body: JSON.stringify({ query, k }) }),
   kbSubgraph: (seed: string, depth = 2) =>
     req<KbSubgraph>("/kb/subgraph", { method: "POST", body: JSON.stringify({ seed, depth }) }),
+  /** 默认“基础关联图谱”骨架（未搜索/未选种子时展示）：13 系统 + 11 功能 + 每功能代表故障。 */
+  kbOverview: (limit = 3) => req<KbSubgraph>(`/kb/overview?limit=${limit}`),
   kbNodes: (kind?: string, q?: string) => {
     const p = new URLSearchParams();
     if (kind) p.set("kind", kind);
@@ -245,7 +252,7 @@ export const api = {
   runScenario: (scenario: string) =>
     req<RunScenarioResult>("/run/scenario", { method: "POST", body: JSON.stringify({ scenario }) }),
   faultlabScenarios: () =>
-    req<{ file: string; name: string; steps: number; fault_keys: string[]; duration_hint: number }[]>("/faultlab/scenarios"),
+    req<{ file: string; name: string; desc?: string; steps: number; fault_keys: string[]; duration_hint: number }[]>("/faultlab/scenarios"),
   faultlabDemo: (scenario: string) =>
     req<FaultLabResp>("/faultlab/demo", { method: "POST", body: JSON.stringify({ scenario }) }),
   faultlabDemoSteps: (body: DemoFromStepsRequest) =>
@@ -258,6 +265,10 @@ export const api = {
     req<AgentFreeResp>("/agent/free", { method: "POST", body: JSON.stringify({ goal }) }),
   agentCompose: (message: string) =>
     req<AgentComposeResp>("/agent/compose", { method: "POST", body: JSON.stringify({ message }) }),
+  /** 症状多跳诊断（无故障码症状 → 图谱因果链候选 + 诊断建议；derived 显式标注；
+   *  use_llm=true 启用 LLM 候选内仲裁——仅重排候选、需已配置 key） */
+  agentDiagnose: (message: string, use_llm = false) =>
+    req<DiagnoseResp>("/agent/diagnose", { method: "POST", body: JSON.stringify({ message, use_llm }) }),
   advisorTurn: (body: AdvisorTurnRequest) =>
     req<AdvisorTurnResp>("/agent/advisor", { method: "POST", body: JSON.stringify(body) }),
   runCustom: (body: CustomScenarioRequest) =>
@@ -274,6 +285,51 @@ export const api = {
       { method: "POST", body: JSON.stringify(body) }
     ),
 };
+
+/** 症状多跳诊断响应（/api/agent/diagnose） */
+export interface DiagnoseCandidate {
+  fault: string;
+  name: string;
+  domain: string;
+  domain_zh: string;
+  hop: number;
+  basis: "real_mechanism" | "derived";
+  confidence: number;
+  level: string;
+  action: string;
+  sil: string;
+  check: string;
+  scenarios: string[];
+  notes: string[];
+  derived: boolean;
+}
+export interface DiagnoseResp {
+  query: string;
+  matched: boolean;
+  no_match: boolean;
+  symptom: { key: string; name: string; domains: string[]; annotation: string; score: number; description?: string } | null;
+  uncertain: boolean;
+  reply: string;
+  candidates: DiagnoseCandidate[];
+  plan: {
+    step: number;
+    phase: string;
+    fault: string;
+    name: string;
+    domain: string;
+    domain_zh: string;
+    hop: number;
+    basis: string;
+    confidence: number;
+    description: string;
+    scenarios: string[];
+    note: string;
+    derived: boolean;
+  }[];
+  evidence: Record<string, unknown>;
+  no_fault_code_invented: boolean;
+  llm_generated: boolean;
+}
 
 export interface AgentRunResp {
   total: number;

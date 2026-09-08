@@ -208,7 +208,7 @@ def test_run_scenario_404(client):
 
 
 def test_run_scenarios_all(client):
-    """批量执行全部 13 场景全部通过（真实引擎）。"""
+    """批量执行全部 103 场景全部通过（真实引擎）。"""
     r = client.post("/api/run/scenarios", json={})
     assert r.status_code == 200
     body = r.json()
@@ -222,11 +222,15 @@ def test_run_scenarios_all(client):
 
 def test_kb_stats(client):
     s = client.get("/api/kb/stats").json()
-    # 图谱 ≥ 基础 106 + 领域注入(~109) + run 沉淀;向量 ≥ 基础 101 + 领域文档
+    # 图谱 ≥ 基础节点 + 领域注入 + 症状(12) 与因果边;向量 ≥ 基础 + 领域文档
     assert s["graph"]["nodes"] >= 200
     assert s["vector"]["docs"] >= 200
     assert "domain_enrichment" in s
-    assert s["domain_enrichment"]  # 领域注入统计非空(ebm/network/safety)
+    assert s["domain_enrichment"]  # 领域注入统计非空(ebm/network/safety/systems)
+    assert "symptom_causal" in s  # B 步：症状/因果注入统计进 kb 台账
+    sc = s["symptom_causal"]
+    assert sc["symptoms"] == 12 and sc["indicates"] == 41 and sc["causes"] == 13
+    assert sc["total_edges"] == 54
 
 
 def test_kb_search(client):
@@ -323,6 +327,65 @@ def test_agent_run_all(client):
 def test_agent_run_404(client):
     r = client.post("/api/agent/run", json={"task_id": "T-NOPE"})
     assert r.status_code == 404
+
+
+# ---- 症状多跳诊断（C 步：/api/agent/diagnose）----
+
+
+def test_diagnose_dashboard_flicker_regression_http(client):
+    """专项回归：仪表盘闪烁但无故障码 → 非空/可溯源/不编造故障码/含供电+显示域候选。"""
+    r = client.post("/api/agent/diagnose", json={"message": "仪表盘闪烁但无故障码"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["matched"] is True
+    assert body["no_match"] is False
+    assert body["symptom"]["key"] == "dashboard_flicker"
+    assert body["reply"] and len(body["reply"]) > 40  # 非空中文诊断
+    assert body["candidates"]
+    assert body["no_fault_code_invented"] is True
+    # 溯源：候选全部为真实故障字典键
+    fk = {f["key"] for f in client.get("/api/faults").json()}
+    assert len(fk) == 202
+    for c in body["candidates"]:
+        assert c["fault"] in fk, f"编造故障键: {c['fault']}"
+        assert c["basis"] in ("real_mechanism", "derived")
+        assert c["confidence"] > 0
+        assert c["check"]  # 每条建议带验证动作
+    keys = {c["fault"] for c in body["candidates"]}
+    # 供电(aux)域：24V 欠压 / 支撑电容老化；显示(网络/列车控制)域：司控台屏黑屏
+    assert "aux_24v_undervoltage" in keys
+    assert "aux_capacitor_aging" in keys
+    assert "cab_display_blank" in keys
+    domains = {c["domain"] for c in body["candidates"]}
+    assert "aux" in domains and "network" in domains
+    # 证据可溯源：因果链逐跳 basis/note 在建议里
+    assert body["evidence"]["symptom_hit"]["doc_id"] == "symptom:dashboard_flicker"
+
+
+def test_diagnose_unknown_symptom_honest_http(client):
+    """无匹配症状 → no_match/不确定 + 需补充引导（诚实不硬答、不编码）。"""
+    r = client.post("/api/agent/diagnose", json={"message": "车厢地板漏水"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["matched"] is False
+    assert body["no_match"] is True
+    assert body["uncertain"] is True
+    assert body["candidates"] == []
+    assert body["no_fault_code_invented"] is True
+    assert "补充" in body["reply"] or "把握" in body["reply"]
+
+
+def test_diagnose_empty_message_guided(client):
+    """空输入 → 引导（绝不 422/500）。"""
+    r = client.post("/api/agent/diagnose", json={"message": ""})
+    assert r.status_code == 200
+    assert r.json()["no_match"] is True
+
+
+def test_system_status_capability_symptom_diagnosis(client):
+    """system/status 能力清单包含 symptom_diagnosis。"""
+    caps = client.get("/api/system/status").json()["capabilities"]
+    assert caps["symptom_diagnosis"] is True
 
 
 # ---- FaultLab 演示（真实场景 → 事件时间线 + 通道曲线）----

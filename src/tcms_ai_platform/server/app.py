@@ -150,6 +150,14 @@ class SubgraphRequest(BaseModel):
     depth: int = 2
 
 
+class PathRequest(BaseModel):
+    """图谱可达路径请求（证据图查询：两节点间最短路，逐边带依据）。"""
+
+    src: str
+    dst: str
+    max_depth: int = 8
+
+
 class AgentRunRequest(BaseModel):
     """Agent 任务执行请求（模块级：FastAPI 前向引用约束）。"""
 
@@ -185,6 +193,20 @@ class AgentFreeRequest(BaseModel):
     """
 
     goal: str  # 自然语言目标（如「验证车门故障不能发车」）
+
+
+class DiagnoseRequest(BaseModel):
+    """症状多跳诊断请求（模块级：FastAPI 前向引用约束）。
+
+    输入症状/无码故障描述（如「仪表盘闪烁但无故障码」）→ kb 检索症状资产 →
+    图谱沿因果边取候选链 → 诊断步骤建议（置信度 + 溯源）。证据不足时明确
+    "不确定/需补充"，绝不编造故障码（红线）。
+    """
+
+    message: str  # 症状描述
+    depth: int = 3  # 因果多跳深度（2~3 为推荐诊断链深）
+    max_candidates: int = 8
+    use_llm: bool = False  # 开启 LLM 候选内仲裁（仅重排候选；需已配置 key）
 
 
 class AdvisorTurnRequest(BaseModel):
@@ -391,6 +413,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             "capabilities": {
                 "browse_assets": True,
                 "knowledge_graph": True,
+                "symptom_diagnosis": True,  # 症状多跳诊断（无码症状 → 图谱因果链）
                 "run_scenario": eng["ok"],
                 "agent": eng["ok"],
                 "llm_generation": has_key,  # 真 LLM 写测试（可选增强）
@@ -488,8 +511,70 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
 
     @app.post("/api/kb/search")
     def kb_search(req: SearchRequest) -> dict:
-        """GraphRAG 混合检索：语义命中 + 图谱邻接证据。"""
-        return retriever.retrieve(req.query, k=req.k)
+        """GraphRAG 混合检索（P1-1：向量 + BM25 词法，RRF 融合）→ 图谱邻接证据。"""
+        return retriever.retrieve_hybrid(req.query, k=req.k)
+
+    @app.get("/api/kb/overview")
+    def kb_overview(limit: int = 3) -> dict:
+        """默认“基础关联图谱”骨架：13 系统 + 11 功能 + 每功能代表故障 + 关联边。
+
+        前端进入图谱页（未搜索/未选种子）时直接展示本视图：
+        节点 = system:SYS-* 全部 + function:F-* 全部 + 各功能 fault_keys 前 limit 个真实故障；
+        边 = 这些节点之间既有的 belongs_to / triggers / covers / injects 等真实关系。
+        计数全部派生自 enrich 后的图与资产模型（机器自证）。
+        """
+        keep: set[str] = set()
+        for n in graph.nodes.values():
+            if n.kind in ("system", "function"):
+                keep.add(n.id)
+        for fn in asset_model.functions.values():
+            for fk in fn.fault_keys[:max(1, limit)]:
+                nid = f"fault:{fk}"
+                if nid in graph.nodes:
+                    keep.add(nid)
+        nodes = [
+            {"id": n.id, "kind": n.kind, "label": n.label}
+            for n in graph.nodes.values()
+            if n.id in keep
+        ]
+        edges = []
+        seen = set()
+        for e in graph.edges:
+            if e.src in keep and e.dst in keep and e.src != e.dst:
+                key = (e.src, e.dst, e.kind)
+                if key not in seen:
+                    seen.add(key)
+                    item = {"src": e.src, "dst": e.dst, "kind": e.kind}
+                    if e.basis:
+                        item["basis"] = e.basis
+                    edges.append(item)
+        return {
+            "mode": "overview",
+            "seed": "overview",  # 与 /api/kb/subgraph 同构（无真实 seed 节点，前端据此进入“骨架视图”）
+            "depth": 0,
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+            "nodes": nodes,
+            "edges": edges,
+        }
+
+    @app.post("/api/kb/path")
+    def kb_path(req: PathRequest) -> dict:
+        """证据图可达查询：两节点间最短路（逐边带 kind/basis/note）。
+
+        如 symptom:dashboard_flicker → fault:aux_24v_charger_fail 的可达证据链。
+        不存在/超深 → found=false + 空 edges（诚实不编造路径）。
+        """
+        if req.src not in graph.nodes or req.dst not in graph.nodes:
+            return {"src": req.src, "dst": req.dst, "found": False, "hops": 0, "edges": []}
+        path = graph.shortest_path(req.src, req.dst, max_depth=max(1, min(req.max_depth, 12)))
+        return {
+            "src": req.src,
+            "dst": req.dst,
+            "found": path is not None,
+            "hops": len(path) if path else 0,
+            "edges": path or [],
+        }
 
     @app.post("/api/kb/subgraph")
     def kb_subgraph(req: SubgraphRequest) -> dict:
@@ -502,6 +587,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             "graph": graph.stats(),
             "vector": store.stats(),
             "domain_enrichment": _enrich_report["files"],
+            "symptom_causal": _enrich_report.get("symptom_causal", {}),
         }
 
     @app.get("/api/kb/nodes")
@@ -662,6 +748,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             {
                 "file": s.file,
                 "name": s.name,
+                "desc": s.desc,
                 "steps": len(s.steps),
                 "fault_keys": sorted(s.fault_keys),
                 "nodes": sorted(s.nodes),
@@ -701,6 +788,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             {
                 "file": s.file,
                 "name": s.name,
+                "desc": s.desc,
                 "steps": len(s.steps),
                 "fault_keys": sorted(s.fault_keys),
                 "duration_hint": max((st.at for st in s.steps), default=0) + 4,
@@ -969,6 +1057,32 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             "matched_task_id": task.task_id,  # T-FREE-1（自由任务由解析动态生成）
             **resp,
         }
+
+    @app.post("/api/agent/diagnose")
+    def agent_diagnose(req: DiagnoseRequest) -> dict:
+        """症状多跳诊断（C 步）：无码症状描述 → 图谱因果链候选 + 诊断步骤建议。
+
+        输入「仪表盘闪烁但无故障码」这类症状文本：
+            1. kb 检索症状资产（RAG）→ 定位 symptom 节点；
+            2. 图谱沿 indicates/causes 因果边取 depth≤3 候选链（逐跳带依据）；
+            3. 输出候选故障（真实字典键）+ 置信度 + 验证动作 + 场景复现建议。
+        诚实纪律：无命中 → no_match=true + 需补充引导；derived 候选明确标注
+        仅示意；所有故障键来自 202 条真实字典，不编造故障码。
+        """
+        from ..agent.diagnoser import diagnose_symptom
+        from ..agent.llm_backend import llm_available as _llm_ok
+
+        depth = max(2, min(req.depth, 3))  # 诊断链深限定 2~3（规格）
+        use_llm = bool(req.use_llm) and _llm_ok()  # 显式开启 + key 就绪才真调 LLM
+        return diagnose_symptom(
+            asset_model,
+            graph,
+            retriever,
+            req.message,
+            depth=depth,
+            max_candidates=req.max_candidates,
+            use_llm=use_llm,  # 仅候选内仲裁；失败自动落回规则排序
+        )
 
     @app.post("/api/agent/compose")
     def agent_compose(req: AdvisorTurnRequest) -> dict:

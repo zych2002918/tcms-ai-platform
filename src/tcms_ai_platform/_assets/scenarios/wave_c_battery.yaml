@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：battery_soc_jump, bms_current_sensor_drift, battery_heater_fail, bms_contact_precheck_fail, battery_module_temp_uneven
-name: Wave C 域内多故障编排：battery_soc_jump/bms_current_sensor_drift/battery_heater_fail/bms_contact_precheck_fail/battery_module_temp_uneven
+name: SOC 跳变·电流采样漂移·加热器失效编排
+desc: 演示故障序列：SOC 估算跳变、BMS 电流采样漂移、电池加热器失效、BMS 合闸前检查失败、电池模组温差超限。
 steps:
 - at: 3.0
   inject:

@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：panto_isolator_fault, panto_contact_wear_high, panto_cylinder_air_leak, line_voltage_harmonic_high
-name: Wave C 域内多故障编排：panto_isolator_fault/panto_contact_wear_high/panto_cylinder_air_leak/line_voltage_harmonic_high
+name: 隔离状态·滑板磨耗·气缸泄漏·网压谐波编排
+desc: 演示故障序列：受电弓隔离装置状态异常、受电弓滑板磨耗超限、升弓气缸气路泄漏、网压谐波畸变。
 steps:
 - at: 3.0
   inject:

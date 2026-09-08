@@ -64,6 +64,10 @@ class DemoEvent:
     source_kind: str = ""
     source_ref: str = ""
     source_desc: str = ""
+    # 高亮提示增强（哪里异常 + 什么异常）：真实故障字典派生，事件到哪都能自解释
+    fault_name: str = ""
+    subsystem: str = ""  # 位置：故障字典子系统（照明/辅助电源/网络…）
+    domain_zh: str = ""  # 位置：13 系统域中文标签（照明/辅助供电/网络列车控制…）
 
     def to_dict(self) -> dict:
         out = {
@@ -82,7 +86,33 @@ class DemoEvent:
                 "ref": self.source_ref,
                 "desc": self.source_desc,
             }
+        if self.fault_name:
+            out["fault_name"] = self.fault_name
+        if self.subsystem:
+            out["subsystem"] = self.subsystem
+        if self.domain_zh:
+            out["domain_zh"] = self.domain_zh
         return out
+
+
+def _fault_context(m: AssetModel, key: str) -> dict:
+    """事件“哪里异常/什么异常”上下文（真实故障字典派生，不编造）。"""
+    if key not in m.faults_by_key:
+        return {}
+    fd = m.fault(key)
+    ctx: dict = {
+        "fault_name": fd.name,
+        "subsystem": fd.subsystem,
+    }
+    try:
+        from .knowledge.vector import DOMAIN_ZH, subsystem_domain
+
+        dom = subsystem_domain(fd.subsystem)
+        if dom:
+            ctx["domain_zh"] = DOMAIN_ZH.get(dom, dom)
+    except Exception:  # noqa: BLE001 - 域标签缺失不阻断演示
+        pass
+    return ctx
 
 
 def _fault_name(m: AssetModel, key: str) -> str:
@@ -486,6 +516,7 @@ def _demo_from_step_sources(
             p = prof.get(fk, {})
             name_zh = _fault_name(m, fk)
             fd = m.fault(fk) if fk in m.faults_by_key else None
+            ctx = _fault_context(m, fk)
             scen_ref = f"{ref_label}（step @{float(st['at']):.1f}s）"
             src_desc_inject = (
                 "注入时刻/故障来自前端编排的自定义步骤序列（非资产场景 YAML，自定义编排）"
@@ -505,6 +536,9 @@ def _demo_from_step_sources(
                     source_kind="scenario_yaml",
                     source_ref=scen_ref,
                     source_desc=src_desc_inject,
+                    fault_name=ctx.get("fault_name", ""),
+                    subsystem=ctx.get("subsystem", ""),
+                    domain_zh=ctx.get("domain_zh", ""),
                 )
             )
             # 2) 检测（文本真实：故障字典 detect；时刻示意：注入 + DETECT_DELAY_S）
@@ -524,6 +558,9 @@ def _demo_from_step_sources(
                         "检测文本来自真实故障字典 faults.yaml(detect)；"
                         f"检测时刻 = 注入时刻 + 示意检测延迟 {DETECT_DELAY_S}s（示意物理模型规则）"
                     ),
+                    fault_name=ctx.get("fault_name", ""),
+                    subsystem=ctx.get("subsystem", ""),
+                    domain_zh=ctx.get("domain_zh", ""),
                 )
             )
             # 3) 处置（来源优先真实引擎断言 actual，否则故障字典 action）
@@ -553,6 +590,9 @@ def _demo_from_step_sources(
                     source_kind=src_kind,
                     source_ref=src_ref,
                     source_desc=src_desc,
+                    fault_name=ctx.get("fault_name", ""),
+                    subsystem=ctx.get("subsystem", ""),
+                    domain_zh=ctx.get("domain_zh", ""),
                 )
             )
             if p:
@@ -560,6 +600,7 @@ def _demo_from_step_sources(
         elif st.get("action") == "recover" and st.get("fault"):
             fk = st["fault"]
             fd = m.fault(fk) if fk in m.faults_by_key else None
+            ctx = _fault_context(m, fk)
             events.append(
                 DemoEvent(
                     t=float(st["at"]),
@@ -575,6 +616,9 @@ def _demo_from_step_sources(
                         if custom
                         else "恢复时刻来自真实场景 YAML 步骤（资产派生，真实）"
                     ),
+                    fault_name=ctx.get("fault_name", ""),
+                    subsystem=ctx.get("subsystem", ""),
+                    domain_zh=ctx.get("domain_zh", ""),
                 )
             )
             active.pop(fk, None)

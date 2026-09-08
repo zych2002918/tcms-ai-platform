@@ -186,6 +186,7 @@ def parse_free_goal(
     seq: int = 1,
     use_llm: bool = True,
     llm_chat=None,
+    llm_context: str | None = None,
 ) -> FreeParse:
     """把自然语言目标解析为 (fault, expected) 的确定性/LLM 混合解析。
 
@@ -195,6 +196,8 @@ def parse_free_goal(
         seq     —— 临时任务序号（T-FREE-{seq}）
         use_llm —— 是否允许 LLM 仲裁歧义（调用方按 llm_available() 传入）
         llm_chat—— 注入式 chat(system,user)->str（测试替身；缺省用 LLMAgentBackend）
+        llm_context —— 可选检索证据/多轮上下文（仅注入 LLM 消歧提示；不进规则
+                       路径——规则零候选仍抛 NoFaultMatch，红线不变）
     """
     goal = (goal or "").strip()
     if not goal:
@@ -230,7 +233,7 @@ def parse_free_goal(
 
     # 三、规则弱/多候选歧义 → LLM 仲裁（仅当可用，从候选里挑一个）；失败落回规则兜底
     if use_llm:
-        parsed = _llm_disambiguate(model, goal, cands, llm_chat)
+        parsed = _llm_disambiguate(model, goal, cands, llm_chat, context=llm_context)
         if parsed is not None:
             return parsed
 
@@ -251,7 +254,7 @@ def parse_free_goal(
 
 
 def _llm_disambiguate(
-    model: AssetModel, goal: str, cands: list[dict], llm_chat=None
+    model: AssetModel, goal: str, cands: list[dict], llm_chat=None, context: str | None = None
 ) -> FreeParse | None:
     """LLM 仲裁：从规则候选里选一个故障 + 期望处置。失败返回 None（落回规则兜底）。
 
@@ -277,6 +280,8 @@ def _llm_disambiguate(
         "只输出 JSON：{\"fault\": \"<key>\" 或 null, \"expected\": \"<action>\"}。"
     )
     user = f"用户目标：{goal}\n\n候选故障（规则已命中部分语义，请消歧）：\n{faults_txt}"
+    if context:
+        user += f"\n\n知识上下文（检索证据，仅辅助消歧，不许超出候选键）：\n{context[:400]}"
     if llm_chat is not None:
         text = llm_chat(system, user)
     else:

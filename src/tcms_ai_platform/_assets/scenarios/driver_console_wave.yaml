@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：cab_mode_conflict, driver_console_comm_loss, master_controller_stuck
-name: Wave A 域内多故障编排：cab_mode_conflict/driver_console_comm_loss/master_controller_stuck
+name: 双端模式冲突·司控台失联·主控卡滞编排
+desc: 演示故障序列：双端驾驶模式冲突、司控台通讯丢失、主控制器卡滞。
 steps:
 - at: 3.0
   inject:

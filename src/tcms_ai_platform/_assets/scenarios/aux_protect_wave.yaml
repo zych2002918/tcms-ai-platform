@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：aux_lv_overcurrent, aux_fan_fault, aux_input_overvoltage
-name: Wave A 域内多故障编排：aux_lv_overcurrent/aux_fan_fault/aux_input_overvoltage
+name: 辅助电源过流·风机·输入过压保护编排
+desc: 演示故障序列：低压母线过流保护、辅助变流风机故障、辅助变流输入过压。
 steps:
 - at: 3.0
   inject:

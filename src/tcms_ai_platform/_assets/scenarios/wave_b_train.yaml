@@ -1,5 +1,6 @@
 # 场景扩容 Wave B（无孤儿覆盖）：vcu_startup_selftest_fail, train_time_sync_loss, cab_display_blank
-name: Wave B 域内多故障编排：vcu_startup_selftest_fail/train_time_sync_loss/cab_display_blank
+name: 启动自检失败·时间同步丢失·司控台黑屏编排
+desc: 演示故障序列：VCU 启动自检失败、列车级时间同步丢失、司控台显示屏黑屏。
 steps:
 - at: 3.0
   inject:

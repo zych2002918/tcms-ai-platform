@@ -400,7 +400,7 @@ def inject_systems(g: KnowledgeGraph, store: VectorStore | None, data: dict) -> 
                 )
             )
         count += 1
-    # 故障 → 系统（按子系统名精确映射到 13 系统域；完整覆盖全部 66 故障）
+    # 故障 → 系统（按子系统名精确映射到 13 系统域；完整覆盖全部 202 故障）
     # 与 domain/data/domain_systems.json 的 subsystems 字段保持一致（双源同口径）
     _SUB_TO_SYS = {
         "VCU": "SYS-TRAIN",
@@ -477,6 +477,11 @@ def enrich_graph(g: KnowledgeGraph, store: VectorStore | None = None) -> dict:
         data = load_domain_json(fname)
         if data:
             report["files"][fname.replace("domain_", "").replace(".json", "")] = fn(g, store, data)
+    # 症状资产 + 因果表注入（B 步）：symptom 节点/文档 + 带依据因果边。
+    # 需在 inject_systems 之后（causes 反查 fault、indicates 指向 fault/system 均就绪）。
+    from .causal import inject_symptoms_causal as _inject_symptoms
+
+    report["symptom_causal"] = _inject_symptoms(g, store)
     # 故障 → 危害 深连（在全部注入完成后，确保 hazard/fault 都已存在）
     report["fault_hazard_links"] = _link_faults_to_safety(g)
     return report

@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-051 pis_announce_desync (info, none) — 仅记录
 name: PIS 到站播报失步
+desc: 演示故障序列：PIS 到站播报失步。
 steps:
 - at: 3.0
   inject:

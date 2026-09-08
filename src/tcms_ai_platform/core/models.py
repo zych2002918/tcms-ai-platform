@@ -2,7 +2,7 @@
 
 设计原则（继承上游 tcms-can-test 纪律）：
 - **从真实资产派生**：报文/信号 ← DBC（cantools 解析，含周期/发送类型/枚举），
-  故障 ← faults.yaml（66 键 FMEA），场景 ← scenarios/*.yaml（59 个），
+  故障 ← faults.yaml（202 键 FMEA），场景 ← scenarios/*.yaml（103 个），
   需求 ← tests/rtm.csv（SR-01~52 追溯矩阵）。
 - **数字机器自证**：所有 count/stats 由加载结果派生，禁止手抄。
 - **列车视角而非总线视角**：Device 挂报文、Function 聚合「报文+信号+故障+需求」，
@@ -112,6 +112,7 @@ class ScenarioDef:
     steps: tuple[ScenarioStep, ...] = ()
     fault_keys: frozenset[str] = frozenset()
     nodes: frozenset[str] = frozenset()
+    desc: str = ""  # 简短释义（场景 YAML desc 可选字段；无则空）
 
 
 # ---------------------------------------------------------------------------

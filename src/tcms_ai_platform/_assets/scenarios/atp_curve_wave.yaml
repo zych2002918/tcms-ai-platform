@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：atp_curve_selfcheck_fault
-name: Wave A 域内多故障编排：atp_curve_selfcheck_fault
+name: 动态限速曲线自检异常编排
+desc: 演示故障序列：动态限速曲线异常。
 steps:
 - at: 3.0
   inject:

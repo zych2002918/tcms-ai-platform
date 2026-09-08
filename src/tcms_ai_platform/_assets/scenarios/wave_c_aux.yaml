@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：aux_capacitor_aging, aux_inverter_overcurrent, aux_24v_charger_fail, aux_frequency_unstable, aux_load_shed_triggered
-name: Wave C 域内多故障编排：aux_capacitor_aging/aux_inverter_overcurrent/aux_24v_charger_fail/aux_frequency_unstable/aux_load_shed_triggered
+name: 辅逆电容老化·输出过流·24V 充电模块失效编排
+desc: 演示故障序列：辅逆支撑电容老化、辅逆输出过流保护、24V 充电模块故障、辅逆输出频率不稳、负载分级切除触发。
 steps:
 - at: 3.0
   inject:

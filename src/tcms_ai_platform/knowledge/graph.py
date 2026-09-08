@@ -31,7 +31,11 @@ NODE_TYPES = {
     "fault",
     "scenario",
     "system",  # Q2 语义层：列车系统分类框架（S1000D 思想对齐）
+    "symptom",  # 症状/无码故障资产（A/B 步：symptoms.yaml 注入；诊断起点）
 }
+
+# 因果/诊断关系（B 步：多跳诊断只走这两类有向边；basis 标注依据类型）
+CAUSAL_RELS = ("indicates", "causes")
 
 # 关系类型（展示标签）
 EDGE_LABELS = {
@@ -60,6 +64,9 @@ class Edge:
     src: str  # node id
     dst: str  # node id
     kind: str  # EDGE_LABELS value
+    # 因果边依据（B 步）：basis ∈ real_mechanism / derived；note 供审计溯源
+    basis: str = ""
+    note: str = ""
 
 
 def node_id(kind: str, key: str) -> str:
@@ -94,17 +101,31 @@ class KnowledgeGraph:
             self._adj[dst].append(src)
         self.edges.append(Edge(src=src, dst=dst, kind=kind))
 
-    def add_edge_raw(self, src_id: str, dst_id: str, kind: str) -> None:
-        """按完整 node id 加边（供领域注入用，两端必须已存在）。"""
+    def add_edge_raw(
+        self,
+        src_id: str,
+        dst_id: str,
+        kind: str,
+        basis: str = "",
+        note: str = "",
+    ) -> None:
+        """按完整 node id 加边（供领域注入用，两端必须已存在）。
+
+        因果边（B 步）：kind ∈ indicates/causes 时可带 basis（real_mechanism/
+        derived）与 note（审计溯源）。同 (src,dst,kind) 不重复添加。
+        """
         if src_id not in self.nodes:
             return
         if dst_id not in self.nodes:
             return
+        for e in self.edges:
+            if e.src == src_id and e.dst == dst_id and e.kind == kind:
+                return
         if dst_id not in self._adj[src_id]:
             self._adj[src_id].append(dst_id)
         if src_id not in self._adj[dst_id]:
             self._adj[dst_id].append(src_id)
-        self.edges.append(Edge(src=src_id, dst=dst_id, kind=kind))
+        self.edges.append(Edge(src=src_id, dst=dst_id, kind=kind, basis=basis, note=note))
 
     # ---- 查询 ----
 
@@ -140,7 +161,12 @@ class KnowledgeGraph:
                 key = (e.src, e.dst, e.kind)
                 if key not in seen:
                     seen.add(key)
-                    sub_edges.append({"src": e.src, "dst": e.dst, "kind": e.kind})
+                    item = {"src": e.src, "dst": e.dst, "kind": e.kind}
+                    if e.basis:
+                        item["basis"] = e.basis
+                    if e.note:
+                        item["note"] = e.note
+                    sub_edges.append(item)
         return {
             "seed": seed_id,
             "depth": depth,
@@ -158,6 +184,158 @@ class KnowledgeGraph:
         for n in self.nodes.values():
             by_kind[n.kind] = by_kind.get(n.kind, 0) + 1
         return {"nodes": len(self.nodes), "edges": len(self.edges), "by_kind": by_kind}
+
+    # ---- 因果/症状诊断遍历（B/C 步：深度优先候选链） ----
+
+    def causal_hops(self, nid: str) -> list[dict]:
+        """节点的一次因果步进：返回下一步候选 [{to, rel, basis, note, via}]。
+
+        语义（B 步，方向即“解释方向”）：
+        - symptom 节点   → 沿 indicates 边外扩（症状指向怀疑故障/系统）；
+        - fault 节点     → 沿 causes 边反向（A -causes-> B ⇒ A 是 B 的疑似原因，
+                          从被解释的 B 出发找 A，实现“症状→嫌疑→根因”多跳）；
+        - 其它节点       → 不再外扩（叶子）。
+        """
+        node = self.nodes.get(nid)
+        if node is None:
+            return []
+        out: list[dict] = []
+        if node.kind == "symptom":
+            for e in self.edges:
+                if e.src == nid and e.kind == "indicates":
+                    out.append(
+                        {"to": e.dst, "rel": "indicates", "basis": e.basis, "note": e.note, "via": e.kind}
+                    )
+        elif node.kind in ("fault", "system"):
+            for e in self.edges:
+                if e.dst == nid and e.kind == "causes":
+                    out.append(
+                        {"to": e.src, "rel": "caused_by", "basis": e.basis, "note": e.note, "via": e.kind}
+                    )
+        return out
+
+    def causal_chain(self, seed_id: str, depth: int = 3, max_chains: int = 24) -> dict:
+        """从症状（或故障）节点出发做有向多跳因果遍历。
+
+        返回 {seed, depth, chains, node_count}；每条 chain 为路径记录：
+            [{from, to, kind, rel, basis, note}]   （hops[0] 起点 = seed）
+        - 从 symptom 沿 indicates 到 fault/system（嫌疑），再从 fault 沿
+          causes 反向找疑似根因（深度 ≤ depth）；
+        - 只走 CAUSAL_RELS（indicates/causes）有向边，其它关系不参与诊断链；
+        - 节点不重复（防环），不同路径共享前缀时仍分别保留（便于审计）。
+        """
+        seed_node = self.nodes.get(seed_id)
+        if seed_node is None:
+            return {"seed": seed_id, "depth": depth, "chains": [], "node_count": 0}
+        chains: list[list[dict]] = []
+        visited_nodes: set[str] = {seed_id}
+
+        def _walk(node_id: str, hops: list[dict]) -> None:
+            # 叶子判定：症状下一步必须是指示边；fault 下一步必须是 causes 反查；
+            # 均无候选或到达深度上限 → 结束本条链
+            if len(hops) >= depth:
+                return
+            nxts = self.causal_hops(node_id)
+            if not nxts:
+                return
+            for nx in nxts:
+                to_id = nx["to"]
+                if to_id in visited_nodes:
+                    continue
+                hop = {
+                    "from": node_id,
+                    "to": to_id,
+                    "kind": nx["via"],
+                    "rel": nx["rel"],
+                    "basis": nx.get("basis", ""),
+                    "note": nx.get("note", ""),
+                }
+                new_hops = hops + [hop]
+                chains.append(new_hops)
+                if len(chains) >= max_chains:
+                    return
+                visited_nodes.add(to_id)
+                _walk(to_id, new_hops)
+                visited_nodes.discard(to_id)
+                if len(chains) >= max_chains:
+                    return
+
+        _walk(seed_id, [])
+        visited = {seed_id}
+        for c in chains:
+            for h in c:
+                visited.add(h["from"])
+                visited.add(h["to"])
+        return {
+            "seed": seed_id,
+            "depth": depth,
+            "chains": chains,
+            "node_count": len(visited),
+        }
+
+    def shortest_path(
+        self,
+        src_id: str,
+        dst_id: str,
+        max_depth: int = 8,
+        kinds: frozenset[str] | None = None,
+    ) -> list[dict] | None:
+        """两节点间最短路（BFS，边数最少；可选只走指定 kind）。
+
+        返回逐边记录 {src, dst, kind, basis, note}（证据可溯源）；无路径/超深 → None。
+        用于“证据图可查询”：症状 → 故障 → 根因、故障 → 系统/需求等任意可达性。
+        """
+        if src_id not in self.nodes or dst_id not in self.nodes:
+            return None
+        prev: dict[str, tuple[str, Edge]] = {}
+        visited: set[str] = {src_id}
+        frontier = [src_id]
+        depth = 0
+        found = False
+        while frontier and depth < max_depth:
+            nxt: list[str] = []
+            for nid in frontier:
+                if nid == dst_id:
+                    found = True
+                    break
+                for e in self.edges:
+                    other = None
+                    if e.src == nid:
+                        other = e.dst
+                    elif e.dst == nid:
+                        other = e.src
+                    if other is None or other in visited:
+                        continue
+                    if kinds is not None and e.kind not in kinds:
+                        continue
+                    visited.add(other)
+                    prev[other] = (nid, e)
+                    nxt.append(other)
+                if found:
+                    break
+            if found:
+                break
+            frontier = nxt
+            depth += 1
+        if not found:
+            return None
+        # 回溯还原路径（按实际行走方向定向端点：parent → cur；边依据原样保留）
+        path: list[dict] = []
+        cur = dst_id
+        while cur != src_id:
+            parent, edge = prev[cur]
+            path.append(
+                {
+                    "src": parent,
+                    "dst": cur,
+                    "kind": edge.kind,
+                    "basis": edge.basis,
+                    "note": edge.note,
+                }
+            )
+            cur = parent
+        path.reverse()
+        return path
 
 
 # ---------------------------------------------------------------------------

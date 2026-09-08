@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：gateway_qos_drop_excess, nmt_lifeguard_timeout, network_backbone_latency_spike, train_power_mode_dispute
-name: Wave C 域内多故障编排：gateway_qos_drop_excess/nmt_lifeguard_timeout/network_backbone_latency_spike/train_power_mode_dispute
+name: 网关丢包·NMT 超时·骨干时延·牵引惰行仲裁编排
+desc: 演示故障序列：网关流量整形丢包、NMT 生命保持超时、骨干时延尖峰、牵引惰行模式仲裁异常。
 steps:
 - at: 3.0
   inject:

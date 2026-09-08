@@ -1,5 +1,6 @@
 # 场景扩容 Wave B（无孤儿覆盖）：aux_ac_output_fault, aux_contactor_chatter, aux_24v_undervoltage
-name: Wave B 域内多故障编排：aux_ac_output_fault/aux_contactor_chatter/aux_24v_undervoltage
+name: 辅逆交流异常·接触器抖动·24V 欠压编排
+desc: 演示故障序列：辅助交流输出异常、辅助接触器抖动、24V 控制电源欠压。
 steps:
 - at: 3.0
   inject:

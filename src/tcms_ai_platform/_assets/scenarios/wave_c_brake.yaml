@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：brake_cylinder_seal_aging, brake_eb_test_fail, brake_wheel_diameter_mismatch, brake_air_dryer_fail, brake_park_auto_apply_unexpected, brake_disc_wear_groove
-name: Wave C 域内多故障编排：brake_cylinder_seal_aging/brake_eb_test_fail/brake_wheel_diameter_mismatch/brake_air_dryer_fail/brake_park_auto_apply_unexpected/brake_disc_wear_groove
+name: 制动密封·EB 自检·轮径·干燥器·意外施加编排
+desc: 演示故障序列：制动缸密封老化、发车前 EB 功能测试失败、轮径标定不一致、风源干燥器失效、停车制动意外自动施加、制动盘沟槽磨损。
 steps:
 - at: 3.0
   inject:

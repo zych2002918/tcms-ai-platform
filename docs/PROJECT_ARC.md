@@ -111,29 +111,37 @@
 | 资产 | 数量 | 来源 |
 |---|---|---|
 | 报文 / 信号 | 22 / 116 | DBC（+14 帧：HVAC/PIS/照明/烟火/辅助变流/ATO/走行部/后门/网关/防滑/牵引变流/司控台/充电机；周期分级 25–500ms） |
-| 故障(FMEA) / 场景 | 66 / 59 | faults.yaml（13 系统域 × 16 子系统）/ scenarios/（剧本族） |
+| 故障(FMEA) / 场景 | 202 / 103 | faults.yaml（13 系统域 × 16 子系统）/ scenarios/（剧本族） |
 | 需求(RTM) / 功能 / 设备 | 52 / 11 / 11 | rtm.csv（SR-01~52）/ 手工锚定 / DBC 节点 |
-| 图谱节点 / 边 | 337 / 504 | 资产 + 领域知识(EBM/网络/安全/13 系统分类树) |
-| 向量文档 | 326 | 资产 + 领域(离线 HashedEmbedder) |
-| Agent 内置任务 | 8 | 真实故障锚定防漂移（freeform 自由目标 66/66 故障名可达） |
+| 图谱节点 / 边 | 基础 517 / 743；服务态(含 enrich+症状/因果) 651 / 1167 | 资产 + 领域知识(EBM/网络/安全/13 系统域) + 症状 12 + 因果边 54 |
+| 向量文档 | 基础 506；服务态 640 | 资产 + 领域(离线 HashedEmbedder) + 12 症状文档 |
+| 症状资产（无码） | 12 | symptoms.yaml（hints 全锚真实故障键/13 系统域；annotation real 7/mixed 5） |
+| 因果边（诊断） | 54（indicates 41 / causes 13） | causal_edges.yaml（real_mechanism 41 / derived 13，逐条 basis+note） |
+| 图谱默认骨架（overview） | 56 节点 / 65 边 | GET /api/kb/overview：13 system + 11 function + 每功能代表故障 |
+| 场景中文名 / desc | 103 name 唯一；44 个 wave_* 模板名已改短并补 desc | scenarios/*.yaml + Scenarios/Agent 结果标题映射 |
+| Agent 内置任务 | 8 | 真实故障锚定防漂移（自由目标规则 + RAG 澄清，见 freeform/advisor） |
 
 ### 5.2 工程与验证
 
-- 平台：`116 passed` / ruff clean / e2e 浏览器走查全绿；`ai-testgen/`：`119 passed`(+2 数据漂移项已定位)。
+- 平台 v0.5.0：`164 passed` / ruff clean（浏览器 e2e 走查列为 UI 迭代清单）；`ai-testgen/`：`136 passed / 28 skipped`（独立 venv）；上游 tcms-can-test v1.12.0：`957 passed + 1 skip`。
 - GitHub：`tcms-ai-platform` 43 commits(含并入)、`tcms-ai-testgen` 迁移指引 28 commits、`tcms-can-test` v1.11.0。
 - 双仓库合一：独立包结构保留(`pip install -e "./ai-testgen[test]"`)，README 一体叙事。
 
 ### 5.3 简历可主张（三句话叙事，附追问弹药）
 
 1. **从 0 建了一条"LLM→受约束 DSL→真实 pytest→变异杀毒→反思自愈→双 judge"的 AI 测试用例工厂流水线**，用量化证据（parse/compile/exec/kill_rate/self-heal）证明"AI 写的测试好不好"，规避了"只求通过+覆盖会放过真 bug"的业界陷阱。
-2. **把它做成了一个本地可复现的 TCMS 测试平台**：真实资产模型（22 报文/116 信号/66 FMEA/59 场景/52 SR/11 功能/13 系统域）→知识图谱(337 节点,含 13 系统分类树)+GraphRAG→Agent Harness(检索→真实执行→6 维语义评审→轨迹可审计)→Web 端到端可见（双主题/图谱 2D+3D/故障动画逐帧溯源）。
+2. **把它做成了一个本地可复现的 TCMS 测试平台**：真实资产模型（22 报文/116 信号/202 FMEA/103 场景/52 SR/11 功能/13 系统域/12 症状资产）→知识图谱(基础 517、服务态 651 节点,含 13 系统分类树与 54 条可审计因果边)+GraphRAG+症状多跳诊断→Agent Harness(检索→真实执行→6 维语义评审→轨迹可审计)→Web 端到端可见（双主题/图谱 2D+3D/故障动画逐帧溯源）。
 3. **工程纪律全程机器自证**：数字全由真实资产派生、任务库锚定真实故障字典(漂移即失败)、LLM 决策可落回离线 Mock、API key 永不入库——项目本身先有最好的测试。
 
 ---
 
 
-> **Wave A 续**（2026-09-08，步骤③推进中）：97 FMEA / 75 场景（13 域各 +2~3 条，域内多故障编排场景）。
-> 基础图谱 384 节点 / 向量 373 文档；服务态（含 enrich）506 节点 / 830 边 / 495 文档。
+> **Iteration A/B/C 症状多跳诊断（v0.5.0，2026-09，工作树未提交）**：12 症状资产 +
+> 54 条因果边（indicates 41 / causes 13；real_mechanism 41 / derived 13）注入图谱；
+> 服务态 **651 节点 / 1167 边 / 640 向量文档**（基础图仍 517/743/506）；多跳遍历 ≤3 跳
+> （症状→嫌疑故障→causes 反查根因，逐跳 basis/note）+ `POST /api/agent/diagnose`；
+> 「仪表盘闪烁但无故障码」专项回归通过（非空/可溯源/不编造故障码/含 aux+network 域候选）；
+> 平台 **164 passed** / ruff clean；上游 957 passed + 1 skip（本迭代未改上游）。
 
 ## 6. 文件层次索引（File Index：在哪里找什么）
 
@@ -151,7 +159,7 @@ objects/（根，gitlink 聚合 + 导航）
     │   ├── knowledge/             graph/vector/retriever(图谱+向量+GraphRAG+sink)
     │   ├── agent/                 tasks/harness/freeform/advisor/reviewer/llm_backend
     │   ├── faultlab.py            故障演示数据重建器(事件时间线+通道曲线+诚实溯源)
-    │   ├── domain/data/           领域知识 JSON(EBM/network/safety) + enrichment
+    │   ├── domain/data/           领域知识 JSON(EBM/网络/安全/13 系统域) + symptoms.yaml/causal_edges.yaml + enrichment
     │   └── server/app.py          FastAPI 全端点
     ├── web/                       React+Vite+Tailwind v4（双主题；图谱页=GraphWorkspace.tsx）
     ├── ai-testgen/                （原独立仓库并入）生成器全套 + docs/reports/*.json 量化报告
@@ -170,6 +178,7 @@ objects/（根，gitlink 聚合 + 导航）
 | 知识底座怎么建 | `src/tcms_ai_platform/knowledge/*` + `domain/` |
 | Agent 流水线怎么跑 | `src/tcms_ai_platform/agent/harness.py`（retrieve→plan→exec→verify→reflect→report） |
 | 自由目标怎么理解 | `agent/freeform.py` + `server/app.py` 的 `/api/agent/free` |
+| 症状多跳诊断怎么跑 | `domain/causal.py`（症状资产+因果表 装载/校验/注入）+ `agent/diagnoser.py` + `/api/agent/diagnose` |
 | 动画怎么资产化 | `faultlab.py`（`_demo_from_step_sources`）+ `web/src/pages/FaultLabPage.tsx` |
 | 图谱 2D/3D | `web/src/pages/GraphWorkspace.tsx`（GraphCanvas2D/3D） |
 | 量化证据报告 | `ai-testgen/docs/reports/*.json`（README 每个数字可复现） |

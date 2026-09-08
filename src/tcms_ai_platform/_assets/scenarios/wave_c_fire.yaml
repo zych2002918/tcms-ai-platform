@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：fire_extinguish_release_inhibit, fire_panel_display_fault, fire_power_supply_fail, fire_detector_loop_open
-name: Wave C 域内多故障编排：fire_extinguish_release_inhibit/fire_panel_display_fault/fire_power_supply_fail/fire_detector_loop_open
+name: 灭火抑制·面板显示·电源·探测器回路编排
+desc: 演示故障序列：灭火释放被抑制、火警面板显示故障、火警系统电源故障、探测器回路开路。
 steps:
 - at: 3.0
   inject:

@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：speed_pulse_intermittent_loss, sensor_output_stuck_high, sensor_ground_noise, sensor_calibration_drift, position_sensor_sync_fail, analog_frontend_filter_fail
-name: Wave C 域内多故障编排：speed_pulse_intermittent_loss/sensor_output_stuck_high/sensor_ground_noise/sensor_calibration_drift/position_sensor_sync_fail/analog_frontend_filter_fail
+name: 脉冲丢失·卡高位·地噪·标定漂移·定位·滤波编排
+desc: 演示故障序列：速度脉冲间歇丢失、传感器输出卡高位、模拟采集地噪声、传感器标定漂移、测速定位同步失败、模拟前端滤波异常。
 steps:
 - at: 3.0
   inject:

@@ -1,5 +1,6 @@
 # 场景扩容 Wave B（无孤儿覆盖）：traction_regen_fail, traction_power_cap_violation, traction_dc_ground_fault
-name: Wave B 域内多故障编排：traction_regen_fail/traction_power_cap_violation/traction_dc_ground_fault
+name: 再生制动失效·功率越限·直流接地编排
+desc: 演示故障序列：再生制动失效、牵引功率越限、牵引直流侧接地故障。
 steps:
 - at: 3.0
   inject:

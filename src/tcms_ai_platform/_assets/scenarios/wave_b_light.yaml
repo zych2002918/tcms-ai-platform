@@ -1,5 +1,6 @@
 # 场景扩容 Wave B（无孤儿覆盖）：cabin_light_flicker, tail_light_fail
-name: Wave B 域内多故障编排：cabin_light_flicker/tail_light_fail
+name: 客室灯频闪·尾灯失效编排
+desc: 演示故障序列：客室照明闪烁、尾灯故障。
 steps:
 - at: 3.0
   inject:

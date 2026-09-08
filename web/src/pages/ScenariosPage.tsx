@@ -757,7 +757,7 @@ export function ScenariosPage() {
   const ctrl = "input !py-1.5 !px-2 text-[12px]";
 
   return (
-    <div className="space-y-4 max-w-[1100px]">
+    <div className="mx-auto w-full max-w-[1720px] space-y-4">
       {/* 顶部：数量来源说明 + 模式切换 + 执行区 */}
       <Panel title="运行故障场景" bodyClass="p-3">
         {/* 数量来源说明（机器自证：N = 实际拉到的场景数） */}
@@ -1131,13 +1131,20 @@ export function ScenariosPage() {
         <div className="step-in space-y-4">
           <Panel
             title={
-              <>
-                <span className="text-ink">运行完成</span> ·{" "}
-                <code className="kbd-mono">{result.scenario}</code>
-                {result.run_id && (
-                  <span className="text-ink-faint text-xs font-normal"> · run {result.run_id}</span>
-                )}
-              </>
+              (() => {
+                // 运行结果标题：优先显示场景中文名（file→name 映射），文件保留作次要标识
+                const nm = scenarios.find((s) => s.file === result.scenario || s.name === result.scenario)?.name;
+                return (
+                  <>
+                    <span className="text-ink">运行完成</span> ·{" "}
+                    {nm ? <span className="text-ink font-medium">{nm}</span> : <code className="kbd-mono">{result.scenario}</code>}
+                    {nm && nm !== result.scenario && <code className="kbd-mono ml-1">{result.scenario}</code>}
+                    {result.run_id && (
+                      <span className="text-ink-faint text-xs font-normal"> · run {result.run_id}</span>
+                    )}
+                  </>
+                );
+              })()
             }
             right={
               result.all_passed ? (

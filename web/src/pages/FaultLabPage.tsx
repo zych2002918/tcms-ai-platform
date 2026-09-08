@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useSearchParams } from "react-router-dom";
 import { api, type FaultLabCurvePoint, type FaultLabEvent, type FaultLabResp } from "../api";
 import { Panel, Tag, EmptyState, SkeletonRows } from "../components/ui";
+import { advancePlayback, activeSpanKeys, buildSpans, eventWindow } from "../lib/playerState";
 
 /* ================= t4 资产化：任意序列 / 跳转演示初始化 =================
  * 通道契约（与 fe-jump t5 写入端对齐，2026-09 第三轮 ③）：
@@ -172,9 +173,22 @@ const FALLBACK_SPOT = { zh: "系统异常", tone: "amber" as SpotTone, anchor: [
 
 interface FaultSpot {
   key: string;
-  zh: string;
+  zh: string; // 具体异常名（事件 fault_name / 部位表中文 / 兜底，不再是"系统异常"）
   tone: SpotTone;
   anchor?: [number, number];
+  where?: string; // 哪里：13 系统域 · 故障字典子系统
+  level?: string; // 等级（info~critical）
+  detail?: string; // 什么异常的现象/检测说明
+}
+
+/** 从事件里取该故障注入时刻的具体异常上下文（故障名/哪里/等级/现象） */
+function spotFromEvent(
+  e: FaultLabEvent | undefined,
+  fallback: { zh: string; tone: SpotTone; anchor?: [number, number] }
+): { zh: string; where: string; level: string; detail: string } {
+  const zh = e?.fault_name || fallback.zh;
+  const where = [e?.domain_zh, e?.subsystem].filter(Boolean).join(" · ");
+  return { zh, where, level: e?.level ?? "", detail: e?.detail ?? "" };
 }
 
 function nearestPoint(curve: FaultLabCurvePoint[], t: number): FaultLabCurvePoint {
@@ -185,28 +199,45 @@ function nearestPoint(curve: FaultLabCurvePoint[], t: number): FaultLabCurvePoin
   return best;
 }
 
-/** 脉冲圆：定位到具体故障部位（CSS 环形扩散，克制且语义化） */
-function PulseDot({ x, y, color }: { x: number; y: number; color: string }) {
+/** 脉冲圆：定位到具体故障部位（CSS 环形扩散，克制且语义化）；
+ *  鼠标悬停/点击显示具体异常说明（哪里+什么）。 */
+function PulseDot({ x, y, color, spot, onSelect }: { x: number; y: number; color: string; spot: FaultSpot; onSelect?: (key: string) => void }) {
+  const title = `${spot.where ? `【${spot.where}】` : ""}${spot.zh}${spot.detail ? `：${spot.detail.slice(0, 60)}${spot.detail.length > 60 ? "…" : ""}` : ""}`;
   return (
-    <g aria-hidden>
+    <g
+      aria-label={title}
+      style={{ cursor: onSelect ? "pointer" : "default" }}
+      onClick={(ev) => {
+        ev.stopPropagation();
+        onSelect?.(spot.key);
+      }}
+    >
+      <title>{title}</title>
+      <circle cx={x} cy={y} r="7" fill="transparent" />
       <circle cx={x} cy={y} r="5" fill={color} opacity="0.9" className="pulse-dot" />
       <circle cx={x} cy={y} r="6" fill="none" stroke={color} strokeWidth="1.6" className="fault-ring" />
     </g>
   );
 }
 
-function SpotChip({ spot }: { spot: FaultSpot }) {
+function SpotChip({ spot, active, onSelect }: { spot: FaultSpot; active: boolean; onSelect: (key: string) => void }) {
   const red = spot.tone === "red";
   const cls = red ? "text-bad border-bad/40 bg-bad/10" : "text-warn border-warn/40 bg-warn/10";
   const dot = red ? "bg-bad" : "bg-warn";
+  const label = `${spot.where ? `【${spot.where}】` : ""}${spot.zh}`;
+  const title = spot.detail ? `${label}：${spot.detail}` : label;
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${cls}`}
+    <button
+      type="button"
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium cursor-pointer transition-opacity ${cls} ${active ? "ring-1 ring-current" : "hover:opacity-85"}`}
       role="status"
+      onClick={() => onSelect(spot.key)}
+      title={`点击查看异常说明：${title}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full pulse-dot ${dot}`} />
       高亮：{spot.zh}
-    </span>
+      {spot.where && <span className="opacity-75">· {spot.where}</span>}
+    </button>
   );
 }
 
@@ -221,11 +252,15 @@ function TrainGlyph({
   derateSpeed,
   limitKmh,
   spots,
+  selKey,
+  onSpotSelect,
 }: {
   pt: FaultLabCurvePoint;
   derateSpeed: number;
   limitKmh: number;
   spots: FaultSpot[];
+  selKey?: string | null;
+  onSpotSelect?: (key: string) => void;
 }) {
   const moving = pt.speed_kmh > 0.5;
   const ebActive = pt.eb === 1;
@@ -294,7 +329,7 @@ function TrainGlyph({
         {/* 故障部位脉冲环（每个激活故障一个锚点；door_fault 由门框闪烁表达，不重复画） */}
         {spots.map((s) =>
           s.anchor && s.key !== "door_fault" ? (
-            <PulseDot key={s.key} x={s.anchor[0]} y={s.anchor[1]} color={s.tone === "red" ? SPOT_RED : SPOT_AMBER} />
+            <PulseDot key={s.key} x={s.anchor[0]} y={s.anchor[1]} color={s.tone === "red" ? SPOT_RED : SPOT_AMBER} spot={s} onSelect={onSpotSelect} />
           ) : null
         )}
         {/* EB 光带 */}
@@ -318,14 +353,35 @@ function TrainGlyph({
         )}
       </svg>
 
-      {/* 故障部位 chip 灯带（当前激活故障，中文标注） */}
+      {/* 故障部位 chip 灯带（当前激活故障，中文标注；点击查看异常说明） */}
       {spots.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 mt-2">
           {spots.map((s) => (
-            <SpotChip key={s.key} spot={s} />
+            <SpotChip key={s.key} spot={s} active={selKey === s.key} onSelect={(k) => onSpotSelect?.(k)} />
           ))}
         </div>
       )}
+
+      {/* 选中故障的异常说明（哪里异常 + 什么异常，真实字典字段；点击任意高亮点/chip 查看） */}
+      {selKey &&
+        (() => {
+          const s = spots.find((x) => x.key === selKey);
+          if (!s) return null;
+          const red = s.tone === "red";
+          return (
+            <div role="alert" className={`mt-1.5 rounded-md border px-3 py-2 text-[12.5px] leading-5 ${red ? "border-bad/50 bg-bad/10" : "border-warn/50 bg-warn/10"}`}>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className={red ? "text-bad" : "text-warn"}>{red ? "⚠" : "▲"}</span>
+                <span className="text-ink font-semibold">
+                  {s.where ? `【${s.where}】` : ""}出现 {s.zh}
+                </span>
+                {s.level && <span className="tag text-ink-dim border-line bg-surface/60">{s.level}</span>}
+              </div>
+              {s.detail && <div className="mt-0.5 text-ink-dim">说明：{s.detail}</div>}
+              <div className="mt-0.5 text-[10.5px] text-ink-faint">“哪里”= 13 系统域 · 故障字典子系统；“什么”= 真实故障名与现象（点击其它高亮点切换）。</div>
+            </div>
+          );
+        })()}
 
       {/* 驾驶台仪表条 */}
       <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5">
@@ -431,6 +487,7 @@ export function FaultLabPage() {
   const [playing, setPlaying] = useState(false);
   const [scrubbing, setScrubbing] = useState(false); // 拖动进度条中（暂停播放，便于观察）
   const [speed, setSpeed] = useState(1); // 回放倍速
+  const [selSpot, setSelSpot] = useState<string | null>(null); // 被点击查看异常说明的高亮点 key
   const [err, setErr] = useState("");
   const [entry, setEntry] = useState<{ mode: "demo" | "steps"; label: string; tone: "info" | "vio"; note: string } | null>(null);
   const rafRef = useRef<number>(0);
@@ -466,17 +523,15 @@ export function FaultLabPage() {
     }
   }, [phase]);
 
-  // 回放主循环（rAF，按场景秒推进；playing=false 时不推进）
+  // 回放主循环（rAF，按场景秒推进；playing=false 时不推进；时刻推进 = 纯函数 advancePlayback）
   useEffect(() => {
     const loop = (now: number) => {
       if (playingRef.current && data) {
         if (!lastRef.current) lastRef.current = now;
         const dt = (now - lastRef.current) / 1000 * speed;
-        const next = Math.min(tRef.current + dt, data.demo.duration);
+        const { t: next, atEnd } = advancePlayback(tRef.current, dt, data.demo.duration);
         setT(next);
-        if (next >= data.demo.duration) {
-          setPlaying(false);
-        }
+        if (atEnd) setPlaying(false);
       }
       lastRef.current = playingRef.current ? now : 0;
       rafRef.current = requestAnimationFrame(loop);
@@ -496,6 +551,7 @@ export function FaultLabPage() {
       const r = (await api.faultlabDemo(file)) as unknown as FaultLabRespEx;
       setData(r);
       setT(0);
+      setSelSpot(null);
       setPhase("ready");
       // 加载即自动播放：让观众立刻看到「注入→检测→处置→恢复」的过程
       setPlaying(true);
@@ -553,43 +609,43 @@ export function FaultLabPage() {
   const currentPt = useMemo(() => (data ? nearestPoint(data.curve, t) : null), [data, t]);
   const activeEvents = useMemo(() => {
     if (!data) return [];
-    return data.demo.events.filter((e) => Math.abs(e.t - t) < 0.4);
+    return eventWindow(data.demo.events, t);
   }, [data, t]);
 
-  /** 当前激活故障集合：由 inject→recover 时间窗推导 + 通道状态兜底（门/心跳/总线/受电弓） */
+  /** 当前激活故障集合：由 inject→recover 时间窗推导（纯函数 buildSpans/activeSpanKeys）
+   *  + 通道状态兜底（门/心跳/总线/受电弓） */
   const spots = useMemo<FaultSpot[]>(() => {
     if (!data || !currentPt) return [];
-    const spans: Record<string, { inj: number; rec: number }> = {};
-    for (const e of data.demo.events) {
-      if (e.kind === "inject") spans[e.fault] = { inj: e.t, rec: Infinity };
-      else if (e.kind === "recover" && spans[e.fault]) spans[e.fault].rec = e.t;
-    }
+    const evOf = (fk: string): FaultLabEvent | undefined =>
+      data.demo.events.find((e) => e.kind === "inject" && e.fault === fk);
+    const spans = buildSpans(data.demo.events);
     const out: FaultSpot[] = [];
     const seen = new Set<string>();
-    for (const [key, s] of Object.entries(spans)) {
-      if (t >= s.inj && t <= s.rec) {
-        const m = FAULT_SPOT_META[key];
-        const fallback = FALLBACK_SPOT;
-        out.push({
-          key,
-          zh: m ? m.zh : fallback.zh,
-          tone: m ? m.tone : fallback.tone,
-          anchor: m?.anchor ?? fallback.anchor,
-        });
-        seen.add(key);
-      }
-    }
-    const pushIf = (flag: boolean, key: string, zh: string, tone: SpotTone) => {
-      if (flag && !seen.has(key)) {
-        const m = FAULT_SPOT_META[key];
-        out.push({ key, zh: m?.zh ?? zh, tone: m?.tone ?? tone, anchor: m?.anchor });
-        seen.add(key);
-      }
+    const pushSpot = (key: string, fallbackTone: SpotTone) => {
+      const m = FAULT_SPOT_META[key];
+      const fallback = FALLBACK_SPOT;
+      const ctx = spotFromEvent(evOf(key), { zh: (m ? m.zh : evOf(key)?.fault_name) || fallback.zh, tone: m?.tone ?? fallbackTone, anchor: m?.anchor ?? fallback.anchor });
+      out.push({
+        key,
+        zh: ctx.zh,
+        tone: m?.tone ?? fallbackTone,
+        anchor: m?.anchor ?? fallback.anchor,
+        where: ctx.where || undefined,
+        level: ctx.level || undefined,
+        detail: ctx.detail || undefined,
+      });
+      seen.add(key);
     };
-    pushIf(currentPt.door_fault_count > 0, "door_fault", "车门故障", "red");
-    pushIf(!currentPt.heartbeat_ok, "heartbeat_loss_vcu", "VCU 心跳丢失", "red");
-    pushIf(!currentPt.bus_ok, "bus_short", "总线异常", "red");
-    pushIf(!currentPt.pantograph_ok, "pantograph_arc", "受电弓故障", "red");
+    for (const key of activeSpanKeys(spans, t)) {
+      if (!seen.has(key)) pushSpot(key, FALLBACK_SPOT.tone);
+    }
+    const pushIf = (flag: boolean, key: string, tone: SpotTone) => {
+      if (flag && !seen.has(key)) pushSpot(key, tone);
+    };
+    pushIf(currentPt.door_fault_count > 0, "door_fault", "red");
+    pushIf(!currentPt.heartbeat_ok, "heartbeat_loss_vcu", "red");
+    pushIf(!currentPt.bus_ok, "bus_short", "red");
+    pushIf(!currentPt.pantograph_ok, "pantograph_arc", "red");
     return out;
   }, [data, t, currentPt]);
 
@@ -613,7 +669,7 @@ export function FaultLabPage() {
   const stepColor = (kind?: string) => (kind ? STEP_META[kind]?.color ?? SOURCE_META[kind]?.color ?? "var(--ink-dim)" : "var(--ink-dim)");
 
   return (
-    <div className="space-y-4 max-w-[1180px]">
+    <div className="mx-auto w-full max-w-[1760px] space-y-4">
       <Panel title="故障演示 · FaultLab" bodyClass="p-3">
         <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
           <select className="select flex-1" value={sel} onChange={(e) => setSel(e.target.value)} aria-label="选择演示场景">
@@ -681,8 +737,50 @@ export function FaultLabPage() {
 
           {/* 列车动画 + 驾驶台 */}
           <Panel bodyClass="p-3">
-            <TrainGlyph pt={currentPt} derateSpeed={data.demo.params.derate_speed} limitKmh={data.demo.params.limit_kmh} spots={spots} />
+            <TrainGlyph
+              pt={currentPt}
+              derateSpeed={data.demo.params.derate_speed}
+              limitKmh={data.demo.params.limit_kmh}
+              spots={spots}
+              selKey={selSpot}
+              onSpotSelect={(k) => setSelSpot((prev) => (prev === k ? null : k))}
+            />
           </Panel>
+
+          {/* 故障注入瞬间提示（哪里异常 + 什么异常）：由事件窗 activeEvents 驱动，
+              故障名/子系统/系统域 = 故障字典派生字段（fault_name/subsystem/domain_zh），
+              现象 = 场景 impact 或字典 desc（detail）；无事件瞬间不显示。 */}
+          {(() => {
+            const now = activeEvents.filter((e) => e.kind === "inject");
+            if (now.length === 0) return null;
+            return (
+              <div role="alert" aria-live="assertive" className="panel border-bad/50 bg-bad/10 px-3 py-2 step-in">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] leading-6">
+                  {now.map((e, i) => {
+                    const faultName = e.fault_name ?? e.label.replace(/^注入故障：/, "") ?? e.fault;
+                    const where = e.domain_zh || e.subsystem
+                      ? [e.domain_zh, e.subsystem].filter(Boolean).join(" · ")
+                      : (FAULT_SPOT_META[e.fault]?.zh ?? "列车子系统");
+                    const isRed = FAULT_SPOT_META[e.fault]?.tone === "red";
+                    return (
+                      <span key={e.fault} className="inline-flex flex-wrap items-center gap-1.5">
+                        <span className="text-bad font-semibold">{i === 0 ? "⚡ 注入故障" : "· 叠加"}</span>
+                        <span className="text-ink">
+                          「<b className={isRed ? "text-bad" : "text-warn"}>{where}</b>」出现
+                          <b className="text-ink"> {faultName}</b>
+                        </span>
+                        {e.level && <Tag tone={isRed ? "bad" : "warn"}>{e.level}</Tag>}
+                        {e.detail && <span className="text-ink-faint text-[11px]">· {e.detail.slice(0, 80)}{e.detail.length > 80 ? "…" : ""}</span>}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="mt-1 text-[11px] text-ink-faint">
+                  “哪里”= 13 系统域 · 故障字典子系统（真实）；“什么”= 真实故障名与现象。单击时间轴刻度可停在注入瞬间重看。
+                </div>
+              </div>
+            );
+          })()}
 
           {/* 速度/压力曲线 */}
           <Panel title="速度与制动缸压力（示意回放）" bodyClass="p-2">

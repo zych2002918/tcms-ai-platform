@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：hvac_cabin_temp_sensor_fault, hvac_condenser_fault
-name: Wave A 域内多故障编排：hvac_cabin_temp_sensor_fault/hvac_condenser_fault
+name: 客室温感失效与冷凝风机故障编排
+desc: 演示故障序列：客室温度传感器失效、冷凝风机故障。
 steps:
 - at: 3.0
   inject:

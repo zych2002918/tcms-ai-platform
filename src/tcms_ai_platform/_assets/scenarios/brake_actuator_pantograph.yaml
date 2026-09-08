@@ -2,6 +2,7 @@
 # F-TCMS-020 brake_actuator_stuck (major, derate) + F-TCMS-013 pantograph_arc (critical, emergency_brake)
 # 制动执行器卡滞降级运行；受电弓拉弧风险直接触发紧急制动（最高优先）
 name: 制动卡滞与受电弓拉弧
+desc: 演示故障序列：制动执行器卡滞、受电弓拉弧风险。
 steps:
   - at: 1.0
     inject:

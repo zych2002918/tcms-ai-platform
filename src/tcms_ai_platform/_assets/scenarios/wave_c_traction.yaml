@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：traction_motor_temp_high, traction_insulation_low, traction_torque_oscillation, traction_motor_bearing_vibration, traction_cooling_flow_low, traction_motor_phase_imbalance
-name: Wave C 域内多故障编排：traction_motor_temp_high/traction_insulation_low/traction_torque_oscillation/traction_motor_bearing_vibration/traction_cooling_flow_low/traction_motor_phase_imbalance
+name: 电机过热·绝缘·扭矩振荡·轴承·冷却·三相失衡编排
+desc: 演示故障序列：牵引电机绕组过温、牵引回路绝缘下降、牵引扭矩振荡、牵引电机轴承振动、牵引冷却流量不足、电机三相不平衡。
 steps:
 - at: 3.0
   inject:

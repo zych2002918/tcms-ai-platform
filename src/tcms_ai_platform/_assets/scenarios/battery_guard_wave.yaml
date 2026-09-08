@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：battery_temp_sensor_fault, bms_precharge_fail, battery_cell_overvoltage
-name: Wave A 域内多故障编排：battery_temp_sensor_fault/bms_precharge_fail/battery_cell_overvoltage
+name: 电池温感失效·预充电失败·单体过压编排
+desc: 演示故障序列：电池温度传感器失效、预充电失败、电池单体过压。
 steps:
 - at: 3.0
   inject:

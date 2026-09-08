@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：pis_route_data_stale, pis_speaker_fault
-name: Wave A 域内多故障编排：pis_route_data_stale/pis_speaker_fault
+name: PIS 线路数据过期与扬声器故障编排
+desc: 演示故障序列：PIS 线路数据过期、广播扬声器故障。
 steps:
 - at: 3.0
   inject:

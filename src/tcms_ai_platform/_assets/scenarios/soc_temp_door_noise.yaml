@@ -3,6 +3,7 @@
 # + F-TCMS-003 door_sensor_noise (minor, warning)
 # 能源管理信息告警不触发处置动作；门传感器噪声升级为告警
 name: 能源状态与车门传感器噪声
+desc: 演示故障序列：SOC 偏低、电池温度偏高、车门传感器偶发噪声。
 steps:
   - at: 1.0
     inject:

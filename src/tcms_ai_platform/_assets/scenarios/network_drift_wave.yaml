@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：gateway_clock_drift
-name: Wave A 域内多故障编排：gateway_clock_drift
+name: 网关时钟漂移编排
+desc: 演示故障序列：网关时钟漂移。
 steps:
 - at: 3.0
   inject:

@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-037 line_voltage_sag (minor, warning) — LineVoltage 阈值
 name: 网压跌落告警
+desc: 演示故障序列：网压跌落。
 steps:
 - at: 3.0
   inject:

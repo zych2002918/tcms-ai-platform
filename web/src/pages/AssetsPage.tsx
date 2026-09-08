@@ -169,7 +169,7 @@ export function AssetsPage() {
     focusId === id ? "!bg-info/10 transition-colors duration-700" : "";
 
   return (
-    <div className="space-y-4 max-w-[1200px]">
+    <div className="mx-auto w-full max-w-[1840px] space-y-4">
       {/* 类型切换 = 左对齐 tab 组 */}
       <div className="flex items-center gap-1 border-b border-line-soft overflow-x-auto pb-0">
         {tabs.map((t) => (

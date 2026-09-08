@@ -1,5 +1,6 @@
 # 场景扩容 Wave B（无孤儿覆盖）：fire_panel_comms_loss, fire_call_point_fault
-name: Wave B 域内多故障编排：fire_panel_comms_loss/fire_call_point_fault
+name: 火警面板失联·手动报警按钮故障编排
+desc: 演示故障序列：火警面板通信中断、手动报警按钮故障。
 steps:
 - at: 3.0
   inject:

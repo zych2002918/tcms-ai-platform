@@ -2,6 +2,7 @@
 # F-TCMS-008 heartbeat_loss_vcu (major, derate) + F-TCMS-006 traction_loss (major, derate)
 # 主控心跳中断触发降级；牵引系统丢失后维持降级运行，恢复后解除
 name: 心跳丢失与牵引丢失级联
+desc: 演示故障序列：VCU 心跳丢失、牵引丢失。
 steps:
   - at: 1.0
     inject:

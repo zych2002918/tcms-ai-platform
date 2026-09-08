@@ -2,6 +2,7 @@
 # F-TCMS-014 bus_short (critical, shutdown) + F-TCMS-018 bus_open_circuit (major, derate)
 # 短路为灾难级（持续显性），移除后按错误计数器衰减恢复
 name: 总线短路与断路级联
+desc: 演示故障序列：总线短路、总线断路。
 steps:
   - at: 5.0
     inject:

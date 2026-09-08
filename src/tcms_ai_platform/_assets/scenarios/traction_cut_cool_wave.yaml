@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：traction_cut_fail, traction_conv_cooling_fault
-name: Wave A 域内多故障编排：traction_cut_fail/traction_conv_cooling_fault
+name: 牵引切除失效与变流冷却系统故障编排
+desc: 演示故障序列：牵引切除指令失效、牵引变流冷却系统故障。
 steps:
 - at: 3.0
   inject:

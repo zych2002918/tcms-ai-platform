@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：speed_channel_a_fail
-name: Wave A 域内多故障编排：speed_channel_a_fail
+name: 速度通道 A 失效编排
+desc: 演示故障序列：速度通道 A 失效。
 steps:
 - at: 3.0
   inject:

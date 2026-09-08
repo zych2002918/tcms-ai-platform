@@ -1,5 +1,6 @@
 # 场景扩容 Wave B（无孤儿覆盖）：speed_sensor_noise_burst, sensor_power_supply_fault, sensor_connector_loose
-name: Wave B 域内多故障编排：speed_sensor_noise_burst/sensor_power_supply_fault/sensor_connector_loose
+name: 速度脉冲噪声·传感器供电·接插件松动编排
+desc: 演示故障序列：速度脉冲噪声、传感器供电故障、传感器接插件松动。
 steps:
 - at: 3.0
   inject:

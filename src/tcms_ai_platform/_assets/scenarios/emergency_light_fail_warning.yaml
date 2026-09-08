@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-053 emergency_light_fail (major, warning) — 应急回路
 name: 应急照明失效
+desc: 演示故障序列：应急照明失效。
 steps:
 - at: 3.0
   inject:

@@ -3,6 +3,16 @@ import { useSearchParams } from "react-router-dom";
 import { api, type KbNode, type KbSearchHit, type KbSubgraph } from "../api";
 import { Panel, Tag, SkeletonRows, EmptyState, Explain } from "../components/ui";
 import { KIND_META, plainExplain } from "../lib/explanations";
+import {
+  CAM_DEFAULT as CAM3D_DEFAULT,
+  CAM_MAX as CAM3D_MAX,
+  CAM_MIN as CAM3D_MIN,
+  ROT_DEFAULT,
+  easeInOutCubic,
+  fibonacciSphere,
+  project as project3D,
+  type Rot3,
+} from "../lib/graph3d";
 
 /** 图谱节点类型 → 主题变量色（亮/暗两套由 CSS 变量给出，画布/图例共用） */
 const KIND_VAR: Record<string, string> = {
@@ -51,6 +61,29 @@ export function GraphWorkspace() {
     api.kbStats().then(setKbStats).catch(() => undefined);
   }, []);
 
+  // 默认视图：未搜索 / 未选种子时先展示「基础关联图谱」骨架（13 系统 + 功能 + 代表故障），
+  // 不必等用户搜索后才出现内容。
+  const isOverview = sub?.seed === "overview";
+  const loadOverview = useCallback(async () => {
+    setErr("");
+    try {
+      const r = await api.kbOverview();
+      setSub(r);
+      setHits(null);
+      setSeedLabel("基础关联图谱（13 系统域骨架）");
+      setSelNode(null);
+    } catch (e) {
+      setErr(String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!focusParam && !didFocus.current) {
+      didFocus.current = true;
+      void loadOverview();
+    }
+  }, [focusParam, loadOverview]);
+
   const focus = useCallback(async (seedId: string, d = depth) => {
     setErr("");
     try {
@@ -64,18 +97,19 @@ export function GraphWorkspace() {
     }
   }, [depth]);
 
-  // 深度切换：以当前 seed 重拉（保持中心不变，扩/缩一圈）
+  // 深度切换：以当前 seed 重拉（保持中心不变，扩/缩一圈）；骨架视图无 seed，不适用
   const changeDepth = async (d: number) => {
-    if (d === depth || !sub) return;
+    if (d === depth || !sub || sub.seed === "overview") return;
     setDepth(d);
     await focus(sub.seed, d);
   };
 
-  // 支持 ?focus= 直达（从总览/资产页跳入）
+  // 支持 ?focus= 直达（从总览/资产页跳入）：已带 kind 前缀原样使用，否则补 function:
   useEffect(() => {
     if (focusParam && !didFocus.current) {
       didFocus.current = true;
-      void focus(`function:${focusParam}`);
+      const seedId = focusParam.includes(":") ? focusParam : `function:${focusParam}`;
+      void focus(seedId);
     }
   }, [focusParam, focus]);
 
@@ -145,7 +179,7 @@ export function GraphWorkspace() {
   }, [sub, subKinds, kbStats]);
 
   return (
-    <div className="space-y-4 max-w-[1200px]">
+    <div className="mx-auto w-full max-w-[1840px] space-y-4">
       {/* KB 索引概览（图谱+向量规模：让人一眼看到知识底座的深度） */}
       {kbStats && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-[11px] text-ink-dim">
@@ -349,21 +383,29 @@ export function GraphWorkspace() {
             }
             right={
               <div className="flex items-center gap-2">
-                {/* 深度选择：1/2/3 跳 */}
-                <div className="flex items-center gap-1 text-[11px] text-ink-faint">
-                  深度
-                  {[1, 2, 3].map((d) => (
-                    <button
-                      key={d}
-                      className={`btn-ghost btn-sm !px-2 !py-0.5 !text-[11px] ${depth === d ? "!text-info !border-info/50" : ""}`}
-                      onClick={() => changeDepth(d)}
-                      disabled={d === depth}
-                    >
-                      {d}
-                    </button>
-                  ))}
-                </div>
+                {isOverview ? (
+                  <Tag tone="info">基础骨架 · 单击看详情 / 双击跳转</Tag>
+                ) : (
+                  <div className="flex items-center gap-1 text-[11px] text-ink-faint">
+                    深度
+                    {[1, 2, 3].map((d) => (
+                      <button
+                        key={d}
+                        className={`btn-ghost btn-sm !px-2 !py-0.5 !text-[11px] ${depth === d ? "!text-info !border-info/50" : ""}`}
+                        onClick={() => changeDepth(d)}
+                        disabled={d === depth}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <Tag tone="dim">{sub.node_count} 节点 / {sub.edges.length} 边</Tag>
+                {!isOverview && (
+                  <button className="btn-ghost btn-sm" onClick={() => void loadOverview()} title="回到 13 系统域基础关联图谱">
+                    ↺ 骨架
+                  </button>
+                )}
               </div>
             }
             bodyClass="p-0"
@@ -378,11 +420,11 @@ export function GraphWorkspace() {
                 </span>
               ))}
             </div>
-            <GraphCanvas sub={sub} onNodeClick={openNode} />
+            <GraphCanvas sub={sub} onNodeClick={openNode} onJump={focus} />
           </Panel>
           <div className="px-1 -mt-2 text-[11px] text-ink-faint">
             说明：中心是「{seedLabel}」，连线标着关系（如“发送方→”“触发”）；色点代表实体类型，数字是该类型在本子图里的个数。
-            点节点看详情，点节点旁标签可跳转；调整「深度」可扩/缩关联范围。
+            单击节点看详情，双击节点以其为中心跳转，点节点旁标签也可跳转；调整「深度」可扩/缩关联范围。
           </div>
         </>
       )}
@@ -548,7 +590,17 @@ const shortLabel = (s: string) => (s.length > 15 ? s.slice(0, 14) + "…" : s);
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 /** 2D 力导向 + 缩放平移画布 */
-function GraphCanvas2D({ sub, onNodeClick, fitSignal }: { sub: KbSubgraph; onNodeClick: (id: string) => void; fitSignal: number }) {
+function GraphCanvas2D({
+  sub,
+  onNodeClick,
+  onJump,
+  fitSignal,
+}: {
+  sub: KbSubgraph;
+  onNodeClick: (id: string) => void;
+  onJump?: (id: string) => void;
+  fitSignal: number;
+}) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [view, setView] = useState<ViewState>({ scale: 1, tx: 0, ty: 0 });
   const drag = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(null);
@@ -667,6 +719,10 @@ function GraphCanvas2D({ sub, onNodeClick, fitSignal }: { sub: KbSubgraph; onNod
                 ev.stopPropagation();
                 onNodeClick(n.id);
               }}
+              onDoubleClick={(ev) => {
+                ev.stopPropagation();
+                if (onJump) onJump(n.id);
+              }}
             >
               {isSeed && <circle r={r + 7} fill="none" stroke={kindHex(n.kind)} strokeWidth={1.1 / view.scale} opacity={0.55} className="pulse-glow" style={{ transformBox: "fill-box", transformOrigin: "center" }} />}
               <circle r={r / Math.sqrt(view.scale)} fill={kindHex(n.kind)} opacity={isSeed ? 1 : 0.92} stroke="var(--bg)" strokeWidth={2 / Math.sqrt(view.scale)} />
@@ -689,35 +745,61 @@ function GraphCanvas2D({ sub, onNodeClick, fitSignal }: { sub: KbSubgraph; onNod
   );
 }
 
-/** 3D 轨道俯瞰：力导向平面坐标按费波那契球面散布 → 透视投影，可拖拽旋转 + 自转 */
+/** 3D 轨道俯瞰：球面散布 + 透视投影（几何/缓动纯函数见 lib/graph3d.ts），可拖拽旋转 + 自转 + 滚轮缩放 */
 function GraphCanvas3D({
   sub,
   onNodeClick,
+  onJump,
   auto,
   onAutoChange,
+  fitSignal,
 }: {
   sub: KbSubgraph;
   onNodeClick: (id: string) => void;
+  onJump?: (id: string) => void;
   auto: boolean;
   onAutoChange: (v: boolean) => void;
+  fitSignal: number;
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const [rot, setRot] = useState<{ x: number; y: number }>({ x: -0.35, y: 0.6 });
+  const [rot, setRot] = useState<Rot3>({ ...ROT_DEFAULT });
+  const [cam, setCam] = useState(CAM3D_DEFAULT);
   const drag = useRef<{ x: number; y: number; rx: number; ry: number } | null>(null);
   const raf = useRef<number | null>(null);
+  const rotRef = useRef(rot);
+  const camRef = useRef(cam);
+  rotRef.current = rot;
+  camRef.current = cam;
+
+  // 「⤢ 适配」：平滑过渡到默认视角（整球入画 + 初始姿态，easeInOutCubic ~420ms）
+  useEffect(() => {
+    const fromRot = { ...rotRef.current };
+    const fromCam = camRef.current;
+    const near = Math.abs(fromCam - CAM3D_DEFAULT) < 0.01 && Math.abs(fromRot.x - ROT_DEFAULT.x) < 0.01 && Math.abs(fromRot.y - ROT_DEFAULT.y) < 0.01;
+    if (near) return;
+    const DUR = 420;
+    const start = performance.now();
+    let rafId = 0;
+    const step = (now: number) => {
+      const t = easeInOutCubic((now - start) / DUR);
+      setCam(fromCam + (CAM3D_DEFAULT - fromCam) * t);
+      setRot({
+        x: fromRot.x + (ROT_DEFAULT.x - fromRot.x) * t,
+        y: fromRot.y + (ROT_DEFAULT.y - fromRot.y) * t,
+      });
+      if (t < 1) rafId = requestAnimationFrame(step);
+    };
+    rafId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafId);
+  }, [fitSignal]);
 
   const R = useMemo(() => clamp(130 + sub.nodes.length * 11, 150, 300), [sub.nodes.length]);
 
   const proj = useMemo(() => {
-    const n = sub.nodes.length || 1;
-    const golden = Math.PI * (3 - Math.sqrt(5));
+    const pts = fibonacciSphere(sub.nodes.length, R);
     const out = new Map<string, { x: number; y: number; z: number }>();
     sub.nodes.forEach((node, i) => {
-      const a = i * golden;
-      const pol = Math.acos(1 - (2 * (i + 0.5)) / n);
-      const y = Math.cos(pol) * R;
-      const rxy = Math.sin(pol) * R;
-      out.set(node.id, { x: Math.cos(a) * rxy, y, z: Math.sin(a) * rxy });
+      out.set(node.id, pts[i] ?? { x: 0, y: 0, z: R });
     });
     return out;
   }, [sub.nodes, R]);
@@ -752,26 +834,20 @@ function GraphCanvas3D({
     drag.current = null;
   };
 
-  const cosX = Math.cos(rot.x);
-  const sinX = Math.sin(rot.x);
-  const cosY = Math.cos(rot.y);
-  const sinY = Math.sin(rot.y);
-  const cx = GRAPH_W / 2;
-  const cy = GRAPH_H / 2;
-  const cam = 2.6;
-  // 球半径相对画布偏小 → 用 scl 放大投影，让球体铺满画布
-  const scl = (Math.min(GRAPH_W, GRAPH_H) * 0.42) / R;
+  // 滚轮缩放（cam 越大=拉得越远；限制在可视区间）
+  const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
+    e.stopPropagation();
+    const f = e.deltaY < 0 ? 0.9 : 1.1;
+    setCam((c) => clamp(c * f, CAM3D_MIN, CAM3D_MAX));
+  };
+
   const spots: { n: { id: string; kind: string; label: string }; sx: number; sy: number; depth: number; seed: boolean }[] = [];
 
   sub.nodes.forEach((n) => {
     const v = proj.get(n.id);
     if (!v) return;
-    const x1 = v.x * cosY + v.z * sinY;
-    const z1 = -v.x * sinY + v.z * cosY;
-    const y2 = v.y * cosX - z1 * sinX;
-    const z2 = v.y * sinX + z1 * cosX;
-    const persp = 1 / (cam - z2 / R);
-    spots.push({ n, sx: cx + x1 * persp * scl, sy: cy + y2 * persp * scl, depth: (z2 / R + 1) / 2, seed: n.id === sub.seed });
+    const pv = project3D(v, rot, cam, R, GRAPH_W, GRAPH_H);
+    spots.push({ n, sx: pv.sx, sy: pv.sy, depth: pv.depth, seed: n.id === sub.seed });
   });
   spots.sort((a, b) => a.depth - b.depth);
 
@@ -798,6 +874,7 @@ function GraphCanvas3D({
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerLeave={endDrag}
+      onWheel={onWheel}
     >
       {edgeSpots.map(({ a, b }, i) => (
         <line key={i} x1={a.sx} y1={a.sy} x2={b.sx} y2={b.sy} stroke="var(--line)" strokeWidth={0.5 + a.depth * b.depth} opacity={0.2 + a.depth * b.depth * 0.4} />
@@ -814,6 +891,10 @@ function GraphCanvas3D({
               ev.stopPropagation();
               onNodeClick(s.n.id);
             }}
+            onDoubleClick={(ev) => {
+              ev.stopPropagation();
+              if (onJump) onJump(s.n.id);
+            }}
           >
             {s.seed && <circle r={r + 6} fill="none" stroke={fill} strokeWidth={1.2} opacity={0.6} className="pulse-glow" style={{ transformBox: "fill-box", transformOrigin: "center" }} />}
             <circle r={r} fill={fill} stroke="var(--bg)" strokeWidth={1.5} />
@@ -829,18 +910,33 @@ function GraphCanvas3D({
   );
 }
 
-/** 图谱视图：2D（缩放/平移/适配）与 3D（轨道/自转）切换 + 控制条 */
-function GraphCanvas({ sub, onNodeClick }: { sub: KbSubgraph; onNodeClick: (id: string) => void }) {
+/** 图谱视图：2D（缩放/平移/适配）与 3D（轨道/自转/缩放）切换 + 控制条 */
+function GraphCanvas({
+  sub,
+  onNodeClick,
+  onJump,
+}: {
+  sub: KbSubgraph;
+  onNodeClick: (id: string) => void;
+  onJump?: (id: string) => void;
+}) {
   const [mode, setMode] = useState<ViewMode>("2d");
   const [fitSignal, setFitSignal] = useState(0);
   const [auto, setAuto] = useState(true);
 
+  // 3D 停转后 3.2s 无操作自动恢复待机自转（更好的“待机”体验）
+  useEffect(() => {
+    if (auto || mode !== "3d") return;
+    const t = window.setTimeout(() => setAuto(true), 3200);
+    return () => window.clearTimeout(t);
+  }, [auto, mode]);
+
   return (
     <div className="relative">
       {mode === "2d" ? (
-        <GraphCanvas2D sub={sub} onNodeClick={onNodeClick} fitSignal={fitSignal} />
+        <GraphCanvas2D sub={sub} onNodeClick={onNodeClick} onJump={onJump} fitSignal={fitSignal} />
       ) : (
-        <GraphCanvas3D sub={sub} onNodeClick={onNodeClick} auto={auto} onAutoChange={setAuto} />
+        <GraphCanvas3D sub={sub} onNodeClick={onNodeClick} onJump={onJump} auto={auto} onAutoChange={setAuto} fitSignal={fitSignal} />
       )}
       {/* 视图控制条 */}
       <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5">
@@ -860,15 +956,22 @@ function GraphCanvas({ sub, onNodeClick }: { sub: KbSubgraph; onNodeClick: (id: 
             ⤢ 适配
           </button>
         ) : (
-          <button className={`btn-soft ${auto ? "!text-info" : ""}`} onClick={() => setAuto((a) => !a)} title={auto ? "停止自动旋转" : "开始自动旋转"}>
-            {auto ? "⏸ 停转" : "▶ 自转"}
-          </button>
+          <>
+            <button className="btn-soft" onClick={() => setFitSignal((s) => s + 1)} title="3D 视角重置：整球入画并回到初始姿态">
+              ⤢ 适配
+            </button>
+            <button className={`btn-soft ${auto ? "!text-info" : ""}`} onClick={() => setAuto((a) => !a)} title={auto ? "停止自动旋转" : "开始自动旋转（停转后无操作 3 秒自动恢复）"}>
+              {auto ? "⏸ 停转" : "▶ 自转"}
+            </button>
+          </>
         )}
       </div>
       {/* 操作提示 */}
       <div className="absolute bottom-2 right-2 z-10 pointer-events-none">
         <span className="rounded-md border border-line-soft bg-surface/70 px-1.5 py-0.5 text-[10px] text-ink-faint">
-          {mode === "2d" ? "滚轮缩放 · 拖拽平移 · 双击适配" : "拖拽旋转 · 点击节点查看详情"}
+          {mode === "2d"
+            ? "滚轮缩放 · 拖拽平移 · 双击画布适配 · 双击节点=以其为中心跳转"
+            : "拖拽旋转 · 滚轮缩放 · 单击节点看详情 · 双击节点跳转"}
         </span>
       </div>
     </div>

@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-045 hvac_filter_clog + F-TCMS-046 hvac_heater_fault + F-TCMS-047 hvac_fresh_air_damper（minor/0-1 级告警链）
 name: 空调舒适度降级告警族
+desc: 演示故障序列：空调滤网堵塞、空调电加热故障、新风风门卡滞。
 steps:
 - at: 3.0
   inject:

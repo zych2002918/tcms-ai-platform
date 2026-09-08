@@ -1,5 +1,6 @@
 # 场景扩容 Wave B（无孤儿覆盖）：hvac_low_refrigerant, hvac_zone_temp_imbalance, hvac_condensate_pump_fail
-name: Wave B 域内多故障编排：hvac_low_refrigerant/hvac_zone_temp_imbalance/hvac_condensate_pump_fail
+name: 制冷剂不足·分区温差·冷凝水泵编排
+desc: 演示故障序列：空调制冷剂不足、分区温度不均衡、冷凝水泵故障。
 steps:
 - at: 3.0
   inject:

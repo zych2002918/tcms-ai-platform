@@ -1,6 +1,7 @@
 # 场景 6：节点重启风暴 —— 心跳反复丢失，看门狗健康表持续翻转
 # F-TCMS-010 node_restart_storm (major, derate)
 name: 节点重启风暴
+desc: 演示故障序列：节点重启风暴。
 steps:
   - at: 2.0
     inject:

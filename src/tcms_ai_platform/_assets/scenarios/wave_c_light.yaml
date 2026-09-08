@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：light_emergency_battery_low, light_marker_fail, light_headlight_dimmer_fail
-name: Wave C 域内多故障编排：light_emergency_battery_low/light_marker_fail/light_headlight_dimmer_fail
+name: 应急电池低·标志灯·前照灯调光异常编排
+desc: 演示故障序列：应急照明电池低、车侧标志灯故障、前照灯调光异常。
 steps:
 - at: 3.0
   inject:

@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-062 gateway_segment_fault + F-TCMS-063 gateway_redundancy_loss（major）
 name: 网关网段与冗余链路丢失
+desc: 演示故障序列：网关网段故障、网关冗余链路丢失。
 steps:
 - at: 3.0
   inject:

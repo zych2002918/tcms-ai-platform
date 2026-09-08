@@ -1,6 +1,7 @@
 # 场景 20：受电弓拉弧 → 降弓停车（真实预案：高压拉弧须立即降弓停车）
 # F-TCMS-017 pantograph_arc (critical, emergency_brake) —— 弓状态×网压异常联锁
 name: 受电弓拉弧降弓停车
+desc: 演示故障序列：受电弓拉弧风险。
 steps:
   - at: 1.0
     action: inject

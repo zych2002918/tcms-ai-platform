@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：hvac_evap_coil_frost, hvac_airflow_low_cabin, hvac_temp_control_hunt, hvac_compressor_oil_low, hvac_mixing_damper_fault, hvac_oil_return_poor
-name: Wave C 域内多故障编排：hvac_evap_coil_frost/hvac_airflow_low_cabin/hvac_temp_control_hunt/hvac_compressor_oil_low/hvac_mixing_damper_fault/hvac_oil_return_poor
+name: 结霜·送风不足·温控振荡·缺油·风门·回油编排
+desc: 演示故障序列：蒸发器结霜、客室送风不足、温度控制振荡、压缩机缺油预警、混风风门执行器故障、制冷回油不畅。
 steps:
 - at: 3.0
   inject:

@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：door_emergency_release_fault, door_seal_damage, door_open_timeout_passenger, door_reverse_drive_fault, door_control_button_stuck
-name: Wave C 域内多故障编排：door_emergency_release_fault/door_seal_damage/door_open_timeout_passenger/door_reverse_drive_fault/door_control_button_stuck
+name: 紧急解锁·胶条·开门超时·防夹失控·按钮卡滞编排
+desc: 演示故障序列：车门紧急解锁故障、车门胶条破损、开门到位超时、门机防夹反向失控、门控按钮卡滞。
 steps:
 - at: 3.0
   inject:

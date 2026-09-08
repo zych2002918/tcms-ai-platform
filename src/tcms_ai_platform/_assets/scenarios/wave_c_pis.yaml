@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：pis_wifi_ap_fail, pis_passenger_count_error, pis_audio_amplifier_fail, pis_display_content_stale, pis_schedule_data_incomplete
-name: Wave C 域内多故障编排：pis_wifi_ap_fail/pis_passenger_count_error/pis_audio_amplifier_fail/pis_display_content_stale/pis_schedule_data_incomplete
+name: Wi-Fi·客流计数·功放·内容停滞·时刻表缺失编排
+desc: 演示故障序列：车载 Wi-Fi 热点故障、客流计数偏差超限、PIS 音频功放故障、PIS 显示内容停滞、PIS 时刻表数据缺失。
 steps:
 - at: 3.0
   inject:

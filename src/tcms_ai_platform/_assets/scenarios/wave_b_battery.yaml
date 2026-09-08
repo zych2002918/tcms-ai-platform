@@ -1,5 +1,6 @@
 # 场景扩容 Wave B（无孤儿覆盖）：battery_deep_discharge_guard, battery_fan_fault, bms_can_link_loss
-name: Wave B 域内多故障编排：battery_deep_discharge_guard/battery_fan_fault/bms_can_link_loss
+name: 深度放电保护·电池风机失效·BMS 通信中断编排
+desc: 演示故障序列：电池深度放电保护、电池冷却风机故障、主控-BMS 通信中断。
 steps:
 - at: 3.0
   inject:

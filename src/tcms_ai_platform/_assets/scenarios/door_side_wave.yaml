@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：door_side_mismatch
-name: Wave A 域内多故障编排：door_side_mismatch
+name: 开门侧与停站侧不一致编排
+desc: 演示故障序列：开门侧与停站侧不一致。
 steps:
 - at: 3.0
   inject:

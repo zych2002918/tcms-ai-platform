@@ -1,6 +1,7 @@
 # 场景 24：烟火报警 → 立即停车疏散（真实预案：火灾 SIL4，须停车+人工确认复位）
 # F-TCMS-025 smoke_detected (critical, shutdown) —— 烟火探测器触发
 name: 烟火报警停车处置
+desc: 演示故障序列：烟火报警。
 steps:
   - at: 1.5
     action: inject

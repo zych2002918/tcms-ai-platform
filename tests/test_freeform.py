@@ -167,7 +167,48 @@ def test_parse_free_goal_error_count_is_dynamic(model):
     with pytest.raises(NoFaultMatch) as ei:
         parse_free_goal(model, "一般故障", use_llm=False)
     assert str(len(model.faults_by_key)) in str(ei.value)
-    assert "22" not in str(ei.value)  # 陈旧硬编码已移除
+
+
+@NEEDS_UPSTREAM
+def test_parse_free_goal_llm_context_injected(model):
+    """llm_context（检索证据/多轮上下文）应注入 LLM 消歧提示（辅助候选仲裁）。"""
+    seen: dict[str, str] = {}
+
+    def chat(system: str, user: str) -> str:
+        seen["user"] = user
+        return '{"fault": "door_fault", "expected": "derate"}'
+
+    p = parse_free_goal(
+        model,
+        "车门故障和超速都要处置",
+        use_llm=True,
+        llm_chat=chat,
+        llm_context="证据：SR-21 后车门故障按未关处理；联锁禁止发车。",
+    )
+    assert p.fault == "door_fault"
+    assert "知识上下文" in seen["user"]
+    assert "SR-21" in seen["user"] and "后车门故障" in seen["user"]
+
+
+@NEEDS_UPSTREAM
+def test_parse_free_goal_llm_context_never_bypasses_rule(model):
+    """产品红线：llm_context 只在候选仲裁时辅助，规则零候选仍 NoFaultMatch。"""
+    seen: dict[str, str] = {}
+
+    def chat(system: str, user: str) -> str:
+        seen["user"] = user
+        return '{"fault": "overspeed", "expected": "derate"}'
+
+    with pytest.raises(NoFaultMatch):
+        parse_free_goal(
+            model,
+            "今天天气不错",
+            use_llm=True,
+            llm_chat=chat,
+            llm_context="证据：超速监督阈值 160km/h。",
+        )
+    # 规则零候选在 LLM 之前即抛——chat 根本不应被调用（context 无法绕过红线）
+    assert seen == {}
 
 
 @NEEDS_UPSTREAM

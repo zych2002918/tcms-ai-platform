@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-040 bms_charge_state_conflict (major, derate) — 状态机矛盾
 name: 充放电状态冲突
+desc: 演示故障序列：充放电状态冲突。
 steps:
 - at: 3.0
   inject:

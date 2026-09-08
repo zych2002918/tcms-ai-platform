@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-034 brake_wsp_fault (minor, warning) — WSP 自检/运行故障
 name: 防滑系统故障告警
+desc: 演示故障序列：防滑系统故障。
 steps:
 - at: 3.0
   inject:

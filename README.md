@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11+-2dd4a0)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Web_UI-4ca6ff)
 ![React](https://img.shields.io/badge/React-18+-8b7cf6)
-![pytest](https://img.shields.io/badge/pytest-102%20passed-2dd4a0)
+![pytest](https://img.shields.io/badge/pytest-164%20passed-2dd4a0)
 ![license](https://img.shields.io/badge/license-MIT-8ca0c0)
 
 **黑夜 / 白天双主题 · 图谱 2D 缩放平移 + 3D 俯瞰 · 一键本地启动**
@@ -71,6 +71,21 @@ bash start.sh
 - **知识图谱工作台**：语义检索 + 关系图谱。图谱画布支持**滚轮缩放、拖拽平移、
   双击/按钮一键适配**，并可切换 **3D 俯瞰**（拖拽旋转 / 自动缓转）——不同深度
   （1/2/3 跳）扩缩关联范围，节点可点开看属性与邻居。
+- **图谱默认骨架图**：打开图谱页**无需先搜索**即展示“基础关联图谱”（13 系统域 + 11 功能 +
+  每功能代表故障，`/api/kb/overview` 56 节点/65 边）；2D/3D 节点**单击看详情、双击以其为中心跳转**，
+  3D 支持滚轮缩放与一键适配，停转后 3 秒自动恢复待机自转。
+- **混合检索（P1-1）**：`/api/kb/search` 由 **向量 + BM25 词法（RRF 融合）**双通道驱动（兼顾语义近义与字面精确）；配 **golden 检索评测集**（14 条真实期望 id）作防回退门禁（混合 14/14、纯向量 ≥13/14）。
+- **场景名 = 简短中文释义**：全部 103 个内置场景均带简短中文名（唯一、无批量模板残留）与故障序列 `desc`；
+  列表/下拉/执行结果标题都优先显示中文名（文件名为次级标识）。
+- **FaultLab 高亮 = 具体异常可点**：列车动画高亮点与下方 chip 直接显示具体故障（不再笼统“系统异常”），
+  并带「【13 系统域 · 子系统】」定位前缀；**点击高亮点/chip 查看异常说明**（等级/现象/检测语义），悬停也有提示。
+- **症状/无码故障诊断卡片**：Agent 页输入“仪表盘闪烁但无故障码”等无码症状 → 症状资产 + 图谱因果链候选卡
+  （derived 显式标注、复现场景一键直达），全离线确定性、不编造故障码（`POST /api/agent/diagnose`）。
+- **症状多跳诊断**：输入「仪表盘闪烁但无故障码」这类**无码症状描述** → kb 检索
+  症状资产（12 条）→ 图谱沿因果边（indicates 41 / causes 13，共 54 条，每条带
+  依据）≤3 跳取候选链 → 给出诊断步骤建议（验证哪条真实故障/查哪个报文信号/
+  用什么场景复现）+ 置信度 + 逐条溯源；derived 示意候选显式标注，证据不足时
+  诚实输出“不确定/需补充”，**绝不编造故障码**（`POST /api/agent/diagnose`）。
 - **故障演示（FaultLab）**：真实场景 → 可播放动画。列车/驾驶台 SVG + 故障部位
   高亮脉冲 + 速度/制动缸压曲线，随进度条逐帧推进；每个事件都可溯源到
   「场景 YAML / 故障字典 / 引擎断言 / 示意模型」四级数据来源。
@@ -122,10 +137,10 @@ python -m tcms_ai_testgen.cli --llm --target "TCMS 超速防护"   # 真 LLM（�
 tcms-ai-platform/
 ├── src/tcms_ai_platform/      平台 Python 包
 │   ├── core/                  L1 资产模型 + loader + 三级资产源
-│   ├── knowledge/             知识底座：图谱(337节点/13系统域分类树) + 向量(326文档) + GraphRAG + 沉淀
-│   ├── agent/                 Agent Harness：8任务/自由目标/advisor/reviewer/LLM后端
+│   ├── knowledge/             知识底座：图谱(基础517/含enrich 651节点 · 13系统域) + 向量(506/640文档) + 因果遍历(≤3跳) + GraphRAG + 沉淀
+│   ├── agent/                 Agent Harness：8任务/自由目标/advisor/reviewer/diagnoser(症状诊断)/LLM后端
 │   ├── faultlab.py            故障演示数据重建器（事件时间线 + 通道曲线）
-│   ├── domain/                领域知识注入 JSON（EBM/网络/安全三套真实知识）
+│   ├── domain/                领域知识注入 JSON（EBM/网络/安全/13 系统域）+ 症状资产与因果表(12 症状/54 因果边)
 │   └── server/app.py          FastAPI（单端口托管前端 dist）
 ├── web/                       React + Vite + Tailwind v4 前端（双主题）
 ├── ai-testgen/                独立包：LLM 测试生成流水线（原 tcms-ai-testgen）
@@ -157,8 +172,12 @@ tcms-ai-platform/
 
 ```bash
 # 平台
-python -m pytest tests -q                 # 102 passed（含真实资产冒烟）
+python -m pytest tests -q                 # 164 passed（含真实资产冒烟 + 症状诊断回归 + API 契约）
 python -m ruff check src tests            # clean
+# 前端纯逻辑单测（播放器状态机等）
+cd web && pnpm test                       # vitest（src/lib/*.test.ts）
+# 浏览器 e2e 主流程（需服务运行且 dist 已构建）
+cd e2e && npm run smoke                   # playwright-core + 缓存 chromium，主流程 5 断言
 # ai-testgen（独立包，需 PYTHONPATH=src 或先 pip install -e）
 cd ai-testgen && python -m pytest tests -q
 ```

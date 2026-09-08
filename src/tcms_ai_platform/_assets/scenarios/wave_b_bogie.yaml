@@ -1,5 +1,6 @@
 # 场景扩容 Wave B（无孤儿覆盖）：bogie_secondary_suspension_low, bogie_bearing_vibration_growth
-name: Wave B 域内多故障编排：bogie_secondary_suspension_low/bogie_bearing_vibration_growth
+name: 二系气压低·轴承振动增长编排
+desc: 演示故障序列：二系悬挂气压低、轴承振动趋势异常。
 steps:
 - at: 3.0
   inject:

@@ -1,5 +1,6 @@
 # 场景扩容 Wave B（无孤儿覆盖）：pis_camera_fault, pis_train_number_wrong, pis_door_side_indicator_fail
-name: Wave B 域内多故障编排：pis_camera_fault/pis_train_number_wrong/pis_door_side_indicator_fail
+name: 摄像头离线·车次号错·门侧指示器故障编排
+desc: 演示故障序列：客室监控摄像头故障、PIS 车次号错误、门侧指示器故障。
 steps:
 - at: 3.0
   inject:

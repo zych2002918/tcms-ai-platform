@@ -184,16 +184,27 @@ export function AgentPage() {
   const [freeResp, setFreeResp] = useState<AgentFreeResp | null>(null);
   const [composeResp, setComposeResp] = useState<AgentComposeResp | null>(null);
   const [composing, setComposing] = useState(false);
+  // 症状诊断（无码症状 → 图谱因果链；确定性规则，derived 显式标注）
+  const [diagQ, setDiagQ] = useState("");
+  const [diagResp, setDiagResp] = useState<Awaited<ReturnType<typeof api.agentDiagnose>> | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+  const [diagErr, setDiagErr] = useState("");
+  const [diagLlm, setDiagLlm] = useState(false); // LLM 候选内仲裁开关（需已配置 key）
   const [visible, setVisible] = useState(0); // 事件流逐条揭示
   const [err, setErr] = useState("");
   const [goal, setGoal] = useState("");
   const [goalHint, setGoalHint] = useState(""); // 自由目标没锚定 → 换说法引导
   const [hintIdx, setHintIdx] = useState(0); // 运行中步骤提示轮换
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  /** 场景文件名 → 中文名（“场景名=简短释义”展示用；拿不到就回落文件主干） */
+  const [scenName, setScenName] = useState<Record<string, string>>({});
 
   useEffect(() => {
     api.agentTasks().then((t) => { setTasks(t); if (t.length) setSel(t[0].task_id); }).catch(() => undefined);
     api.systemStatus().then(setSys).catch(() => undefined);
+    api.scenarios()
+      .then((list) => setScenName(Object.fromEntries(list.map((s) => [s.file, s.name]))))
+      .catch(() => undefined);
     return () => timers.current.forEach(clearTimeout);
   }, []);
 
@@ -206,6 +217,8 @@ export function AgentPage() {
 
   const current = tasks.find((t) => t.task_id === sel);
   const engineBlocked = sys !== null && !sys.engine.ok;
+  /** file → 中文场景名（优先）；未收录回落 file 去 .yaml */
+  const scenLabel = (f: string | null | undefined) => (f && scenName[f]) || (f ? f.replace(/\.yaml$/, "") : "—");
 
   const clearTimers = () => {
     timers.current.forEach(clearTimeout);
@@ -316,8 +329,24 @@ export function AgentPage() {
     }
   };
 
+  const runDiagnose = async () => {
+    const q = diagQ.trim();
+    if (!q || diagBusy) return;
+    setDiagBusy(true);
+    setDiagErr("");
+    setDiagResp(null);
+    try {
+      const r = await api.agentDiagnose(q, diagLlm);
+      setDiagResp(r);
+    } catch (e) {
+      setDiagErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDiagBusy(false);
+    }
+  };
+
   return (
-    <div className="space-y-4 max-w-[1100px]">
+    <div className="mx-auto w-full max-w-[1720px] space-y-4">
       {/* 自由目标（像 DSH 一样：给 Agent 一句话，它先理解再查证） */}
       <Panel title="用大白话，直接给 Agent 一个目标" bodyClass="p-3">
         <textarea
@@ -350,6 +379,85 @@ export function AgentPage() {
             查证 = 单故障验证；组合 = 一句话编排多故障时序（如「先车门故障再叠加超速最后恢复」）→ 原子资产组合 → 真实执行。
           </span>
         </div>
+      </Panel>
+
+      {/* 症状/无码故障多跳诊断（不走引擎执行：检索症状资产 → 图谱因果链 → 建议；诚实标注） */}
+      <Panel title="没有故障码？描述异常现象 → 图谱多跳诊断" bodyClass="p-3">
+        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+          <input
+            className="input flex-1"
+            value={diagQ}
+            onChange={(e) => setDiagQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void runDiagnose();
+            }}
+            placeholder="如：仪表盘闪烁但无故障码 / SOC 跳变 / 网络时断时续…（无码症状 → 候选故障链 + 诊断建议）"
+            aria-label="症状描述输入"
+            disabled={diagBusy}
+          />
+          <button className="btn justify-center" onClick={() => void runDiagnose()} disabled={diagBusy || !diagQ.trim()}>
+            {diagBusy ? "推理中…" : "🔎 症状诊断"}
+          </button>
+          <label className="inline-flex items-center gap-1.5 text-[11px] text-ink-dim cursor-pointer select-none" title="开启后 LLM 只在候选故障内重排诊断顺序（不引入候选外故障键）；需在设置中配置 API key">
+            <input type="checkbox" className="accent-info" checked={diagLlm} onChange={(e) => setDiagLlm(e.target.checked)} disabled={diagBusy} />
+            LLM 候选内仲裁
+          </label>
+        </div>
+        {diagErr && <div className="mt-2 text-[12px] text-bad">⚠ {diagErr}</div>}
+        {diagResp?.llm_generated && (
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-vio/40 bg-vio/10 px-2 py-0.5 text-[10.5px] text-vio">
+            ✦ 本次结果已由真实 LLM 在候选内重排仲裁（llm_generated=true）
+          </div>
+        )}
+        {diagResp && (
+          <div className="mt-3 step-in space-y-2">
+            {diagResp.matched && diagResp.symptom && (
+              <div className="flex flex-wrap items-center gap-1.5 text-[11.5px]">
+                <Tag tone="info">症状资产 {diagResp.symptom.key}</Tag>
+                <span className="text-ink">{diagResp.symptom.name}</span>
+                {diagResp.symptom.domains?.length ? <span className="text-ink-faint">涉及域：{diagResp.symptom.domains.join("、")}</span> : null}
+                <Tag tone="dim">诚实标注 {diagResp.symptom.annotation ?? "—"}</Tag>
+                {diagResp.symptom.description ? <span className="text-ink-dim">· {diagResp.symptom.description}</span> : null}
+              </div>
+            )}
+            <div className="whitespace-pre-line text-[13px] text-ink leading-6">{diagResp.reply}</div>
+            {diagResp.candidates.length > 0 && (
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {diagResp.candidates.map((c) => (
+                  <div key={c.fault} className={`rounded-lg border px-2.5 py-2 text-[11.5px] leading-4 ${c.derived ? "border-warn/40 bg-warn/5" : "border-line bg-surface/40"}`}>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-ink font-medium">{c.name}</span>
+                      <code className="kbd-mono">{c.fault}</code>
+                      {c.derived && <Tag tone="warn">derived 示意</Tag>}
+                      <span className="ml-auto text-ink-faint num">
+                        {c.domain_zh} · 第{c.hop}跳 · {c.confidence.toFixed(2)}
+                      </span>
+                    </div>
+                    {c.check && <div className="mt-1 text-ink-dim">{c.check}</div>}
+                    {c.notes?.[0] && <div className="mt-0.5 text-ink-faint">{c.notes[0]}</div>}
+                    {c.scenarios && c.scenarios.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {c.scenarios.slice(0, 3).map((s) => (
+                          <span key={s} className="tag text-info border-info/30 bg-info/5" title={s}>
+                            复现 {s.replace(".yaml", "")}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {diagResp.no_match && (
+              <div className="text-[12px] text-ink-dim leading-5">
+                未匹配到症状资产 —— 不会编造故障码。请补充：部位/工况/是否伴随告警后重试；或改用上面“让 Agent 去查证”验证具体故障。
+              </div>
+            )}
+          </div>
+        )}
+        <p className="mt-2 text-[11px] text-ink-faint leading-4">
+          全离线确定性规则：候选全部锚定真实故障字典（202）；derived 候选仅示意，不可当已确认故障码（诚实红线）。完整证据链在回复的 candidates/evidence 中。
+        </p>
       </Panel>
 
       {/* 内置任务（保留原有入口） */}
@@ -533,7 +641,9 @@ export function AgentPage() {
                               <div className="mt-0.5 text-ink-faint">覆盖场景（{p.graph_facts.scenarios.length}）：</div>
                               <div className="flex flex-wrap gap-1 mt-0.5">
                                 {p.graph_facts.scenarios.slice(0, 3).map((s) => (
-                                  <span key={s} className="tag text-info border-info/30 bg-info/5">{s.replace(".yaml", "")}</span>
+                                  <span key={s} className="tag text-info border-info/30 bg-info/5" title={s}>
+                                    {scenName[s] ?? s.replace(".yaml", "")}
+                                  </span>
                                 ))}
                                 {p.graph_facts.scenarios.length > 3 && <span className="text-ink-faint">+{p.graph_facts.scenarios.length - 3}</span>}
                               </div>
@@ -642,7 +752,9 @@ export function AgentPage() {
                     <div className="text-[10px] text-ink-dim">真实执行</div>
                   </div>
                   <div className="bg-surface-2/50 rounded-lg py-2">
-                    <div className="text-lg font-bold text-vio num">{run.scenario ? run.scenario.replace(".yaml", "") : "—"}</div>
+                    <div className="text-lg font-bold text-vio num" title={run.scenario ?? undefined}>
+                      {scenLabel(run.scenario)}
+                    </div>
                     <div className="text-[10px] text-ink-dim">执行场景</div>
                   </div>
                 </div>
@@ -669,7 +781,7 @@ export function AgentPage() {
                 {run.scenario && (
                   <div className="px-4 py-2 border-t border-line-soft flex items-center gap-2 flex-wrap">
                     <span className="text-[11px] text-ink-faint">
-                      场景 <code className="kbd-mono">{run.scenario}</code> 已真实执行完成
+                      场景「{scenLabel(run.scenario)}」{run.scenario && scenName[run.scenario] ? <code className="kbd-mono">{run.scenario}</code> : null} 已真实执行完成
                     </span>
                     <a
                       className="btn-ghost btn-sm ml-auto shrink-0"

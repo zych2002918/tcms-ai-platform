@@ -2,6 +2,7 @@
 # F-TCMS-017 sensor_stuck (minor, warning) + F-TCMS-004 speed_sensor_drift (minor, warning)
 # 多信号故障叠加演示（均为 minor → warning）
 name: 传感器卡死与漂移叠加
+desc: 演示故障序列：传感器卡死、速度传感器轻微漂移。
 steps:
   - at: 1.0
     inject:

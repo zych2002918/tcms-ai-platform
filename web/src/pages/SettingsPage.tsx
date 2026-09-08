@@ -216,7 +216,7 @@ export function SettingsPage() {
   ];
 
   return (
-    <div className="space-y-4 max-w-[1100px]">
+    <div className="mx-auto w-full max-w-[1720px] space-y-4">
       {/* 顶部状态行 */}
       {st && (
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[12px] text-ink-dim">

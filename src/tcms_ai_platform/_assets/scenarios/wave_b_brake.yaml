@@ -1,5 +1,6 @@
 # 场景扩容 Wave B（无孤儿覆盖）：brake_ebr_selfcheck_fail, brake_compressor_fail, brake_pressure_sensor_noise, brake_pad_wear_limit
-name: Wave B 域内多故障编排：brake_ebr_selfcheck_fail/brake_compressor_fail/brake_pressure_sensor_noise/brake_pad_wear_limit
+name: 制动自检族编排（EBR·空压机·压力噪声·闸瓦）
+desc: 演示故障序列：EBR 硬线回路自检失败、空压机故障、制动压力传感器噪声、闸瓦磨耗到限。
 steps:
 - at: 3.0
   inject:

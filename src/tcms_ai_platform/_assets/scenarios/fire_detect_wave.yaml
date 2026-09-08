@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：fire_detector_contamination, fire_extinguisher_pressure_low
-name: Wave A 域内多故障编排：fire_detector_contamination/fire_extinguisher_pressure_low
+name: 探测器污染与灭火压力低编排
+desc: 演示故障序列：烟火探测器污染、灭火剂压力低。
 steps:
 - at: 3.0
   inject:

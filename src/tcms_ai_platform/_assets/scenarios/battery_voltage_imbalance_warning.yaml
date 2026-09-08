@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-039 battery_voltage_imbalance (minor, warning) — 压差超限
 name: 电池单体电压不均衡
+desc: 演示故障序列：电池单体电压不均衡。
 steps:
 - at: 3.0
   inject:

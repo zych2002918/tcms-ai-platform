@@ -3,6 +3,7 @@
 # + F-TCMS-022 short_frame (minor, warning)
 # 电磁噪声突发导致位错误→仲裁冲突与 DLC 不足的短帧；噪声平息后链路恢复
 name: 总线噪声与帧错误
+desc: 演示故障序列：总线噪声突发、仲裁错误、短帧（DLC 不足）。
 steps:
   - at: 1.0
     inject:

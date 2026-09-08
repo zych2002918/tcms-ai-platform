@@ -1,5 +1,6 @@
 # 场景扩容 Wave C（无孤儿覆盖）：vcu_ram_parity_error, vcu_config_consist_mismatch, tcms_boot_sequence_fault
-name: Wave C 域内多故障编排：vcu_ram_parity_error/vcu_config_consist_mismatch/tcms_boot_sequence_fault
+name: VCU RAM 奇偶·编组配置不一致·上电时序编排
+desc: 演示故障序列：VCU RAM 奇偶错误、编组配置不一致、上电时序校验失败。
 steps:
 - at: 3.0
   inject:

@@ -1,5 +1,6 @@
 # 场景扩容 Wave B（无孤儿覆盖）：pantograph_drop_in_motion, panto_position_sensor_fail
-name: Wave B 域内多故障编排：pantograph_drop_in_motion/panto_position_sensor_fail
+name: 运行中降弓·弓位传感器失效编排
+desc: 演示故障序列：运行中意外降弓、弓位传感器失效。
 steps:
 - at: 3.0
   inject:

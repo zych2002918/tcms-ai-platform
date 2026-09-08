@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-065 driver_console_fault + F-TCMS-066 vcu_watchdog_timeout（major）
 name: 司控台失效与 VCU 看门狗超时
+desc: 演示故障序列：司控台指令失效、VCU 应用看门狗超时。
 steps:
 - at: 3.0
   inject:

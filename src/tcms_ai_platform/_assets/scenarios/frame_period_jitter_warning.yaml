@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-064 frame_period_jitter (minor, warning) — 实时性劣化
 name: 报文周期抖动
+desc: 演示故障序列：报文周期抖动。
 steps:
 - at: 3.0
   inject:

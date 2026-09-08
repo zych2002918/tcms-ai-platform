@@ -1,5 +1,6 @@
 # 场景扩容 Wave A（无孤儿覆盖）：door_close_fail, door_control_power_loss
-name: Wave A 域内多故障编排：door_close_fail/door_control_power_loss
+name: 关门失效与门控失电编排
+desc: 演示故障序列：车门无法关闭、车门控制电源丢失。
 steps:
 - at: 3.0
   inject:

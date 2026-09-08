@@ -50,7 +50,7 @@ export function Dashboard() {
   ];
 
   return (
-    <div className="space-y-5 max-w-[1200px]">
+    <div className="mx-auto w-full max-w-[1840px] space-y-5">
       {err && (
         <div className="panel border-bad/40 bg-bad/10 px-4 py-2.5 text-sm text-bad">⚠ 无法连接后端：{err}</div>
       )}

@@ -1,5 +1,6 @@
 # 场景扩容 Wave B（无孤儿覆盖）：node_memory_leak, tcms_log_overflow
-name: Wave B 域内多故障编排：node_memory_leak/tcms_log_overflow
+name: 节点内存泄漏与诊断日志溢出编排
+desc: 演示故障序列：节点内存泄漏、诊断记录溢出。
 steps:
 - at: 3.0
   inject:

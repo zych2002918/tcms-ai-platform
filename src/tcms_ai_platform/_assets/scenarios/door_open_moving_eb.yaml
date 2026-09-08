@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-027 door_open_moving (critical, emergency_brake) — 移动×门开联锁违规
 name: 运行中车门打开紧急制动
+desc: 演示故障序列：运行中车门打开。
 steps:
 - at: 3.0
   inject:

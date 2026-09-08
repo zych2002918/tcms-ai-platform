@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-061 signal_redundancy_loss (major, derate) — 2oo3 单通道
 name: 速度传感器冗余丢失
+desc: 演示故障序列：速度传感器冗余丢失。
 steps:
 - at: 3.0
   inject:

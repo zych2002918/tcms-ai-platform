@@ -1,5 +1,6 @@
 # 场景扩容：F-TCMS-059 speed_signal_loss (major, derate) — SpeedValid=0/超时
 name: 速度信号丢失降级
+desc: 演示故障序列：速度信号丢失。
 steps:
 - at: 3.0
   inject:
