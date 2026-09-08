@@ -102,3 +102,33 @@ def test_api_compose_unmatched_ok_false(client):
     body = r.json()
     assert body["ok"] is False
     assert "未识别" in (body["reason"] or "")
+
+
+@NEEDS_UPSTREAM
+def test_composer_multiturn_history(model):
+    """④-d 多轮上下文：当前句用指代（无点名）→ 回看 history 把前文故障续编进来。"""
+    plan = plan_compose(
+        model,
+        "刚才那两个也一起组合进来吧",
+        history=["先看看轴温过高那个", "另外超速也要处理"],
+    )
+    assert {"bogie_axle_overheat", "overspeed"} <= set(plan["faults"])
+    assert plan["summary"].get("history_resolved") is True
+    # 当前句直接点名时不依赖 history
+    plan2 = plan_compose(model, "烟火报警停车", history=["轴温过高"])
+    assert set(plan2["faults"]) == {"smoke_detected"}
+    assert not plan2["summary"].get("history_resolved")
+
+
+@NEEDS_UPSTREAM
+def test_api_compose_multiturn_history(client):
+    r = client.post(
+        "/api/agent/composer",
+        json={"goal": "刚才提到的后门那个也加上", "history": ["车门故障加超速", "后车门故障", "再补烟火报警"]},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["summary"].get("history_resolved") is True
+    assert "rear_door_fault" in body["faults"]
+    assert body["provenance"]

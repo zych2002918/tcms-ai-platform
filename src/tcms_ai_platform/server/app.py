@@ -226,10 +226,12 @@ class ComposeRequest(BaseModel):
     """组合器请求：一句话点名多个故障 → 原子化组合计划（可选直接真实执行）。
 
     run=True 时计划直接走 /api/run/custom 同一执行管线（真实引擎断言）。
+    history：多轮上下文（前几轮用户输入），供"再补一个 XX/再加上刚才那个"式续编。
     """
 
     goal: str
     run: bool = False
+    history: list[str] = []
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -1133,7 +1135,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         from ..agent.composer import ComposeError, plan_compose  # noqa: PLC0415
 
         try:
-            plan = plan_compose(asset_model, req.goal)
+            plan = plan_compose(asset_model, req.goal, history=req.history or None)
         except ComposeError as e:
             return {"ok": False, "reason": str(e), "plan": None}
         out = {"ok": True, **plan}

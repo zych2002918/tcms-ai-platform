@@ -83,18 +83,35 @@ def build_plan(m, keys: list[str], goal: str = "") -> dict:
     }
 
 
-def plan_compose(m, goal: str, max_faults: int = COMPOSE_CAP) -> dict:
-    """一句话多故障意图 → 可执行组合计划。
+def plan_compose(m, goal: str, max_faults: int = COMPOSE_CAP, history: list[str] | None = None) -> dict:
+    """一句话多故障意图（可带多轮上下文）→ 可执行组合计划。
 
+    history：前几轮用户输入（list[str]，按时间顺序）。规则路径先解析当前 goal；
+    若未命中任何故障，则回看 history 里的点名（"再加上刚才那个"式续编）。
     未识别到任何真实故障时抛 ComposeError（诚实引导，不猜不造）。
     """
     goal = (goal or "").strip()
     if not goal:
         raise ComposeError("目标不能为空：请一句话点名要组合的故障（如「车门故障加超速级联」）。")
-    keys = _mention_keys(m, goal)[:max_faults]
+
+    keys = _mention_keys(m, goal)
+    from_history: list[str] = []
+    if not keys and history:
+        for line in history:
+            for k in _mention_keys(m, line or ""):
+                if k not in from_history:
+                    from_history.append(k)
+        keys = from_history[:max_faults]
+    else:
+        keys = keys[:max_faults]
+
     if not keys:
         raise ComposeError(
             f"目标里未识别出任何真实故障（可用 {len(m.faults_by_key)} 条均未命中）：{goal!r}。"
             "请直接点名故障名（如：车门故障 / 超速 / 烟火报警）并用「组合/级联/编排」说明意图。"
         )
-    return build_plan(m, keys, goal)
+    plan = build_plan(m, keys, goal)
+    if from_history:
+        plan["summary"]["history_resolved"] = True
+        plan["summary"]["history_faults"] = from_history
+    return plan
