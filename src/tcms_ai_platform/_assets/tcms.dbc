@@ -197,8 +197,32 @@ BO_ 2032 Battery_Charger: 8 BMS
 
 BA_DEF_ BO_ "GenMsgCycleTime" INT 0 65535;
 BA_DEF_ BO_ "GenMsgSendType" STRING ;
+BA_DEF_ BO_ "GenMsgSegment" STRING ;
 BA_DEF_DEF_ "GenMsgCycleTime" 0;
 BA_DEF_DEF_ "GenMsgSendType" "none";
+BA_DEF_DEF_ "GenMsgSegment" "";
+
+BA_ "GenMsgSegment" BO_ 256 "vehicle";
+BA_ "GenMsgSegment" BO_ 512 "vehicle";
+BA_ "GenMsgSegment" BO_ 768 "vehicle";
+BA_ "GenMsgSegment" BO_ 1024 "vehicle";
+BA_ "GenMsgSegment" BO_ 1536 "vehicle";
+BA_ "GenMsgSegment" BO_ 1792 "vehicle";
+BA_ "GenMsgSegment" BO_ 1920 "vehicle";
+BA_ "GenMsgSegment" BO_ 1976 "vehicle";
+BA_ "GenMsgSegment" BO_ 1984 "vehicle";
+BA_ "GenMsgSegment" BO_ 1992 "vehicle";
+BA_ "GenMsgSegment" BO_ 2008 "vehicle";
+BA_ "GenMsgSegment" BO_ 2016 "vehicle";
+BA_ "GenMsgSegment" BO_ 2024 "vehicle";
+BA_ "GenMsgSegment" BO_ 1928 "comfort";
+BA_ "GenMsgSegment" BO_ 1936 "comfort";
+BA_ "GenMsgSegment" BO_ 1944 "comfort";
+BA_ "GenMsgSegment" BO_ 1952 "comfort";
+BA_ "GenMsgSegment" BO_ 1960 "comfort";
+BA_ "GenMsgSegment" BO_ 1968 "comfort";
+BA_ "GenMsgSegment" BO_ 2032 "comfort";
+BA_ "GenMsgSegment" BO_ 2000 "backbone";
 
 BA_ "GenMsgCycleTime" BO_ 256 100;
 BA_ "GenMsgCycleTime" BO_ 512 100;

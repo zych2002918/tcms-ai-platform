@@ -40,7 +40,7 @@ class SignalDef:
 
 @dataclass(frozen=True)
 class MessageDef:
-    """DBC 报文定义（含 GenMsgCycleTime / GenMsgSendType 属性）。"""
+    """DBC 报文定义（含 GenMsgCycleTime / GenMsgSendType / GenMsgSegment 属性）。"""
 
     frame_id: int
     name: str
@@ -48,6 +48,7 @@ class MessageDef:
     length: int  # 字节
     cycle_ms: int | None  # GenMsgCycleTime（0 = 事件型无固定周期）
     send_type: str  # cyclic / event
+    segment: str = ""  # 网段（GenMsgSegment：vehicle/comfort/backbone；''=事件/未标注）
     signal_names: tuple[str, ...] = ()  # 有序信号名
 
 

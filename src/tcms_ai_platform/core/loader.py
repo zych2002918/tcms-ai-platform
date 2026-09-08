@@ -93,7 +93,16 @@ class AssetLoadError(RuntimeError):
 
 
 def _read_dbc(db_path: Path) -> tuple[dict[str, MessageDef], dict[str, SignalDef]]:
-    """解析 DBC → MessageDef / SignalDef（含周期属性与枚举选择表）。"""
+    """解析 DBC → MessageDef / SignalDef（含周期/段属性与枚举选择表）。"""
+    import re
+
+    # 网段单一真源：DBC 的 GenMsgSegment 属性（BA_ 行）→ {frame_id: segment}
+    segments: dict[int, str] = {}
+    with db_path.open("r", encoding="utf-8") as raw:
+        for line in raw:
+            m = re.match(r'BA_ "GenMsgSegment" BO_ (\d+) "([A-Za-z_]+)";', line.strip())
+            if m:
+                segments[int(m.group(1))] = m.group(2)
     with db_path.open("r", encoding="utf-8") as f:
         db = cantools.database.load(f)
 
@@ -115,6 +124,7 @@ def _read_dbc(db_path: Path) -> tuple[dict[str, MessageDef], dict[str, SignalDef
             length=msg.length,
             cycle_ms=cycle,
             send_type=send_type,
+            segment=segments.get(msg.frame_id, ""),
             signal_names=tuple(sig_names),
         )
         for s in msg.signals:

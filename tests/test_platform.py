@@ -51,6 +51,25 @@ def test_real_message_signal_choices():
 
 
 @NEEDS_UPSTREAM
+def test_real_message_segment_attribute():
+    """DBC GenMsgSegment（多网段单一真源）解析进 MessageDef.segment。"""
+    m = load_asset_model(UPSTREAM)
+    assert m.message("TCMS_Heartbeat").segment == "vehicle"
+    assert m.message("VehicleSpeed").segment == "vehicle"
+    assert m.message("HVAC_CabinStatus").segment == "comfort"
+    assert m.message("PIS_PassengerInfo").segment == "comfort"
+    assert m.message("Gateway_Status").segment == "backbone"
+    # 事件帧无段
+    assert m.message("AlarmEvent").segment == ""
+    # 周期帧必须全部有段归属（无 '' 周期帧）
+    empty_seg_cyclic = [
+        name for name, mm in m.messages.items()
+        if mm.cycle_ms and mm.cycle_ms > 0 and not mm.segment
+    ]
+    assert not empty_seg_cyclic, f"周期帧缺网段标注: {empty_seg_cyclic}"
+
+
+@NEEDS_UPSTREAM
 def test_real_fault_and_function_anchor():
     """故障字段与功能表 RTM 锚定。"""
     m = load_asset_model(UPSTREAM)
