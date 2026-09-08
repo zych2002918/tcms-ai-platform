@@ -22,7 +22,7 @@ SR-13,tcms/ebm.py,tests/test_ebm.py,自愈限 1 次超限转 FAULT,covered
 SR-14,tcms/interlocks.py,tests/test_interlocks.py,牵引制动互锁,covered
 SR-15,tcms/timebase.py,tests/test_timebase.py,统一虚拟时间源确定性推进,covered
 SR-16,tcms/faultdb.py,tests/test_faultdb.py,统一故障字典 FMEA（ID/级别/处置/SIL）+ 与 faultlevel 对齐校验,covered
-SR-16,tcms/faults.yaml,tests/test_faultdb.py,66 条故障条目（键名/子系统/检测/注入手段）全字段校验,covered
+SR-16,tcms/faults.yaml,tests/test_faultdb.py,202 条故障条目（键名/子系统/检测/注入手段）全字段校验,covered
 SR-17,tests/rtm.csv,tests/test_rtm.py,需求追溯矩阵自证（SR→模块→测试文件双向覆盖）,covered
 SR-18,tests/conftest.py,tests/test_failure_export.py,失败现场自动导出（crash_site hook）,covered
 SR-18,pyproject.toml,tests/test_badges.py,smoke/safety 分层 marker 与 CI 门禁,covered

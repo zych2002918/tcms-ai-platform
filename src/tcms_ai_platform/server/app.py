@@ -222,6 +222,16 @@ class CustomScenarioRequest(BaseModel):
     steps: list[CustomStepRequest]
 
 
+class ComposeRequest(BaseModel):
+    """组合器请求：一句话点名多个故障 → 原子化组合计划（可选直接真实执行）。
+
+    run=True 时计划直接走 /api/run/custom 同一执行管线（真实引擎断言）。
+    """
+
+    goal: str
+    run: bool = False
+
+
 class SettingsUpdateRequest(BaseModel):
     """设置保存请求（前端「设置/引导」页写入；key 只落本机文件）。"""
 
@@ -1112,6 +1122,43 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
                 else {}
             ),
         }
+
+    @app.post("/api/agent/composer")
+    def agent_composer(req: ComposeRequest) -> dict:
+        """Q3 原子组合器：一句话多故障意图 → 可执行计划 + 逐条溯源（源资产/系统/Agent）。
+
+        run=True 时计划直接走 _run_custom_steps 真实引擎执行（与 /api/run/custom
+        同管线），返回 passed/all_passed/assertions/engine_version。
+        """
+        from ..agent.composer import ComposeError, plan_compose  # noqa: PLC0415
+
+        try:
+            plan = plan_compose(asset_model, req.goal)
+        except ComposeError as e:
+            return {"ok": False, "reason": str(e), "plan": None}
+        out = {"ok": True, **plan}
+        if req.run:
+            rep = _run_custom_steps(
+                asset_model,
+                f"compose:{req.goal[:16]}",
+                plan["steps"],
+                _app_upstream,  # type: ignore[arg-type]
+            )
+            _run_counter["n"] += 1
+            sink.record_run(
+                f"run-{_run_counter['n']:03d}",
+                f"compose:{req.goal[:16]}",
+                {"passed": rep.get("passed"), "failed": rep.get("failed"), "all_passed": rep.get("all_passed")},
+            )
+            out["execution"] = {
+                "passed": rep.get("passed"),
+                "failed": rep.get("failed"),
+                "all_passed": rep.get("all_passed"),
+                "assertions": len(rep.get("assertions") or []),
+                "engine_version": __import__("tcms").__version__,
+                "run_id": f"run-{_run_counter['n']:03d}",
+            }
+        return out
 
     @app.post("/api/run/custom")
     def run_custom(req: CustomScenarioRequest) -> dict:
