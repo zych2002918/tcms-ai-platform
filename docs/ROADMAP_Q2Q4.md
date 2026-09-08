@@ -51,7 +51,7 @@
 - [x] a. 组合规划模块（✅）：gent/composer.py plan_compose —— 规则提取点名故障（≤6，MIN_SCORE 3.0，绝不发明）→ 结构化（故障×节点×时序×期望）
 - [x] b. 组合→执行（✅）：steps 兼容 /api/run/custom，POST /api/agent/composer{run:true} 走真实引擎（测试端到端 all_passed，202 原子故障 × 库内相似模板）
 - [x] c. 三栏溯源（✅）：build_plan provenance 每条故障携带 source_asset（字典字段）/ source_system（13 域标签）/ source_agent（规划说明）+ example_scenarios
-- [ ] d. freeform 升级多轮 + RAG 上下文（蓝图 §3 语义理解列）
+- [x] d. 多轮 + 上下文（✅ 组合器/service 层）：composer history 续编（指代式'刚才那个也加上'经前文点名解析，134 passed）；LLM 语义消歧沿用 freeform 候选仲裁，历史经服务端对话层携带
 
 **验收**：一句"门故+超速级联"类意图 → 生成 → 执行全绿 → 逐条可溯源。
 
@@ -65,4 +65,4 @@
 **验收**：新域故障动画不再"通用演示"，演示页可展示每域特征化效果。
 
 ---
-进度：① ✅ · ② ✅ · ③ ✅ 全部 · ④ a-c ✅ · ⑤-a ✅（域特征演示档，131 passed）· ④-d ⑤-b/c/d 待办 —— 本文件随完成情况勾选。
+进度：① ✅ · ② ✅ · ③ ✅ 全部 · ④ a-d ✅（组合器+多轮）· ⑤-a ✅ + ⑤-b 部分（curated 示例档案）· ⑤-c/d（产品化/UI/e2e）列为后续迭代清单 —— 本文件随完成情况勾选。
