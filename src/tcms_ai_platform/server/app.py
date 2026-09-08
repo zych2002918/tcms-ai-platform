@@ -493,8 +493,13 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         }
 
     @app.get("/api/kb/nodes")
-    def kb_nodes(kind: str | None = None, q: str | None = None) -> list[dict]:
-        """节点浏览/搜索（前端下拉、图谱定位用）。kind ∈ graph.NODE_TYPES。"""
+    def kb_nodes(kind: str | None = None, q: str | None = None, limit: int | None = None) -> list[dict]:
+        """节点浏览/搜索（前端下拉、图谱定位用）。kind ∈ graph.NODE_TYPES。
+
+        limit 缺省时按前端浏览上限 200 截断（UI 性能用）；显式传大值可拿全量
+        （计数/审计口径，避免"端点静默截断"误导数量断言）。
+        """
+        cap = 200 if limit is None else limit
         out = []
         for n in graph.nodes.values():
             if kind and n.kind != kind:
@@ -502,7 +507,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             if q and q.lower() not in n.label.lower() and q.lower() not in n.id.lower():
                 continue
             out.append({"id": n.id, "kind": n.kind, "label": n.label})
-            if len(out) >= 200:
+            if len(out) >= cap:
                 break
         return out
 
