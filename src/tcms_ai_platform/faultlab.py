@@ -289,6 +289,67 @@ def _profiles() -> dict[str, dict]:
             "note": "真实机制：DLC 不足 → 信号不完整（示意演示档）",
             "alarm": "短帧 ShortFrame",
         },
+        # ---- Wave A/B/C 域特征示例档案（通道级语义按故障字典保守映射）----
+        "door_open_moving": {
+            "zh": "运行中车门打开",
+            "level": "critical",
+            "detect_zh": "门-车联锁（移动×门开即 EB）",
+            "note": "真实机制：移动中门开 = 联锁违规 → 立即紧急制动（interlocks）",
+            "alarm": "运行中门开 DoorOpenMoving",
+            "eb_request": True,
+            "eb_applied": True,  # EB 施加：门开安全回路直接驱动（故障安全）
+            "doors_open": 1,
+        },
+        "rear_door_fault": {
+            "zh": "后车门故障(按未关处理)",
+            "level": "major",
+            "detect_zh": "DoorControlRear 状态枚举异常(2/3)",
+            "note": "真实枚举：Door5-8 状态 2=Fault / 3=Unknown（DBC VAL_）",
+            "door_fault_count": 1,
+            "alarm": "后车门故障 RearDoorFault",
+        },
+        "battery_insulation_fault": {
+            "zh": "电池绝缘监测报警",
+            "level": "critical",
+            "detect_zh": "绝缘监测单元报警（漏电流/阻抗阈值）",
+            "note": "处置 shutdown：绝缘风险 → 安全分断高压（故障安全）",
+            "alarm": "绝缘报警 InsulationFault",
+        },
+        "fire_multizone_alarm": {
+            "zh": "多区烟火报警",
+            "level": "critical",
+            "detect_zh": "Fire_Detection.FireZone 多区触发判别",
+            "note": "处置 shutdown：多区同时报警 → 立即停车疏散（烟火 SIL4）",
+            "alarm": "多区烟火 MultiZoneFire",
+        },
+        "bogie_axle_overheat": {
+            "zh": "轴温过高",
+            "level": "major",
+            "detect_zh": "Bogie_Monitor.Axle1-4Temp 阈值监测",
+            "note": "处置 derate：轴温超限 → 限速运行至最近站（走行部）",
+            "alarm": "轴温过高 AxleOverheat",
+        },
+        "hvac_cabin_overheat": {
+            "zh": "客室温度过高",
+            "level": "major",
+            "detect_zh": "客室温度阈值监测（>28°C 持续）",
+            "note": "处置 derate：夏季空调失效 → 舒适度降级（示意演示档）",
+            "alarm": "客室过温 CabinOverheat",
+        },
+        "aux_converter_fault": {
+            "zh": "辅助变流器故障",
+            "level": "major",
+            "detect_zh": "Aux_Converter.AuxConverterFault 状态位",
+            "note": "处置 derate：低压负载降级（示意演示档）",
+            "alarm": "辅助变流故障 AuxFault",
+        },
+        "gateway_segment_fault": {
+            "zh": "网关网段故障",
+            "level": "major",
+            "detect_zh": "Gateway_Status.MvbSegmentA/B + GatewayFault",
+            "note": "处置 derate：网段丢失 → 转发降级（示意演示档）",
+            "alarm": "网段故障 GatewaySeg",
+        },
     }
 
 

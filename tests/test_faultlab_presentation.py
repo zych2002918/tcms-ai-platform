@@ -48,3 +48,14 @@ def test_curated_profile_alarm_still_preferred(model):
     p = _profiles().get("overspeed")
     assert p and "Overspeed" in p["alarm"]
     assert p["zh"] == "超速"
+
+
+@NEEDS_UPSTREAM
+def test_wave_curated_channel_semantics(model):
+    """Wave A/B/C 示例档案通道语义保守正确：运行中门开→EB 施加。"""
+    from tcms_ai_platform.faultlab import _profiles
+
+    p = _profiles()["door_open_moving"]
+    assert p["eb_request"] is True and p["eb_applied"] is True
+    assert p["alarm"] == "运行中门开 DoorOpenMoving"
+    assert _profiles()["rear_door_fault"]["door_fault_count"] == 1
