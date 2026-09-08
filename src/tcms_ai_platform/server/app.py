@@ -234,6 +234,17 @@ class SettingsUpdateRequest(BaseModel):
     theme: str | None = None  # 前端主题偏好 dark/light/""（透传持久化，仅供前端）
 
 
+class LlmModelsRequest(BaseModel):
+    """拉取模型列表请求（前端引导页「测试连接并获取模型」）。
+
+    base_url / api_key 可选：显式传入时仅用于本次探测（不落库、不进响应）；
+    缺省则按 env → 本地 settings → 默认 解析。key 永不随响应返回。
+    """
+
+    base_url: str | None = None
+    api_key: str | None = None
+
+
 def create_app(asset_model: AssetModel | None = None, upstream: str | Path | None = None) -> FastAPI:
     """应用工厂。
 
@@ -442,6 +453,24 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         except RuntimeError as e:
             raise HTTPException(500, str(e)) from e
         return _settings.public_view()
+
+    @app.post("/api/llm/models")
+    def llm_models(req: LlmModelsRequest) -> dict:
+        """测试 LLM 连通性并拉取可用模型列表（OpenAI 兼容 GET /models）。
+
+        前端引导/设置页用它完成「填 key → 测试连接 → 从真实列表选模型」，
+        消除"手写模型名可能不存在"的试错。base_url/api_key 可选显式传入
+        （仅本次探测不落库）；解析链与 LLMAgentBackend 一致。key 绝不出现在响应。
+        """
+        from ..agent.llm_backend import fetch_models, llm_available
+
+        try:
+            if not (req.api_key or llm_available()):
+                return {"ok": False, "error": "未配置 API key —— 请先填写 key 再测试连接", "models": []}
+            models = fetch_models(base_url=req.base_url, api_key=req.api_key or None)
+            return {"ok": True, "models": models, "error": None}
+        except Exception as e:  # noqa: BLE001 - 探测失败 → 诚实文案（引导页提示可改手动输入）
+            return {"ok": False, "error": str(e), "models": []}
 
     # ---- 知识底座（P2）----
 

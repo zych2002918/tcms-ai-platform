@@ -417,3 +417,126 @@ def test_faultlab_demo_has_params(client):
     assert p["limit_kmh"] == 160.0
     assert p["derate_speed"] > 0
     assert p["eb_kpa"] > 0
+
+# ---- LLM 模型列表探测（/api/llm/models）----
+
+
+class _FakeResp:
+    def __init__(self, status_code: int, payload: dict | str):
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self) -> dict:
+        return self._payload if isinstance(self._payload, dict) else {}
+
+    @property
+    def text(self) -> str:
+        return self._payload if isinstance(self._payload, str) else ""
+
+
+def test_llm_models_success(client, monkeypatch, tmp_path):
+    """配置 key 后可拉取真实模型列表（mock 远端 GET /models）。"""
+    monkeypatch.setenv("TCMS_AI_HOME", str(tmp_path))
+    monkeypatch.setenv("DASH_API_KEY", "sk-test")
+    from tcms_ai_platform.agent import llm_backend as _lb
+
+    monkeypatch.setattr(
+        _lb.httpx,
+        "get",
+        lambda url, headers=None, timeout=None: _FakeResp(
+            200,
+            {"data": [{"id": "deepseek-chat"}, {"id": "deepseek-reasoner", "owned_by": "deepseek"}]},
+        ),
+    )
+    r = client.post("/api/llm/models", json={})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert [m["id"] for m in body["models"]] == ["deepseek-reasoner", "deepseek-chat"]  # 推理类排序在前
+    # key 绝不出现在响应
+    assert "sk-test" not in r.text
+
+
+def test_llm_models_no_key(client, monkeypatch, tmp_path):
+    """无 key → ok=False + 中文引导（不抛 500）。"""
+    monkeypatch.setenv("TCMS_AI_HOME", str(tmp_path))
+    monkeypatch.delenv("DASH_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    # 隔离本机 DSH 凭据（第三 key 来源），保证无 key
+    empty_cred = tmp_path / "empty-credentials.yaml"
+    empty_cred.write_text("refs: {}\n", encoding="utf-8")
+    monkeypatch.setenv("DSH_CREDENTIALS_FILE", str(empty_cred))
+    r = client.post("/api/llm/models", json={})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False
+    assert "API key" in (body["error"] or "")
+    assert body["models"] == []
+
+
+def test_llm_models_remote_error(client, monkeypatch, tmp_path):
+    """远端 401/错误 → ok=False + 诚实错误文案。"""
+    monkeypatch.setenv("TCMS_AI_HOME", str(tmp_path))
+    monkeypatch.setenv("DASH_API_KEY", "sk-bad")
+    from tcms_ai_platform.agent import llm_backend as _lb
+
+    monkeypatch.setattr(
+        _lb.httpx,
+        "get",
+        lambda url, headers=None, timeout=None: _FakeResp(401, "unauthorized"),
+    )
+    r = client.post("/api/llm/models", json={})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False
+    assert "401" in (body["error"] or "")
+
+
+def test_llm_models_explicit_override(client, monkeypatch, tmp_path):
+    """显式传 base_url/key(仅探测)可覆盖本机配置;key 不落 settings。"""
+    monkeypatch.setenv("TCMS_AI_HOME", str(tmp_path))
+    monkeypatch.delenv("DASH_API_KEY", raising=False)
+    from tcms_ai_platform.agent import llm_backend as _lb
+    from tcms_ai_platform.core import settings as _settings
+
+    captured: dict = {}
+    monkeypatch.setattr(
+        _lb.httpx,
+        "get",
+        lambda url, headers=None, timeout=None: _capture(url, headers, captured),
+    )
+    r = client.post(
+        "/api/llm/models",
+        json={"base_url": "https://example.com/v1", "api_key": "sk-ephemeral"},
+    )
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    # key 未持久化
+    assert _settings.llm_api_key() is None
+
+
+def _capture(url: str, headers: dict | None, captured: dict) -> _FakeResp:
+    captured["url"] = url
+    captured["auth"] = (headers or {}).get("Authorization", "")
+    return _FakeResp(200, {"data": [{"id": "m1"}]})
+
+
+def test_fetch_models_sort_chat_first():
+    """拉到的模型列表应对话/推理类在前，embedding/rerank 垫底（选模型体验）。"""
+    from tcms_ai_platform.agent.llm_backend import _sort_models
+
+    raw = [
+        {"id": "text-embedding-v3", "owned_by": "system"},
+        {"id": "deepseek-reasoner", "owned_by": "deepseek"},
+        {"id": "qwen-max", "owned_by": "system"},
+        {"id": "text-rerank-v2", "owned_by": "system"},
+        {"id": "qwen-plus", "owned_by": "system"},
+    ]
+    s = _sort_models(raw)
+    ids = [m["id"] for m in s]
+    assert ids[0] == "deepseek-reasoner"  # 推理类最前
+    assert "text-embedding-v3" in ids[-2:]  # embedding 垫底
+    assert "text-rerank-v2" in ids[-2:]
+    assert ids.index("qwen-plus") < ids.index("text-embedding-v3")

@@ -64,6 +64,88 @@ def llm_available() -> bool:
     return bool(_api_key())
 
 
+def resolve_llm_config(
+    base_url: str | None = None, model: str | None = None
+) -> tuple[str, str]:
+    """统一解析 base_url / model：显式参数 → 环境变量 → 本地 settings → 默认。
+
+    与 LLMAgentBackend.__init__ 的解析链保持一致（单一事实源），供
+    模型列表探测等只读操作复用，避免两处漂移。
+    """
+    try:
+        from ..core.settings import llm_config
+
+        _cfg = llm_config()
+        _s_base = (_cfg.get("base_url") or "").strip()
+        _s_model = (_cfg.get("model") or "").strip()
+    except Exception:  # noqa: BLE001
+        _s_base, _s_model = "", ""
+    base = base_url or os.environ.get("LLM_BASE_URL") or _s_base or DEFAULT_BASE
+    mdl = model or os.environ.get("LLM_MODEL") or _s_model or DEFAULT_MODEL
+    return base, mdl
+
+
+def fetch_models(
+    base_url: str | None = None,
+    api_key: str | None = None,
+    timeout: float = TIMEOUT_S,
+) -> list[dict]:
+    """调 OpenAI 兼容 {base_url}/models 拉取可用模型列表（只读探测）。
+
+    返回 [{id, owned_by?, created?}, ...]；调用失败抛异常由上层转 502/诚实文案。
+    key 解析：显式参数 → _api_key()（env → settings → DSH 凭据）。
+    base_url 解析与 LLMAgentBackend 一致（显式 → env → settings → 默认）。
+    """
+    base, _ = resolve_llm_config(base_url, None)
+    key = api_key or _api_key()
+    if not key:
+        raise RuntimeError("未配置 API key：无法拉取模型列表")
+    url = base.rstrip("/") + "/models"
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    r = httpx.get(url, headers=headers, timeout=timeout)
+    if r.status_code != 200:
+        raise RuntimeError(f"模型列表请求失败 HTTP {r.status_code}: {r.text[:200]}")
+    data = r.json()
+    items = data.get("data") or []
+    out = []
+    for it in items:
+        mid = it.get("id")
+        if mid:
+            out.append(
+                {
+                    "id": str(mid),
+                    "owned_by": it.get("owned_by"),
+                    "created": it.get("created"),
+                }
+            )
+    if not out:
+        raise RuntimeError("端点未返回任何模型（可能不支持 GET /models，可改手动输入）")
+    return _sort_models(out)
+
+
+def _sort_models(models: list[dict]) -> list[dict]:
+    """对模型列表做体验排序：对话/推理模型在前，嵌入/重排等非对话类垫底。
+
+    大厂兼容端点（如阿里百炼）会混入 text-embedding / text-rerank / 第三方
+    长尾，全部平铺会让「选模型」无从下手。规则：
+      1. id/owned_by 含 embedding|rerank|text-vec → 归非对话类（垫底）
+      2. 其余按是否含推理关键词(reasoner/thinking/r1/max 等)优先在前
+      3. 稳定排序（同组保持端点返回顺序，不破坏厂商版本排列）
+    """
+    def _is_embedding(m: dict) -> bool:
+        s = f"{m.get('id','')} {m.get('owned_by','')}".lower()
+        return any(k in s for k in ("embedding", "rerank", "text-vec", "text-vector"))
+
+    def _is_reasoner(m: dict) -> bool:
+        s = m.get("id", "").lower()
+        return any(k in s for k in ("reasoner", "thinking", "-r1", "max", "pro", "turbo"))
+
+    chat = [m for m in models if not _is_embedding(m)]
+    non_chat = [m for m in models if _is_embedding(m)]
+    chat.sort(key=_is_reasoner, reverse=True)  # 稳定：推理类前移，组内保序
+    return chat + non_chat
+
+
 class LLMAgentBackend(AgentBackend):
     """OpenAI 兼容 LLM 决策后端（失败自动落回 Mock）。"""
 
