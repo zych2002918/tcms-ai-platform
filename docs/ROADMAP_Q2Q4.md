@@ -4,20 +4,18 @@
 > （22 报文 / 116 信号 / 66 FMEA / 59 场景 / 52 SR / 11 功能 / 13 系统域，
 > 双侧测试全绿）。本文件是**可执行的逐步清单**：每步独立可验收，逐项打勾。
 
-## ① 收尾提交 + ai-testgen 回归（当前步）
+## ① 收尾提交 + ai-testgen 回归（✅ 完成 2026-09-08）
 
-- [ ] a. 上游 `tcms-can-test` 分批原子提交（v1.11.0）：
-      1) DBC + FMEA + 场景 + RTM（数据层）
-      2) simulator 引擎支持 + 相关测试/断言口径
-      3) 文档数字同步 + _version bump
-- [ ] b. 平台 `tcms-ai-platform` 分批原子提交（v0.3.0）：
-      1) 13 系统分类法 + loader 11 功能 + 快照四件套
-      2) freeform 动态计数/平局优先 + 知识层测试 + 版本链修复（0.1.0→0.3.0）
-      3) README/CHANGELOG/PROJECT_ARC 文档同步
-- [ ] c. ai-testgen 子包独立 venv（`ai-testgen/.venv`）+ `pip install -e "./ai-testgen[test]"` 全量回归（CI 同口径；预期含真实执行 5/5 类自检）
-- [ ] d. 服务重启后 Web 端到端走查（版本 0.3.0 / 引擎 1.11.0 / 图谱 459·738 / 向量 448）
+- [x] a. 上游 `tcms-can-test` 分批原子提交（v1.11.0，main）：
+      1) `d5205a5 feat(q2-p-a)`：DBC+FMEA+场景+RTM+simulator 全帧 + 配套测试
+      2) `dddbc02 docs(v1.11.0)`：文档数字同步 + CHANGELOG + _version
+- [x] b. 平台 `tcms-ai-platform` 分批原子提交（v0.3.0，master）：
+      1) `d3b7f7b feat(q2-p-a)`：13 系统分类法 + loader 11 功能 + 快照 + freeform 66/66 + 版本链修复
+      2) `1018899 docs(v0.3.0)`：README/CHANGELOG/PROJECT_ARC + 本路线图
+- [x] c. ai-testgen 子包独立 venv（`ai-testgen/.venv`）全量回归：**136 passed / 28 skipped**（skip=真 LLM 类）
+- [x] d. 服务重启验证：health/stats/system/engine 全绿（平台 0.3.0 · 引擎 1.11.0 · 图谱 459·738 · 向量 448，见下"引擎状态"）
 
-**验收**：上游 870 collected 绿；平台 119 passed 绿；ai-testgen 全绿；提交后 CI 可复现。
+**验收**：上游 870 collected 绿；平台 119 passed 绿；ai-testgen 136 passed；双仓 commit 干净。
 
 ## ② Q4 分层有界检索落地（兑现"分层向量库"）
 
