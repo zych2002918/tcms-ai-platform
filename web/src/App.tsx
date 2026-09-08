@@ -7,6 +7,7 @@ import { ScenariosPage } from "./pages/ScenariosPage";
 import { AgentPage } from "./pages/AgentPage";
 import { FaultLabPage } from "./pages/FaultLabPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { OnboardingModal } from "./components/OnboardingModal";
 import { api, type SettingsView } from "./api";
 import { StatusDot } from "./components/ui";
 import { applyTheme, currentTheme, toggleTheme } from "./lib/theme";
@@ -64,9 +65,19 @@ export default function App() {
   const needsEngine = !engineOk;
   const showBanner = needsEngine && !bannerDismissed;
   const onboardingPending = settings ? !settings.onboarding_done : false;
+  const [onboardingOpen, setOnboardingOpen] = useState(true);
+  // 引导完成回调：刷新状态 → 弹窗消失（settings.onboarding_done 已 true）
+  const handleOnboardingDone = (s: SettingsView) => {
+    setSettings(s);
+    setOnboardingOpen(false);
+  };
 
   return (
     <div className="flex h-full">
+      {/* 首次使用引导弹窗（未完成时展示；完成或"跳过"关闭——跳过保留未完成，下次启动再提醒） */}
+      {onboardingPending && onboardingOpen && settings && (
+        <OnboardingModal settings={settings} onComplete={handleOnboardingDone} onDismiss={() => setOnboardingOpen(false)} />
+      )}
       {/* 侧栏 */}
       <aside
         className={`shrink-0 flex flex-col bg-surface border-r border-line transition-all ${
@@ -158,12 +169,15 @@ export default function App() {
           </div>
         )}
 
-        {/* 新手引导提示（首次使用，可进设置完成） */}
-        {onboardingPending && !showBanner && (
+        {/* 新手引导提示（首次使用，可进设置完成；弹窗打开时隐藏避免双入口） */}
+        {onboardingPending && !showBanner && !onboardingOpen && (
           <div className="border-b border-info/25 bg-info/8 px-6 py-2 shrink-0 flex items-center gap-3">
             <span className="text-[12px] text-info">第一次用？花 1 分钟走一遍引导（可选：接入自己的 AI/API 与资产）。</span>
-            <NavLink to="/settings" className="btn btn-sm shrink-0">
-              去设置 / 引导 →
+            <button className="btn btn-sm shrink-0" onClick={() => setOnboardingOpen(true)}>
+              打开引导 →
+            </button>
+            <NavLink to="/settings" className="btn-ghost btn-sm shrink-0">
+              去设置
             </NavLink>
           </div>
         )}

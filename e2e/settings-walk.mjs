@@ -6,9 +6,16 @@ const p = await b.newPage({ viewport: { width: 1440, height: 1100 } });
 const out = [];
 const assert = (n, c) => out.push([n, c]);
 
-// 1. Settings page loads & wizard shows
+// 0. 首次引导弹窗（未完成 onboarding 时自动弹）→ 跳过，保证本走查聚焦设置页
 await p.goto(BASE + "/settings", { waitUntil: "networkidle" });
 await p.waitForTimeout(800);
+const dialog = p.locator('[role="dialog"]');
+if (await dialog.isVisible().catch(() => false)) {
+  await dialog.locator("button:has-text('跳过')").first().click();
+  await p.waitForTimeout(300);
+}
+
+// 1. Settings page loads & wizard shows
 let body = await p.locator("body").innerText();
 assert("设置页:新手引导面板", body.includes("新手引导"));
 assert("设置页:资产源步骤", body.includes("资产源") || body.includes("tcms-can-test"));
@@ -21,13 +28,16 @@ await p.waitForTimeout(400);
 body = await p.locator("body").innerText();
 assert("LLM 步:服务商预设(阿里云/DeepSeek)", body.includes("阿里云百炼") && body.includes("DeepSeek 官方"));
 assert("LLM 步:key 只存本机提示", body.includes("绝不上传") || body.includes("只写入本机"));
+assert("LLM 步:测试连接并获取模型按钮", body.includes("测试连接并获取模型"));
 await p.screenshot({ path: "e2e/shots-settings-llm.png" });
 
 // pick provider deepseek fills fields
 await p.selectOption("select", "deepseek");
 await p.waitForTimeout(300);
-const modelVal = await p.locator("input[placeholder='deepseek-v3.2 / deepseek-chat / …']").inputValue();
-assert("选 DeepSeek 自动填 model", modelVal.includes("deepseek-chat"));
+const baseVal = await p.locator("input[placeholder='https://…/v1']").inputValue();
+assert("选 DeepSeek 自动填 base_url", baseVal.includes("deepseek.com"));
+const hasProbeBtn = await p.locator("button:has-text('测试连接并获取模型')").isVisible();
+assert("模型获取按钮可见", hasProbeBtn);
 
 // 3. step engine check
 await p.click("button:has-text('下一步：检查引擎')");

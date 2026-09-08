@@ -36,6 +36,11 @@ export function SettingsPage() {
   const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
+  // 模型探测（测试连接 + 拉取真实列表）
+  const [probeState, setProbeState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [probeError, setProbeError] = useState("");
+  const [models, setModels] = useState<{ id: string; owned_by?: string }[]>([]);
+  const [manualMode, setManualMode] = useState(false);
   // 资产目录
   const [assetDir, setAssetDir] = useState("");
 
@@ -63,6 +68,37 @@ export function SettingsPage() {
     if (st?.providers?.[p]) {
       setBaseUrl(st.providers[p].base_url || "");
       setModel(st.providers[p].model || "");
+    }
+    setModels([]);
+    setProbeState("idle");
+    setProbeError("");
+  };
+
+  /** 测试连接 + 拉取真实模型列表（OpenAI 兼容 GET /models；失败可转手动） */
+  const runProbe = async () => {
+    if (!apiKey.trim() && !st?.llm.has_key) {
+      setProbeState("error");
+      setProbeError("先填 API key —— 只有带 key 的请求才能问到你的模型清单");
+      return;
+    }
+    setProbeState("loading");
+    setProbeError("");
+    setModels([]);
+    try {
+      const r = await api.llmModels({ base_url: baseUrl.trim() || undefined, api_key: apiKey.trim() || undefined });
+      if (r.ok) {
+        setModels(r.models);
+        if (!model || !r.models.some((m) => m.id === model)) {
+          setModel(r.models[0]?.id ?? "");
+        }
+        setProbeState("done");
+      } else {
+        setProbeState("error");
+        setProbeError(r.error ?? "连接失败");
+      }
+    } catch (e) {
+      setProbeState("error");
+      setProbeError(String(e as Error).slice(0, 200));
     }
   };
 
@@ -293,11 +329,50 @@ export function SettingsPage() {
                 />
               </label>
               <label className="text-[11px] text-ink-faint">Base URL
-                <input className="input mt-1 font-mono text-[12px]" placeholder="https://…/v1" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+                <input className="input mt-1 font-mono text-[12px]" placeholder="https://…/v1" value={baseUrl} onChange={(e) => { setBaseUrl(e.target.value); setModels([]); setProbeState("idle"); }} />
               </label>
-              <label className="text-[11px] text-ink-faint">模型名
-                <input className="input mt-1 font-mono" placeholder="deepseek-v3.2 / deepseek-chat / …" value={model} onChange={(e) => setModel(e.target.value)} />
-              </label>
+              <div className="text-[11px] text-ink-faint">
+                模型
+                {manualMode ? (
+                  <input
+                    className="input mt-1 font-mono"
+                    placeholder="deepseek-v3.2 / deepseek-chat / …"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                  />
+                ) : (
+                  <>
+                    <select className="select w-full mt-1" value={model} onChange={(e) => setModel(e.target.value)} disabled={models.length === 0 && probeState !== "done"}>
+                      {models.length === 0 ? (
+                        <option value="">（点下方「测试连接并获取模型」拉取真实列表，或手动输入）</option>
+                      ) : (
+                        models.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.id}
+                            {m.owned_by ? `（${m.owned_by}）` : ""}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    {probeState === "error" && <div className="mt-1 text-[11px] text-bad">{probeError}</div>}
+                    <div className="flex gap-2 mt-1.5 flex-wrap">
+                      <button className="btn-ghost btn-sm" onClick={() => void runProbe()} disabled={probeState === "loading"}>
+                        {probeState === "loading" ? "连接中…" : probeState === "done" ? "↻ 重新获取模型" : "⚡ 测试连接并获取模型"}
+                      </button>
+                      {probeState === "error" && (
+                        <button className="btn-ghost btn-sm" onClick={() => setManualMode(true)}>
+                          改手动输入模型名
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+                {manualMode && (
+                  <button className="btn-ghost btn-sm mt-1" onClick={() => setManualMode(false)}>
+                    改回自动获取
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button className="btn btn-sm" onClick={saveLlm} disabled={saving}>保存 AI 配置</button>

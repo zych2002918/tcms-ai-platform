@@ -266,6 +266,13 @@ export const api = {
   settingsSave: (patch: Record<string, string | boolean>) =>
     req<SettingsView>("/settings", { method: "POST", body: JSON.stringify(patch) }),
   settingsClearApiKey: () => req<SettingsView>("/settings/clear-api-key", { method: "POST", body: JSON.stringify({}) }),
+  /** 测试 LLM 连通性并拉取可用模型列表（OpenAI 兼容 GET /models）。
+   *  base_url/api_key 可选：显式传入仅本次探测不落库。ok=false 时 error 为中文引导。 */
+  llmModels: (body: { base_url?: string; api_key?: string } = {}) =>
+    req<{ ok: boolean; models: { id: string; owned_by?: string; created?: number }[]; error: string | null }>(
+      "/llm/models",
+      { method: "POST", body: JSON.stringify(body) }
+    ),
 };
 
 export interface AgentRunResp {

@@ -1,4 +1,4 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 
 /* ===== TCMS × AI 设计 token（双主题：dark 默认 · light 覆盖）=====
    html.theme-dark / 无标记 → 驾驶台夜视底；html.theme-light → 明亮驾驶舱。
@@ -227,6 +227,48 @@ body {
 }
 .step-in {
   animation: step-in 0.25s ease-out both;
+}
+
+/* 引导弹窗：遮罩淡入 + 卡片上浮/轻弹（首次启动引导） */
+@keyframes modal-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes modal-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  60% {
+    transform: translateY(-2px) scale(1.002);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes modal-card-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.modal-overlay {
+  animation: modal-fade 0.22s ease-out both;
+}
+.modal-card {
+  animation: modal-pop 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.modal-card-in {
+  animation: modal-card-in 0.3s ease-out both;
 }
 
 @keyframes pulse-dot {
