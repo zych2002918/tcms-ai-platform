@@ -1,0 +1,12 @@
+# 场景扩容 Wave A（无孤儿覆盖）：headlight_fail
+name: Wave A 域内多故障编排：headlight_fail
+steps:
+- at: 3.0
+  inject:
+    node: light
+    fault: headlight_fail
+    level: minor
+    impact: 司机室前照灯失效（夜间/隧道视线受影响）
+    expect: warning
+- at: 10.0
+  recover: headlight_fail

@@ -1,0 +1,12 @@
+# 场景扩容 Wave A（无孤儿覆盖）：atp_curve_selfcheck_fault
+name: Wave A 域内多故障编排：atp_curve_selfcheck_fault
+steps:
+- at: 3.0
+  inject:
+    node: vcu
+    fault: atp_curve_selfcheck_fault
+    level: major
+    impact: 动态 EBI 目标点自检不一致，监督曲线保守降级
+    expect: derate
+- at: 10.0
+  recover: atp_curve_selfcheck_fault

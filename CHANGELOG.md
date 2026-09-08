@@ -1,3 +1,7 @@
+
+## [Unreleased]
+
+- **Q2-P-A Wave A 同步（上游 97 FMEA / 75 场景 / 902 用例）**：快照 faults+16 场景同步；KB 基础图谱 384 节点 / 向量 373 文档；计数测试/README 全链更新（全量 122 passed）。
 # Changelog — tcms-ai-platform
 
 版本单一真源在 `src/tcms_ai_platform/_version.py`；本文件记录用户可见变更。

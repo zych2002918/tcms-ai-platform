@@ -1,0 +1,21 @@
+# 场景扩容 Wave A（无孤儿覆盖）：pis_route_data_stale, pis_speaker_fault
+name: Wave A 域内多故障编排：pis_route_data_stale/pis_speaker_fault
+steps:
+- at: 3.0
+  inject:
+    node: pis
+    fault: pis_route_data_stale
+    level: info
+    impact: 时刻表/线路数据库版本过期，到站信息可能失准
+    expect: none
+- at: 4.5
+  inject:
+    node: pis
+    fault: pis_speaker_fault
+    level: minor
+    impact: 车厢广播扬声器回路故障，播报覆盖不全
+    expect: warning
+- at: 10.0
+  recover: pis_route_data_stale
+- at: 11.5
+  recover: pis_speaker_fault

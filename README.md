@@ -172,7 +172,7 @@ RTM/故障字典（漂移即失败）、API key 永不入库/不入响应、LLM 
 
 | 仓库 | 关系 | 说明 |
 |---|---|---|
-| `tcms-can-test` | **上游引擎** | 870 用例（869 passed + 1 skip）/ 98% 覆盖 / 66 FMEA（13 系统域）/ 59 场景 / 22 报文·116 信号的领域核心；平台以 `pip install -e ".[upstream]"` 依赖 |
+| `tcms-can-test` | **上游引擎** | 902 用例（901 passed + 1 skip）/ 98% 覆盖 / 97 FMEA（13 系统域）/ 75 场景 / 22 报文·116 信号的领域核心；平台以 `pip install -e ".[upstream]"` 依赖 |
 | `tcms-ai-platform` | **本仓库** | 平台 + 生成器（ai-testgen）合体，一个叙事 |
 | ~~tcms-ai-testgen~~ | 已并入 | 作为 `ai-testgen/` 保留独立包结构 |
 

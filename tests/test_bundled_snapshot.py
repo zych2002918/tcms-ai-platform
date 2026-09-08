@@ -53,11 +53,11 @@ def test_bundled_snapshot_files_present():
 
 
 def test_bundled_snapshot_loads_22_scenarios():
-    """快照可独立加载：59 场景 + 66 故障 + 22 报文 + 52 需求 + 11 功能（Q2-P-A 口径）。"""
+    """快照可独立加载：75 场景 + 97 故障 + 22 报文 + 52 需求 + 11 功能（Q2-P-A 口径）。"""
     m = load_from_source(_bundled_source())
     s = m.stats()
-    assert s["scenarios"] == 59
-    assert s["faults"] == 66
+    assert s["scenarios"] == 75
+    assert s["faults"] == 97
     assert s["messages"] == 22
     assert s["signals"] == 116
     assert s["req_ids"] == 52
