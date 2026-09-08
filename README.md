@@ -122,7 +122,7 @@ python -m tcms_ai_testgen.cli --llm --target "TCMS 超速防护"   # 真 LLM（�
 tcms-ai-platform/
 ├── src/tcms_ai_platform/      平台 Python 包
 │   ├── core/                  L1 资产模型 + loader + 三级资产源
-│   ├── knowledge/             知识底座：图谱(239节点/含6系统族) + 向量 + GraphRAG + 沉淀
+│   ├── knowledge/             知识底座：图谱(337节点/13系统域分类树) + 向量(326文档) + GraphRAG + 沉淀
 │   ├── agent/                 Agent Harness：8任务/自由目标/advisor/reviewer/LLM后端
 │   ├── faultlab.py            故障演示数据重建器（事件时间线 + 通道曲线）
 │   ├── domain/                领域知识注入 JSON（EBM/网络/安全三套真实知识）
@@ -172,7 +172,7 @@ RTM/故障字典（漂移即失败）、API key 永不入库/不入响应、LLM 
 
 | 仓库 | 关系 | 说明 |
 |---|---|---|
-| `tcms-can-test` | **上游引擎** | 802 手写用例（801 passed + 1 skip）/ 98% 覆盖 / 26 FMEA / 25 场景的领域核心；平台以 `pip install -e ".[upstream]"` 依赖 |
+| `tcms-can-test` | **上游引擎** | 870 用例（869 passed + 1 skip）/ 98% 覆盖 / 66 FMEA（13 系统域）/ 59 场景 / 22 报文·116 信号的领域核心；平台以 `pip install -e ".[upstream]"` 依赖 |
 | `tcms-ai-platform` | **本仓库** | 平台 + 生成器（ai-testgen）合体，一个叙事 |
 | ~~tcms-ai-testgen~~ | 已并入 | 作为 `ai-testgen/` 保留独立包结构 |
 
