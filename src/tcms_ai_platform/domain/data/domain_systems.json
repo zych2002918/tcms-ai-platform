@@ -7,6 +7,7 @@
  "systems": [
   {
    "code": "SYS-TRAIN",
+   "domain": "network",
    "name": "列车级控制与网络",
    "families": [
     "列车网络控制 TCMS",
@@ -36,6 +37,7 @@
   },
   {
    "code": "SYS-BRAKE",
+   "domain": "brake",
    "name": "制动系统",
    "families": [
     "紧急制动 EBM/EBR",
@@ -61,6 +63,7 @@
   },
   {
    "code": "SYS-TRACTION",
+   "domain": "traction",
    "name": "牵引系统",
    "families": [
     "牵引控制",
@@ -84,6 +87,7 @@
   },
   {
    "code": "SYS-DOOR",
+   "domain": "door",
    "name": "车门系统",
    "families": [
     "车门控制",
@@ -108,6 +112,7 @@
   },
   {
    "code": "SYS-PANTO",
+   "domain": "pantograph",
    "name": "受电弓与高压受流",
    "families": [
     "受电弓控制",
@@ -130,6 +135,7 @@
   },
   {
    "code": "SYS-BATT",
+   "domain": "battery",
    "name": "电池与储能",
    "families": [
     "电池储能 BMS",
@@ -153,6 +159,7 @@
   },
   {
    "code": "SYS-AUX",
+   "domain": "aux",
    "name": "辅助供电",
    "families": [
     "辅助变流器",
@@ -175,6 +182,7 @@
   },
   {
    "code": "SYS-HVAC",
+   "domain": "hvac",
    "name": "空调暖通 HVAC",
    "families": [
     "空调制冷/制热",
@@ -198,6 +206,7 @@
   },
   {
    "code": "SYS-PIS",
+   "domain": "pis",
    "name": "乘客信息系统 PIS",
    "families": [
     "信息显示",
@@ -220,6 +229,7 @@
   },
   {
    "code": "SYS-LIGHT",
+   "domain": "light",
    "name": "照明系统",
    "families": [
     "客室照明",
@@ -240,6 +250,7 @@
   },
   {
    "code": "SYS-FIRE",
+   "domain": "fire",
    "name": "烟火安全",
    "families": [
     "烟火探测",
@@ -263,6 +274,7 @@
   },
   {
    "code": "SYS-BOGIE",
+   "domain": "bogie",
    "name": "走行部监测",
    "families": [
     "轴温监测",
@@ -285,6 +297,7 @@
   },
   {
    "code": "SYS-SENSING",
+   "domain": "signal",
    "name": "传感与信号采集",
    "families": [
     "信号采集",

@@ -147,6 +147,71 @@ def test_partition_stats_domain_tagged(kb):
 
 
 @NEEDS_UPSTREAM
+def test_asset_docs_all_partitioned(kb):
+    """Q4 域标签铺全：故障/报文/信号/场景/功能文档必须全部分区（无空域）；
+    需求仅"基础设施类 SR"允许空域（不被任何功能覆盖，属全局层）。"""
+    from tcms_ai_platform.knowledge import build_docs_from_asset
+
+    m = kb["model"]
+    docs = build_docs_from_asset(m)
+    kinds = {}
+    for d in docs:
+        kinds.setdefault(d.kind, []).append(d)
+
+    # 每类中带非空 domain 的数量
+    def nonempty(kind: str) -> int:
+        return sum(1 for d in kinds.get(kind, []) if (d.meta.get("domain") or ""))
+
+    assert nonempty("fault") == len(m.faults_by_key) == 66
+    assert nonempty("message") == len(m.messages) == 22
+    assert nonempty("signal") == len(m.signals) == 116
+    assert nonempty("scenario") == len(m.scenarios) == 59
+    assert nonempty("function") == len(m.functions) == 11
+    # 需求：只有不被任何功能追溯的 SR 才允许空域（基础设施类，如 recorder/replay/rtm）
+    covered = {rid for fn in m.functions.values() for rid in fn.requirements}
+    infra = {rid for rid in m.requirements if rid not in covered}
+    empty_reqs = {d.meta["req_id"] for d in kinds.get("requirement", []) if not (d.meta.get("domain") or "")}
+    assert empty_reqs == infra, (f"需求空域 ≠ 基础设施集: {empty_reqs - infra} / {infra - empty_reqs}")
+
+
+@NEEDS_UPSTREAM
+def test_route_hvac_domain_precision_one(kb):
+    """新域（HVAC）查询：词表路由到 hvac 分区，域内 topk 命中率=1.0。"""
+    r = kb["retriever"].retrieve("空调压缩机过流保护 制冷降级", k=3)
+    assert r["bounded"] is True
+    assert r["route_source"] == "terms"
+    assert "hvac" in r["routed_domains"]
+    assert r["route_precision"] == 1.0
+    ids = {h["doc_id"] for h in r["hits"]}
+    assert "fault:hvac_compressor_overcurrent" in ids
+
+
+@NEEDS_UPSTREAM
+def test_route_via_graph_only_counts_system_edges(kb):
+    """图谱定位域兜底：只采信 belongs_to system 边且需词元重合；
+    无域词但语义贴近的查询 → 图谱路由到 bogie；纯噪声查询（无字符重合）→ 回退全局。"""
+    from tcms_ai_platform.knowledge import Doc, HybridRetriever, VectorStore
+    from tcms_ai_platform.knowledge.graph import KnowledgeGraph
+
+    g = KnowledgeGraph()
+    g.add_node("fault", "zz_fake", "假故障", {"subsystem": "走行部"})
+    g.add_node("system", "SYS-BOGIE", "走行部", {})
+    g.add_edge_raw("fault:zz_fake", "system:SYS-BOGIE", "belongs_to")
+    vs = VectorStore()
+    vs.add(Doc(doc_id="fault:zz_fake", kind="fault",
+               text="该转动件高温异常处置流程", meta={"domain": "bogie"}))
+    # 无域词、但与文档共享 ≥3 中文字符 → 图谱路由到 bogie
+    r = HybridRetriever(vs, g).retrieve("那个转动件高温咋办", k=3)
+    assert r["bounded"] is True
+    assert r["route_source"] == "graph"
+    assert r["routed_domains"] == ["bogie"]
+    # 纯噪声（无中文字符重合）→ 图谱兜底不采信 → 回退全局
+    r2 = HybridRetriever(vs, g).retrieve("zzzz qwerty 12345", k=3)
+    assert r2["bounded"] is False
+    assert r2["route_source"] == ""
+
+
+@NEEDS_UPSTREAM
 def test_route_domain_door(kb):
     r = kb["retriever"].retrieve("车门故障 不能发车", k=3)
     assert r["bounded"] is True

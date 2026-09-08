@@ -17,9 +17,12 @@
 from __future__ import annotations
 
 import hashlib
+import json as _json
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 
@@ -167,41 +170,116 @@ class VectorStore:
 # ---------------------------------------------------------------------------
 # 域分区（Q4 有界分层：检索先路由到域，再域内语义 topk）
 # ---------------------------------------------------------------------------
-# 域标签沿用上游 faults.yaml 的 subsystem 归属；真实列车按 13 系统分类法
-# (S1000D 01-13) 组织，当前资产子集已覆盖：牵引/制动/车门/能源/受电弓/网络/
-# VCU/信号。域常量同时被图谱路由 (retriever) 与向量分区消费。
+# 域词汇单一真源 = domain/data/domain_systems.json（13 系统域，每个 system 带
+# domain 标签字段）：system/code→标签、subsystem→标签、device→标签全部从该
+# JSON 派生，与 enrichment.inject_systems 的 system 文档分区同口径，
+# 杜绝"向量一套词汇 / 图谱一套词汇"的漂移。JSON 缺失/损坏时退回内建兜底表。
 
-# 子系统 → 归一化域（别名收拢，避免"网络/VCU/信号"三处分片过碎）
-SUB_DOMAIN: dict[str, str] = {
-    "牵引": "traction",
-    "制动": "brake",
-    "车门": "door",
-    "能源": "power",
-    "受电弓": "pantograph",
-    "网络": "network",
-    "VCU": "network",  # VCU 心跳/健康属网络完整性域
-    "信号": "signal",
+_DOMAIN_JSON = Path(__file__).resolve().parent.parent / "domain" / "data" / "domain_systems.json"
+
+# 内建兜底（与 JSON 同口径；正常路径 JSON 是唯一来源）
+_FALLBACK_SYSTEM_DOMAIN: dict[str, str] = {
+    "SYS-TRAIN": "network",
+    "SYS-BRAKE": "brake",
+    "SYS-TRACTION": "traction",
+    "SYS-DOOR": "door",
+    "SYS-PANTO": "pantograph",
+    "SYS-BATT": "battery",
+    "SYS-AUX": "aux",
+    "SYS-HVAC": "hvac",
+    "SYS-PIS": "pis",
+    "SYS-LIGHT": "light",
+    "SYS-FIRE": "fire",
+    "SYS-BOGIE": "bogie",
+    "SYS-SENSING": "signal",
 }
-DOMAIN_ZH: dict[str, str] = {
-    "traction": "牵引",
-    "brake": "制动",
-    "door": "车门",
-    "power": "能源/电池",
-    "pantograph": "受电弓/高压",
-    "network": "网络/VCU",
-    "signal": "信号/传感",
-    "": "通用",
-}
-DOMAINS: list[str] = ["traction", "brake", "door", "power", "pantograph", "network", "signal", ""]
+
+
+@lru_cache(maxsize=1)
+def _domain_table() -> dict:
+    """从 domain_systems.json 派生 {system: code→label, subsystem, device}。"""
+    table = {
+        "system": dict(_FALLBACK_SYSTEM_DOMAIN),
+        "subsystem": {},
+        "device": {},
+    }
+    try:
+        data = _json.loads(_DOMAIN_JSON.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - 缺文件/坏 JSON → 内建兜底，不阻断离线加载
+        return table
+    label_of = {}
+    for s in data.get("systems", []):
+        code = s["code"]
+        label_of[code] = s.get("domain") or _FALLBACK_SYSTEM_DOMAIN.get(code, "")
+    table["system"] = label_of
+    for s in data.get("systems", []):
+        lab = label_of[s["code"]]
+        for sub in s.get("subsystems", []):
+            table["subsystem"][sub] = lab
+    for dev, code in data.get("device_system", {}).items():
+        table["device"][dev] = label_of.get(code, "")
+    return table
+
+
+def system_domain(code: str) -> str:
+    """系统码（SYS-*）→ 分区域标签。"""
+    return _domain_table()["system"].get(code or "", "")
 
 
 def subsystem_domain(subsystem: str) -> str:
-    """故障子系统 → 分区域（未收录归 网络 域，避免丢失可检索性）。"""
-    return SUB_DOMAIN.get(subsystem or "", "network")
+    """故障子系统 → 分区域标签；未收录 → ''（归全局分区，不误塞错域）。"""
+    return _domain_table()["subsystem"].get(subsystem or "", "")
+
+
+def device_domain(device: str) -> str:
+    """发送设备（DBC 节点名）→ 分区域标签（报文/信号分区用）。"""
+    return _domain_table()["device"].get(device or "", "")
+
+
+DOMAIN_ZH: dict[str, str] = {
+    "network": "网络/列车控制",
+    "brake": "制动",
+    "traction": "牵引/ATP",
+    "door": "车门",
+    "pantograph": "受电弓/高压",
+    "battery": "电池/储能",
+    "aux": "辅助供电",
+    "hvac": "空调暖通",
+    "pis": "乘客信息",
+    "light": "照明",
+    "fire": "烟火安全",
+    "bogie": "走行部",
+    "signal": "信号/传感",
+    "": "通用",
+}
+DOMAINS: list[str] = [
+    "network",
+    "brake",
+    "traction",
+    "door",
+    "pantograph",
+    "battery",
+    "aux",
+    "hvac",
+    "pis",
+    "light",
+    "fire",
+    "bogie",
+    "signal",
+    "",
+]
 
 
 def build_docs_from_asset(m) -> list[Doc]:
-    """从 L1 AssetModel 派生检索语料（全真实，无手编），并打 domain 分区标签。"""
+    """从 L1 AssetModel 派生检索语料（全真实，无手编），并打 domain 分区标签。
+
+    分区口径（与 13 系统域单一真源一致）：
+    - 故障   ← 所属 subsystem
+    - 需求/功能 ← 其 fault_keys 主域的子系统
+    - 场景   ← 首个注入故障域
+    - 报文   ← 发送设备（DBC 节点）
+    - 信号   ← 所属报文的发送设备
+    """
     docs: list[Doc] = []
 
     # 故障：desc + detect + inject + recovery（分区 = 子系统域）
@@ -259,7 +337,7 @@ def build_docs_from_asset(m) -> list[Doc]:
             )
         )
 
-    # 场景（分区 = 注入故障主域；多域场景归第一域）
+    # 场景（分区 = 注入故障主域；多域场景归第一注入域）
     for s in m.scenarios.values():
         steps_txt = []
         for st in s.steps:
@@ -279,10 +357,9 @@ def build_docs_from_asset(m) -> list[Doc]:
             )
         )
 
-    # 报文/信号元（让检索能命中"心跳/门/速度"等）；分区 = 发送设备域
-    _DEV_DOMAIN = {"BCU": "brake", "VCU": "network", "BMS": "power", "TCMS": "network", "BOGIE": "door"}
+    # 报文/信号（分区 = 发送设备所属系统域；让检索能命中"心跳/门/空调/轴温"等）
     for msg in m.messages.values():
-        dom = _DEV_DOMAIN.get(msg.node, "")
+        dom = device_domain(msg.node)
         docs.append(
             Doc(
                 doc_id=f"message:{msg.name}",
@@ -291,18 +368,20 @@ def build_docs_from_asset(m) -> list[Doc]:
                     f"报文 {msg.name} 发送节点{msg.node} 周期{msg.cycle_ms}ms "
                     f"类型{msg.send_type} 信号:" + ",".join(msg.signal_names)
                 ),
-                meta={"name": msg.name, "cycle_ms": msg.cycle_ms, "domain": dom},
+                meta={"name": msg.name, "cycle_ms": msg.cycle_ms, "node": msg.node, "domain": dom},
             )
         )
     for sig in m.signals.values():
         unit = f"单位{sig.unit}" if sig.unit else ""
         choices = " 取值:" + ",".join(f"{k}={v}" for k, v in sig.choices.items()) if sig.choices else ""
+        msg = m.messages.get(sig.message)
+        dom = device_domain(msg.node) if msg else ""
         docs.append(
             Doc(
                 doc_id=f"signal:{sig.name}",
                 kind="signal",
                 text=f"信号 {sig.name} 属于报文{sig.message} {unit} 范围{sig.minimum}~{sig.maximum}{choices}",
-                meta={"name": sig.name, "message": sig.message},
+                meta={"name": sig.name, "message": sig.message, "domain": dom},
             )
         )
 

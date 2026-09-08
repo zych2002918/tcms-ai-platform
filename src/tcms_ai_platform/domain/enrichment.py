@@ -441,8 +441,12 @@ def inject_systems(g: KnowledgeGraph, store: VectorStore | None, data: dict) -> 
 def _system_domain_of(code: str, sys: dict) -> str:
     """system 文档的分区标签 → 复用到 Q4 域路由（brake/door/network/...）。
 
-    13 系统域的检索分区名：图谱先定位系统 → 域内语义 topk 的"分片键"。
+    优先取 domain_systems.json 里每个 system 的 "domain" 字段（单一真源），
+    字段缺失时退回内建映射。13 域 = 检索分区键：图谱先定位系统 → 域内 topk。
     """
+    label = sys.get("domain")
+    if label:
+        return label
     mapping = {
         "SYS-TRAIN": "network",
         "SYS-BRAKE": "brake",
