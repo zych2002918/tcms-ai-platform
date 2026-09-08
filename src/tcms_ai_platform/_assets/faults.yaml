@@ -312,3 +312,483 @@ faults:
   detect: 走行部振动监测（加速度阈值 + 趋势）
   inject: 注入振动加速度高值
   recovery: 振动回落至正常后恢复
+- fid: F-TCMS-027
+  key: door_open_moving
+  name: 运行中车门打开
+  subsystem: 车门
+  layer: application
+  level: critical
+  action: emergency_brake
+  sil: '4'
+  desc: 列车移动时车门状态=Open（联锁违规，故障安全优先）
+  detect: 门-车联锁（interlocks：移动×门开即 EB 请求）
+  inject: 注入运行中 DoorControl 门状态 Open
+  recovery: 停车后关门且联锁复位
+- fid: F-TCMS-028
+  key: rear_door_fault
+  name: 后车门故障（按未关处理）
+  subsystem: 车门
+  layer: signal
+  level: major
+  action: derate
+  sil: '2'
+  desc: 后车门（Door5-8）状态不可信，禁止发车
+  detect: DoorControlRear 状态枚举检查（状态=2/3）
+  inject: 注入 DoorControlRear 门状态 Fault/Unknown
+  recovery: 车门状态恢复正常且联锁通过
+- fid: F-TCMS-029
+  key: door_air_pressure_low
+  name: 车门气源压力不足
+  subsystem: 车门
+  layer: application
+  level: major
+  action: derate
+  sil: '2'
+  desc: 气动门气源压力低于操作下限，门操作不可靠
+  detect: 气源压力监测 + 门操作响应检查
+  inject: 注入气源压力低状态
+  recovery: 气源恢复后切除/复位
+- fid: F-TCMS-030
+  key: traction_converter_fault
+  name: 牵引变流器故障
+  subsystem: 牵引
+  layer: application
+  level: major
+  action: derate
+  sil: '2'
+  desc: 牵引变流器故障（故障码非 0），牵引封锁/降功率
+  detect: Traction_Converter.ConvFaultCode / TracDisable 状态
+  inject: 注入变流器故障码
+  recovery: 故障复位后重新使能
+- fid: F-TCMS-031
+  key: traction_converter_overheat
+  name: 牵引变流器过温
+  subsystem: 牵引
+  layer: signal
+  level: major
+  action: derate
+  sil: '2'
+  desc: 变流器温度超限，需降功率冷却（避免过热跳闸）
+  detect: Traction_Converter.ConvTemp 阈值监测
+  inject: 注入 ConvTemp 高值
+  recovery: 温度回落至正常后自动解除
+- fid: F-TCMS-032
+  key: dc_link_undervoltage
+  name: 直流母线欠压
+  subsystem: 牵引
+  layer: application
+  level: major
+  action: derate
+  sil: '2'
+  desc: 直流母线电压低于牵引允许值，封锁牵引
+  detect: Traction_Converter.DcLinkVoltage 阈值监测
+  inject: 注入 DcLinkVoltage 低值
+  recovery: 母线电压恢复后解除
+- fid: F-TCMS-033
+  key: brake_cylinder_leak
+  name: 制动缸压力泄漏
+  subsystem: 制动
+  layer: signal
+  level: major
+  action: derate
+  sil: '2'
+  desc: 制动缸压力指令-反馈偏差大（泄漏），补偿制动降级
+  detect: 压力闭环偏差监测（exec_feedback/ebm）
+  inject: 注入压力反馈偏低
+  recovery: 泄漏消除 + 压力闭环重建
+- fid: F-TCMS-034
+  key: brake_wsp_fault
+  name: 防滑系统故障
+  subsystem: 制动
+  layer: application
+  level: minor
+  action: warning
+  sil: '1'
+  desc: 防滑（WSP）自检失败或运行故障，滑行保护降级
+  detect: Brake_Wsp.WspFault / WspActive 自检状态
+  inject: 注入 WspFault 置位
+  recovery: WSP 自检通过后恢复
+- fid: F-TCMS-035
+  key: brake_reserve_low
+  name: 备用制动压力低
+  subsystem: 制动
+  layer: signal
+  level: major
+  action: derate
+  sil: '2'
+  desc: 备用制动储压不足，常用制动储备下降，需限速
+  detect: BrakeSystem.ReservePressureLow 状态位
+  inject: 注入 ReservePressureLow 置位
+  recovery: 压力恢复后复位
+- fid: F-TCMS-036
+  key: pantograph_fail_raise
+  name: 受电弓无法升起
+  subsystem: 受电弓
+  layer: application
+  level: major
+  action: derate
+  sil: '2'
+  desc: 升弓指令后无确认（控制/气路失效），无法取流运行
+  detect: PantographStatus.PantographUp × 升弓指令一致性
+  inject: 注入升弓无确认状态
+  recovery: 控制/气路修复后重新升弓
+- fid: F-TCMS-037
+  key: line_voltage_sag
+  name: 网压跌落
+  subsystem: 受电弓
+  layer: signal
+  level: minor
+  action: warning
+  sil: '1'
+  desc: 网压周期性低于阈值（受流不良/分段绝缘器），告警
+  detect: PantographStatus.LineVoltage 阈值/趋势监测
+  inject: 注入 LineVoltage 低值
+  recovery: 网压恢复后自动解除
+- fid: F-TCMS-038
+  key: battery_insulation_fault
+  name: 电池绝缘监测报警
+  subsystem: 能源
+  layer: application
+  level: critical
+  action: shutdown
+  sil: '3'
+  desc: 高压回路绝缘阻抗下降（漏电风险），安全分断高压
+  detect: 绝缘监测单元报警（漏电流/阻抗阈值）
+  inject: 注入绝缘报警状态
+  recovery: 绝缘处理 + 人工复位
+- fid: F-TCMS-039
+  key: battery_voltage_imbalance
+  name: 电池单体电压不均衡
+  subsystem: 能源
+  layer: signal
+  level: minor
+  action: warning
+  sil: '1'
+  desc: 单体间压差超限（不均衡），均衡策略介入
+  detect: EnergyStatus.BatteryVoltage 波动 + 单体监测
+  inject: 注入不均衡电压特征
+  recovery: 均衡后恢复
+- fid: F-TCMS-040
+  key: bms_charge_state_conflict
+  name: 充放电状态冲突
+  subsystem: 能源
+  layer: application
+  level: major
+  action: derate
+  sil: '2'
+  desc: 充/放电/故障状态矛盾（接触器粘连迹象），能量管理降级
+  detect: EnergyStatus.ChargeState 状态机异常检查
+  inject: 注入矛盾状态
+  recovery: 状态机复位后恢复
+- fid: F-TCMS-041
+  key: aux_converter_fault
+  name: 辅助变流器故障
+  subsystem: 辅助电源
+  layer: application
+  level: major
+  action: derate
+  sil: '2'
+  desc: 辅助变流器失效（AuxConverterFault），低压负载降级
+  detect: Aux_Converter.AuxConverterFault 状态位
+  inject: 注入辅助变流器故障位
+  recovery: 变流器复位重启后恢复
+- fid: F-TCMS-042
+  key: aux_voltage_out_of_range
+  name: 辅助电压越限
+  subsystem: 辅助电源
+  layer: signal
+  level: major
+  action: derate
+  sil: '2'
+  desc: 辅助母线电压超出允许范围（逆变异常/负载突变）
+  detect: Aux_Converter.AuxVoltage 上下限监测
+  inject: 注入 AuxVoltage 越限值
+  recovery: 电压回范围后自动恢复
+- fid: F-TCMS-043
+  key: aux_converter_overload
+  name: 辅助变流器过载
+  subsystem: 辅助电源
+  layer: application
+  level: minor
+  action: warning
+  sil: '1'
+  desc: 辅助负载长时间高载，预警（防过热跳闸）
+  detect: Aux_Converter.AuxLoadPercent 阈值监测
+  inject: 注入高负载值
+  recovery: 负载回落后解除
+- fid: F-TCMS-044
+  key: aux_contactor_weld
+  name: 辅助接触器粘连
+  subsystem: 辅助电源
+  layer: application
+  level: major
+  action: shutdown
+  sil: '3'
+  desc: 分断指令后接触器仍闭合（粘连），需安全分断
+  detect: Aux_Converter.AuxContactorState 指令-状态不一致
+  inject: 注入接触器粘连状态
+  recovery: 维护更换 + 人工复位
+- fid: F-TCMS-045
+  key: hvac_filter_clog
+  name: 空调滤网堵塞
+  subsystem: 空调
+  layer: application
+  level: minor
+  action: warning
+  sil: '0'
+  desc: 滤网脏堵报警（FilterDirty），通风量下降
+  detect: HVAC_Monitor.FilterDirty 状态位
+  inject: 注入 FilterDirty 置位
+  recovery: 更换滤网后复位
+- fid: F-TCMS-046
+  key: hvac_heater_fault
+  name: 空调电加热故障
+  subsystem: 空调
+  layer: application
+  level: minor
+  action: warning
+  sil: '1'
+  desc: 电加热器故障（HeaterState=Fault），冬季制热失效
+  detect: HVAC_Monitor.HeaterState 状态
+  inject: 注入加热器故障态
+  recovery: 加热器复位后恢复
+- fid: F-TCMS-047
+  key: hvac_fresh_air_damper
+  name: 新风风门卡滞
+  subsystem: 空调
+  layer: signal
+  level: minor
+  action: warning
+  sil: '1'
+  desc: 新风风门反馈与指令偏差（卡滞），新风量异常
+  detect: HVAC_Monitor.FreshAirDamper 指令-反馈比对
+  inject: 注入风门卡滞特征
+  recovery: 风门恢复动作后解除
+- fid: F-TCMS-048
+  key: hvac_compressor_overcurrent
+  name: 空调压缩机过流保护
+  subsystem: 空调
+  layer: application
+  level: major
+  action: derate
+  sil: '2'
+  desc: 压缩机过流触发热保护（CompressorState=Protected），制冷中断
+  detect: HVAC_CabinStatus.CompressorState / HvacFaultCode
+  inject: 注入压缩机保护态
+  recovery: 热保护复位后重新启动
+- fid: F-TCMS-049
+  key: pis_display_fault
+  name: PIS 显示屏故障
+  subsystem: 乘客信息
+  layer: application
+  level: minor
+  action: warning
+  sil: '0'
+  desc: 乘客信息显示屏降级/故障，信息发布不完整
+  detect: PIS_PassengerInfo.PisDisplayState 状态
+  inject: 注入显示降级/故障态
+  recovery: 显示单元复位后恢复
+- fid: F-TCMS-050
+  key: pis_intercom_fault
+  name: 乘客紧急对讲失效
+  subsystem: 乘客信息
+  layer: application
+  level: major
+  action: warning
+  sil: '2'
+  desc: 紧急对讲链路故障/无应答，应急通讯不可用
+  detect: PIS_PassengerInfo.EmergencyTalkActive + 链路自检
+  inject: 注入对讲链路故障
+  recovery: 链路恢复 + 人工确认
+- fid: F-TCMS-051
+  key: pis_announce_desync
+  name: PIS 到站播报失步
+  subsystem: 乘客信息
+  layer: application
+  level: info
+  action: none
+  sil: '0'
+  desc: 播报与实际到站错位（位置/时刻表数据失步）
+  detect: PIS_PassengerInfo.NextStationCode × 位置核对
+  inject: 注入错误站码
+  recovery: 数据同步后恢复
+- fid: F-TCMS-052
+  key: light_group_fault
+  name: 照明支路故障
+  subsystem: 照明
+  layer: application
+  level: minor
+  action: warning
+  sil: '0'
+  desc: 客室照明支路故障（LampGroupFault），局部照明失效
+  detect: Light_CabinControl.LampGroupFault 状态位
+  inject: 注入照明支路故障位
+  recovery: 支路检修后复位
+- fid: F-TCMS-053
+  key: emergency_light_fail
+  name: 应急照明失效
+  subsystem: 照明
+  layer: application
+  level: major
+  action: warning
+  sil: '2'
+  desc: 主照明失电时应急照明未投入（应急回路故障）
+  detect: Light_CabinControl.EmergencyLightActive 状态
+  inject: 注入应急照明不投入
+  recovery: 应急回路修复 + 测试复位
+- fid: F-TCMS-054
+  key: fire_detector_fault
+  name: 烟火探测器故障
+  subsystem: 烟火
+  layer: signal
+  level: major
+  action: warning
+  sil: '3'
+  desc: 探测器故障/自检失败（SmokeDetectorState=Fault），失去火灾探测
+  detect: Fire_Detection.SmokeDetectorState 状态
+  inject: 注入探测器故障态
+  recovery: 探测器更换 + 复位
+- fid: F-TCMS-055
+  key: fire_extinguisher_fault
+  name: 灭火装置故障
+  subsystem: 烟火
+  layer: application
+  level: major
+  action: warning
+  sil: '3'
+  desc: 自动灭火装置未就绪（ExtinguisherReady=0），灭火保障缺失
+  detect: Fire_Detection.ExtinguisherReady 状态位
+  inject: 注入灭火装置未就绪
+  recovery: 灭火装置检修 + 重新就绪
+- fid: F-TCMS-056
+  key: fire_multizone_alarm
+  name: 多区烟火报警
+  subsystem: 烟火
+  layer: application
+  level: critical
+  action: shutdown
+  sil: '4'
+  desc: 两个以上防火分区同时报警（火情扩散），立即停车疏散
+  detect: Fire_Detection.FireZone 多区触发判别
+  inject: 注入多区报警状态
+  recovery: 确认无火情后人工复位
+- fid: F-TCMS-057
+  key: bogie_axle_overheat
+  name: 轴温过高
+  subsystem: 走行部
+  layer: signal
+  level: major
+  action: derate
+  sil: '2'
+  desc: 轴箱温度超限（轴承损伤征兆），限速运行至最近站
+  detect: Bogie_Monitor.Axle1-4Temp 阈值监测
+  inject: 注入轴温高值
+  recovery: 轴温回落 + 检修确认
+- fid: F-TCMS-058
+  key: bogie_sensor_fault
+  name: 走行部监测传感器失效
+  subsystem: 走行部
+  layer: signal
+  level: minor
+  action: warning
+  sil: '1'
+  desc: 振动/轴温监测传感器链路失效（BogieSensorFault），监测降级
+  detect: Bogie_Monitor.BogieSensorFault 状态位
+  inject: 注入传感器失效位
+  recovery: 传感器链路恢复后解除
+- fid: F-TCMS-059
+  key: speed_signal_loss
+  name: 速度信号丢失
+  subsystem: 信号
+  layer: signal
+  level: major
+  action: derate
+  sil: '3'
+  desc: 车速无效（SpeedValid=0）或车速帧超时，ATP 速度监督降级
+  detect: VehicleSpeed.SpeedValid + 新鲜度检查（jitter）
+  inject: 注入 SpeedValid=0 / 停发车速帧
+  recovery: 速度信号有效后恢复
+- fid: F-TCMS-060
+  key: sensor_out_of_range
+  name: 传感器信号超范围
+  subsystem: 信号
+  layer: signal
+  level: minor
+  action: warning
+  sil: '1'
+  desc: 采集值超出物理量程（传感器/链路异常），值域校验检出
+  detect: 信号值域检查（range check）
+  inject: 注入越界值
+  recovery: 值域恢复正常后解除
+- fid: F-TCMS-061
+  key: signal_redundancy_loss
+  name: 速度传感器冗余丢失
+  subsystem: 信号
+  layer: application
+  level: major
+  action: derate
+  sil: '3'
+  desc: 速度 2oo3 表决仅剩单通道，监督冗余降级
+  detect: voting.SpeedVoter2oo3 通道健康监视
+  inject: 通道失效注入
+  recovery: 冗余通道恢复后重建表决
+- fid: F-TCMS-062
+  key: gateway_segment_fault
+  name: 网关网段故障
+  subsystem: 网络
+  layer: node
+  level: major
+  action: derate
+  sil: '2'
+  desc: 网关 MVB 网段丢失或网关故障，网段间隔离/转发失效
+  detect: Gateway_Status.MvbSegmentA/B + GatewayFault 状态
+  inject: 注入网段丢失状态
+  recovery: 网段恢复后重新投入
+- fid: F-TCMS-063
+  key: gateway_redundancy_loss
+  name: 网关冗余链路丢失
+  subsystem: 网络
+  layer: node
+  level: major
+  action: derate
+  sil: '2'
+  desc: 列车骨干双环冗余失效（EtherTrainBackbone=0），退化为单链路
+  detect: Gateway_Status.EtherTrainBackbone 状态位
+  inject: 注入骨干冗余丢失
+  recovery: 骨干链路恢复后重建冗余
+- fid: F-TCMS-064
+  key: frame_period_jitter
+  name: 报文周期抖动
+  subsystem: 网络
+  layer: frame
+  level: minor
+  action: warning
+  sil: '1'
+  desc: 周期报文实际间隔偏离额定（调度/负载抖动），实时性劣化
+  detect: 周期统计（schedulability/jitter 偏差监测）
+  inject: 抖动注入（jitter 模块）
+  recovery: 调度平稳后恢复
+- fid: F-TCMS-065
+  key: driver_console_fault
+  name: 司控台指令失效
+  subsystem: 列车控制
+  layer: application
+  level: major
+  action: derate
+  sil: '2'
+  desc: 主控制器/驾驶模式指令采集异常，人工驾驶指令失效
+  detect: Driver_Console.MasterController/CabActive 有效性检查
+  inject: 注入无效指令/异常模式
+  recovery: 司控台复位后恢复
+- fid: F-TCMS-066
+  key: vcu_watchdog_timeout
+  name: VCU 应用看门狗超时
+  subsystem: VCU
+  layer: node
+  level: major
+  action: derate
+  sil: '2'
+  desc: 主控软件任务看门狗超时（死循环/异常），安全复位重启
+  detect: watchdogs 任务看门狗超时判定
+  inject: 任务冻结注入
+  recovery: 复位后自动重启恢复

@@ -22,13 +22,13 @@ def test_load_real_assets_counts():
     """真实资产加载计数（派生自文件，非手抄）。"""
     m = load_asset_model(UPSTREAM)
     s = m.stats()
-    assert s["messages"] == 8
-    assert s["signals"] == 38
-    assert s["faults"] == 26
-    assert s["scenarios"] == 25
-    assert s["req_ids"] == 18
-    assert s["functions"] == 4
-    assert s["devices"] == 5
+    assert s["messages"] == 22
+    assert s["signals"] == 116
+    assert s["faults"] == 66
+    assert s["scenarios"] == 59
+    assert s["req_ids"] == 52
+    assert s["functions"] == 11
+    assert s["devices"] == 11
     assert m.load_stats["bad"] == []
 
 
@@ -106,13 +106,13 @@ def test_health(client):
 
 def test_stats_endpoint(client):
     s = client.get("/api/stats").json()
-    assert s["messages"] == 8
-    assert s["functions"] == 4
+    assert s["messages"] == 22
+    assert s["functions"] == 11
 
 
 def test_messages_endpoint(client):
     msgs = client.get("/api/messages").json()
-    assert len(msgs) == 8
+    assert len(msgs) == 22
     names = {m["name"] for m in msgs}
     assert "DoorControl" in names and "TCMS_Heartbeat" in names
 
@@ -142,7 +142,7 @@ def test_devices_endpoint(client):
 
 def test_faults_endpoint(client):
     faults = client.get("/api/faults").json()
-    assert len(faults) == 26
+    assert len(faults) == 66
     eb = next(f for f in faults if f["key"] == "eb_failure")
     assert eb["action"] == "emergency_brake"
 
@@ -155,7 +155,7 @@ def test_fault_detail(client):
 
 def test_scenarios_endpoint(client):
     scs = client.get("/api/scenarios").json()
-    assert len(scs) == 25
+    assert len(scs) == 59
     assert any(s["file"] == "door_cascade.yaml" for s in scs)
 
 
@@ -167,7 +167,7 @@ def test_requirements_endpoint(client):
 
 def test_functions_endpoint(client):
     funcs = client.get("/api/functions").json()
-    assert len(funcs) == 4
+    assert len(funcs) == 11
     f = next(f for f in funcs if f["fid"] == "F-EBM")
     assert "SR-01" in f["requirements"]
 
@@ -193,7 +193,7 @@ def test_run_scenarios_all(client):
     r = client.post("/api/run/scenarios", json={})
     assert r.status_code == 200
     body = r.json()
-    assert body["scenario_count"] == 25
+    assert body["scenario_count"] == 59
     assert body["all_passed"] is True
     assert body["total_fail"] == 0
 
@@ -229,7 +229,7 @@ def test_kb_subgraph(client):
 
 def test_kb_nodes_filter(client):
     nodes = client.get("/api/kb/nodes", params={"kind": "fault"}).json()
-    assert len(nodes) == 26
+    assert len(nodes) == 66
     assert all(n["kind"] == "fault" for n in nodes)
 
 
@@ -313,7 +313,7 @@ def test_faultlab_scenarios(client):
     r = client.get("/api/faultlab/scenarios")
     assert r.status_code == 200
     scs = r.json()
-    assert len(scs) == 25
+    assert len(scs) == 59
     assert any(s["file"] == "overspeed_derate.yaml" for s in scs)
 
 

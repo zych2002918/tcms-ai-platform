@@ -142,3 +142,47 @@ def test_parse_free_goal_task_id_seq(model):
     assert t.target_fault == "door_fault"
     assert t.expected_action == "derate"
     assert t.kb_query  # 整句作 RAG 检索
+
+
+@NEEDS_UPSTREAM
+def test_parse_free_goal_specific_tie_wins(model):
+    """子串平局确定性：更具体的故障名（更长命中）优先，而非字典顺序。
+
+    「多区烟火报警」同时含「烟火报警」（单区）子串；「后车门故障」同时含
+    「车门故障」子串——规则必须取更长更具体的那个（Q2 扩库后 66 键新增回归）。
+    """
+    p = parse_free_goal(model, "验证多区烟火报警的处置", use_llm=False)
+    assert p.fault == "fire_multizone_alarm"
+    p = parse_free_goal(model, "后车门故障不能发车", use_llm=False)
+    assert p.fault == "rear_door_fault"
+    assert p.expected == "derate"
+    # 单区烟火报警仍指向基础探测故障（无歧义）
+    p = parse_free_goal(model, "验证烟火报警停车", use_llm=False)
+    assert p.fault == "smoke_detected"
+
+
+@NEEDS_UPSTREAM
+def test_parse_free_goal_error_count_is_dynamic(model):
+    """未命中文案中的故障数 = len(faults)（随扩库自证，禁止手抄 22/26/66）。"""
+    with pytest.raises(NoFaultMatch) as ei:
+        parse_free_goal(model, "一般故障", use_llm=False)
+    assert str(len(model.faults_by_key)) in str(ei.value)
+    assert "22" not in str(ei.value)  # 陈旧硬编码已移除
+
+
+@NEEDS_UPSTREAM
+def test_every_fault_name_reachable_by_free_parser(model):
+    """Agent 侧无孤儿：每条真实故障用其中文名作目标都能被自由解析命中自身键。
+
+    镜像上游"无孤儿故障不变量"到语义解析层——扩库新增的故障必须能被
+    自然语言目标触达（确定性规则路径，不依赖 LLM）。
+    """
+    miss = []
+    for f in model.faults_by_key.values():
+        try:
+            p = parse_free_goal(model, f"验证{f.name}的处置", use_llm=False)
+            if p.fault != f.key:
+                miss.append((f.key, p.fault))
+        except NoFaultMatch:
+            miss.append((f.key, "NoFaultMatch"))
+    assert not miss, f"不可达故障（自由解析）：{miss}"

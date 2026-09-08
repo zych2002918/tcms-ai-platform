@@ -1,11 +1,11 @@
 """资产加载器：从上游 tcms-can-test 真实资产构建 L1 AssetModel。
 
 数据源（全部真实，只读引用上游，不复制）：
-- DBC 协议库      tcms-can-test/tcms/tcms.dbc       → 报文/信号（周期/类型/枚举）
-- FMEA 故障字典   tcms-can-test/tcms/faults.yaml    → 故障条目（22）
-- 场景 YAML       tcms-can-test/scenarios/*.yaml    → 场景（13）
-- RTM 追溯矩阵    tcms-can-test/tests/rtm.csv       → 需求 SR-01~18
-- 被测功能        curated（本文件 _FUNCTIONS），锚定真实 RTM / 报文 / 故障键
+- DBC 协议库      tcms-can-test/tcms/tcms.dbc       → 报文/信号（22 帧 / 116 信号）
+- FMEA 故障字典   tcms-can-test/tcms/faults.yaml    → 故障条目（66，13 系统域）
+- 场景 YAML       tcms-can-test/scenarios/*.yaml    → 场景（59）
+- RTM 追溯矩阵    tcms-can-test/tests/rtm.csv       → 需求 SR-01~52
+- 被测功能        curated（本文件 _FUNCTIONS，11 个），锚定真实 RTM / 报文 / 故障键
 
 设计纪律：
 - loader 不做任何"美化"——计数/关系全部派生自真实文件；
@@ -21,6 +21,8 @@ from pathlib import Path
 import cantools
 import yaml
 
+# 资产模型版本单一真源：默认平台版本 = 包版本（_version.py），禁止手写 "0.1.0"
+from .._version import __version__ as _PLATFORM_VERSION
 from .models import (
     AssetModel,
     DeviceDef,
@@ -40,6 +42,12 @@ _DEVICE_ROLES = {
     "BMS": "电池管理系统",
     "BOGIE": "转向架/车门控制",
     "BCU": "制动控制单元",
+    "HVAC": "空调控制单元",
+    "PIS": "乘客信息系统",
+    "LIGHT": "照明控制单元",
+    "FIRE": "烟火探测系统",
+    "AUX": "辅助变流器",
+    "ATO": "自动驾驶单元",
 }
 
 # DBC 节点 → 注入节点（场景 node: 使用小写，映射到大写设备名）
@@ -50,17 +58,33 @@ _NODE_ALIAS = {
     "bus": "BUS",
     "bms": "BMS",
     "tcms": "TCMS",
+    "hvac": "HVAC",
+    "pis": "PIS",
+    "light": "LIGHT",
+    "fire": "FIRE",
+    "aux": "AUX",
+    "ato": "ATO",
+    "pantograph": "BCU",
 }
 
 # 子系统（故障字典）→ 发送/关联设备（展示用近邻，不深究）
 _SUBSYSTEM_DEVICE = {
     "VCU": "VCU",
+    "列车控制": "TCMS",
     "车门": "BOGIE",
     "能源": "BMS",
     "牵引": "VCU",
     "受电弓": "BCU",
     "制动": "BCU",
     "网络": "TCMS",
+    "辅助电源": "AUX",
+    "空调": "HVAC",
+    "乘客信息": "PIS",
+    "照明": "LIGHT",
+    "烟火": "FIRE",
+    "乘客安全": "FIRE",
+    "走行部": "BOGIE",
+    "信号": "VCU",
 }
 
 
@@ -230,34 +254,196 @@ _FUNCTIONS: list[dict] = [
     {
         "fid": "F-ATP",
         "name": "超速防护（ATP）",
-        "description": "速度监督阈值 EBI/SBI 分级干预，超速降级/紧急制动",
+        "description": "速度监督阈值 EBI/SBI 分级干预；速度信号失效/冗余不足时监督降级",
         "messages": ["VehicleSpeed", "AlarmEvent", "BrakeSystem"],
         "signals": ["SpeedKmh", "SpeedValid", "Overspeed"],
-        "fault_keys": ["overspeed", "speed_sensor_drift"],
-        "requirements": ["SR-05", "SR-06"],
+        "fault_keys": [
+            "overspeed",
+            "speed_sensor_drift",
+            "speed_signal_loss",
+            "signal_redundancy_loss",
+        ],
+        "requirements": ["SR-05", "SR-06", "SR-19", "SR-20"],
     },
     {
         "fid": "F-DOOR",
         "name": "车门联锁与级联",
-        "description": "车门状态（Closed/Open/Fault/Unknown）联锁发车许可，故障级联降级",
-        "messages": ["DoorControl", "AlarmEvent"],
-        "signals": ["Door1State", "Door2State", "AllDoorsClosed", "DoorOpenPermit"],
-        "fault_keys": ["door_fault", "door_sensor_noise"],
-        "requirements": ["SR-04"],
+        "description": "前/后车门状态（Closed/Open/Fault/Unknown）联锁发车许可，故障级联降级，运行中门开安全制动",
+        "messages": ["DoorControl", "DoorControlRear", "AlarmEvent"],
+        "signals": ["Door1State", "Door5State", "AllDoorsClosed", "DoorOpenPermit"],
+        "fault_keys": [
+            "door_fault",
+            "door_sensor_noise",
+            "rear_door_fault",
+            "door_open_moving",
+            "door_air_pressure_low",
+        ],
+        "requirements": ["SR-04", "SR-21", "SR-22", "SR-23"],
     },
     {
         "fid": "F-NET",
         "name": "网络管理与完整性",
-        "description": "心跳监督（丢失 N 周期离线）、CRC 校验、错误状态机、总线故障处置",
-        "messages": ["TCMS_Heartbeat", "AlarmEvent"],
-        "signals": ["HeartbeatCounter", "NodeStatus", "RunMode"],
+        "description": "心跳监督、CRC 校验、错误状态机、总线故障处置、网关网段/冗余与主控看门狗",
+        "messages": ["TCMS_Heartbeat", "Gateway_Status", "AlarmEvent"],
+        "signals": [
+            "HeartbeatCounter",
+            "NodeStatus",
+            "RunMode",
+            "GatewayFault",
+            "MvbSegmentA",
+        ],
         "fault_keys": [
             "heartbeat_loss_vcu",
+            "vcu_watchdog_timeout",
             "crc_error_frame",
             "node_restart_storm",
             "bus_short",
+            "gateway_segment_fault",
+            "gateway_redundancy_loss",
+            "frame_period_jitter",
+            "driver_console_fault",
         ],
-        "requirements": ["SR-07", "SR-08", "SR-09", "SR-16"],
+        "requirements": ["SR-07", "SR-08", "SR-09", "SR-16", "SR-49", "SR-50", "SR-51"],
+    },
+    {
+        "fid": "F-TRAC",
+        "name": "牵引变流器保护",
+        "description": "变流器故障码封锁牵引、过温降功率、直流母线欠压保护",
+        "messages": ["Traction_Converter"],
+        "signals": ["ConvTemp", "ConvFaultCode", "TracDisable", "DcLinkVoltage"],
+        "fault_keys": [
+            "traction_converter_fault",
+            "traction_converter_overheat",
+            "dc_link_undervoltage",
+            "traction_loss",
+        ],
+        "requirements": ["SR-24", "SR-25", "SR-26"],
+    },
+    {
+        "fid": "F-BRAKE",
+        "name": "常用制动与防滑（BCU）",
+        "description": "制动缸压力闭环、防滑（WSP）监督、备用制动储备监督与泄漏降级",
+        "messages": ["BrakeSystem", "Brake_Wsp"],
+        "signals": [
+            "BrakeCylinderPressure",
+            "BrakeFault",
+            "ReservePressureLow",
+            "WspActive",
+            "WspFault",
+        ],
+        "fault_keys": [
+            "brake_cylinder_leak",
+            "brake_wsp_fault",
+            "brake_reserve_low",
+            "brake_actuator_stuck",
+        ],
+        "requirements": ["SR-27", "SR-28", "SR-29"],
+    },
+    {
+        "fid": "F-HVAC",
+        "name": "空调暖通（HVAC）",
+        "description": "客室温度闭环、压缩机/加热器保护、新风与滤网监督、过温降级",
+        "messages": ["HVAC_CabinStatus", "HVAC_Monitor"],
+        "signals": [
+            "CabinTemp",
+            "CompressorState",
+            "HvacFaultCode",
+            "FilterDirty",
+            "HeaterState",
+            "FreshAirDamper",
+        ],
+        "fault_keys": [
+            "hvac_compressor_fault",
+            "hvac_compressor_overcurrent",
+            "hvac_cabin_overheat",
+            "hvac_filter_clog",
+            "hvac_heater_fault",
+            "hvac_fresh_air_damper",
+        ],
+        "requirements": ["SR-39", "SR-40"],
+    },
+    {
+        "fid": "F-PIS",
+        "name": "乘客信息系统（PIS）",
+        "description": "到站信息/播报、显示屏状态监督、乘客紧急对讲可用性",
+        "messages": ["PIS_PassengerInfo"],
+        "signals": ["PisDisplayState", "EmergencyTalkActive", "NextStationCode", "PisFaultCode"],
+        "fault_keys": ["pis_display_fault", "pis_intercom_fault", "pis_announce_desync"],
+        "requirements": ["SR-41", "SR-42"],
+    },
+    {
+        "fid": "F-FIRE",
+        "name": "烟火安全",
+        "description": "烟雾探测与分区报警、灭火装置就绪监督、火灾停车疏散",
+        "messages": ["Fire_Detection", "AlarmEvent"],
+        "signals": [
+            "SmokeDetectorState",
+            "FireZone",
+            "ExtinguisherReady",
+            "FireSystemFault",
+            "FireAlarm",
+        ],
+        "fault_keys": [
+            "smoke_detected",
+            "fire_detector_fault",
+            "fire_extinguisher_fault",
+            "fire_multizone_alarm",
+        ],
+        "requirements": ["SR-43", "SR-44"],
+    },
+    {
+        "fid": "F-PWR",
+        "name": "高压与供电",
+        "description": "受电弓升降与网压、电池储能/绝缘、辅助变流与接触器保护",
+        "messages": [
+            "PantographStatus",
+            "EnergyStatus",
+            "Aux_Converter",
+            "Battery_Charger",
+        ],
+        "signals": [
+            "LineVoltage",
+            "PantographUp",
+            "SocPercent",
+            "BatteryVoltage",
+            "AuxVoltage",
+            "AuxLoadPercent",
+            "ChargerState",
+        ],
+        "fault_keys": [
+            "pantograph_arc",
+            "pantograph_fail_raise",
+            "line_voltage_sag",
+            "soc_low",
+            "temp_high",
+            "battery_insulation_fault",
+            "battery_voltage_imbalance",
+            "bms_charge_state_conflict",
+            "aux_converter_fault",
+            "aux_voltage_out_of_range",
+            "aux_converter_overload",
+            "aux_contactor_weld",
+        ],
+        "requirements": [
+            "SR-30",
+            "SR-31",
+            "SR-32",
+            "SR-33",
+            "SR-34",
+            "SR-35",
+            "SR-36",
+            "SR-37",
+            "SR-38",
+        ],
+    },
+    {
+        "fid": "F-BOGIE",
+        "name": "走行部监测",
+        "description": "轴温超限限速、振动趋势监测、监测链路健康告警",
+        "messages": ["Bogie_Monitor", "AlarmEvent"],
+        "signals": ["Axle1Temp", "VibrationLevel", "VibrationTrend", "BogieSensorFault", "BogieVibration"],
+        "fault_keys": ["bogie_vibration_high", "bogie_axle_overheat", "bogie_sensor_fault"],
+        "requirements": ["SR-45", "SR-46"],
     },
 ]
 
@@ -298,7 +484,7 @@ def _curate_devices(
 
 def load_asset_model(
     upstream_root: str | Path,
-    platform_version: str = "0.1.0",
+    platform_version: str = _PLATFORM_VERSION,
 ) -> AssetModel:
     """从上游 tcms-can-test 根目录加载完整 L1 资产模型（开发/测试用）。"""
     root = Path(upstream_root)
@@ -319,7 +505,7 @@ def load_asset_model(
     )
 
 
-def load_from_source(source, platform_version: str = "0.1.0") -> AssetModel:
+def load_from_source(source, platform_version: str = _PLATFORM_VERSION) -> AssetModel:
     """从解析出的资产源加载（支持活上游 / 内置快照，见 core/sources.py）。"""
     return _load_from_paths(
         msgs_path=source.dbc,
@@ -415,7 +601,7 @@ def _load_from_paths(
 
 
 # 便捷：按环境解析资产源（活上游 / 兄弟目录 / 内置快照）
-def load_default(platform_version: str = "0.1.0") -> AssetModel:
+def load_default(platform_version: str = _PLATFORM_VERSION) -> AssetModel:
     """按环境自动解析资产源并加载（新人 clone 即可用，无需手工配置）。"""
     from .sources import resolve_asset_source
 

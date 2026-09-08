@@ -400,21 +400,25 @@ def inject_systems(g: KnowledgeGraph, store: VectorStore | None, data: dict) -> 
                 )
             )
         count += 1
-    # 故障 → 系统（按故障键在 system.asset_evidence 文本中命中）
-    # 子系统名 → 系统码（完整覆盖全部故障；空调/乘客安全/走行部等新域
-    # 归列车级受控对象(SYS-TRAIN)或传感监测(SYS-SENSING)）
+    # 故障 → 系统（按子系统名精确映射到 13 系统域；完整覆盖全部 66 故障）
+    # 与 domain/data/domain_systems.json 的 subsystems 字段保持一致（双源同口径）
     _SUB_TO_SYS = {
         "VCU": "SYS-TRAIN",
+        "列车控制": "SYS-TRAIN",
         "网络": "SYS-TRAIN",
-        "空调": "SYS-TRAIN",
-        "乘客安全": "SYS-TRAIN",
         "制动": "SYS-BRAKE",
         "牵引": "SYS-TRACTION",
         "车门": "SYS-DOOR",
-        "能源": "SYS-POWER",
-        "受电弓": "SYS-POWER",
+        "受电弓": "SYS-PANTO",
+        "能源": "SYS-BATT",
+        "辅助电源": "SYS-AUX",
+        "空调": "SYS-HVAC",
+        "乘客信息": "SYS-PIS",
+        "照明": "SYS-LIGHT",
+        "烟火": "SYS-FIRE",
+        "乘客安全": "SYS-FIRE",
+        "走行部": "SYS-BOGIE",
         "信号": "SYS-SENSING",
-        "走行部": "SYS-SENSING",
     }
     for n in g.nodes.values():
         if n.kind != "fault":
@@ -435,13 +439,23 @@ def inject_systems(g: KnowledgeGraph, store: VectorStore | None, data: dict) -> 
 
 
 def _system_domain_of(code: str, sys: dict) -> str:
-    """system 文档的分区标签 → 复用到 Q4 域路由（brake/door/network/...）。"""
+    """system 文档的分区标签 → 复用到 Q4 域路由（brake/door/network/...）。
+
+    13 系统域的检索分区名：图谱先定位系统 → 域内语义 topk 的"分片键"。
+    """
     mapping = {
         "SYS-TRAIN": "network",
         "SYS-BRAKE": "brake",
         "SYS-TRACTION": "traction",
         "SYS-DOOR": "door",
-        "SYS-POWER": "power",
+        "SYS-PANTO": "pantograph",
+        "SYS-BATT": "battery",
+        "SYS-AUX": "aux",
+        "SYS-HVAC": "hvac",
+        "SYS-PIS": "pis",
+        "SYS-LIGHT": "light",
+        "SYS-FIRE": "fire",
+        "SYS-BOGIE": "bogie",
         "SYS-SENSING": "signal",
     }
     return mapping.get(code, "")

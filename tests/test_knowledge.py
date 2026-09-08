@@ -37,12 +37,12 @@ def kb():
 @NEEDS_UPSTREAM
 def test_graph_stats(kb):
     s = kb["graph"].stats()
-    assert s["nodes"] == 124  # 24 场景
-    assert s["edges"] >= 150
-    assert s["by_kind"]["fault"] == 26
-    assert s["by_kind"]["signal"] == 38
-    assert s["by_kind"]["scenario"] == 25
-    assert s["by_kind"]["function"] == 4
+    assert s["nodes"] == 337  # 22 报文/116 信号/66 故障/59 场景/52 需求/11 功能/11 设备
+    assert s["edges"] >= 300
+    assert s["by_kind"]["fault"] == 66
+    assert s["by_kind"]["signal"] == 116
+    assert s["by_kind"]["scenario"] == 59
+    assert s["by_kind"]["function"] == 11
 
 
 @NEEDS_UPSTREAM
@@ -71,9 +71,9 @@ def test_graph_subgraph_overspeed(kb):
 @NEEDS_UPSTREAM
 def test_vector_store_stats(kb):
     s = kb["store"].stats()
-    assert s["docs"] == 119  # 资产文档(含4新故障+2新场景)
-    assert s["by_kind"]["fault"] == 26
-    assert s["by_kind"]["requirement"] == 18
+    assert s["docs"] == 326  # 资产文档：66 故障/116 信号/59 场景/52 需求/11 功能/22 报文
+    assert s["by_kind"]["fault"] == 66
+    assert s["by_kind"]["requirement"] == 52
 
 
 @NEEDS_UPSTREAM
@@ -177,7 +177,7 @@ def test_unrouted_query_falls_back_global(kb):
 
 @NEEDS_UPSTREAM
 def test_systems_injected_and_all_faults_linked():
-    """enrich 后 system 节点存在，且 22 条故障全部 belongs_to 某系统。"""
+    """enrich 后 system 节点存在（13 系统域），且 66 条故障全部 belongs_to 某系统。"""
     from tcms_ai_platform.core import load_asset_model
     from tcms_ai_platform.domain import enrich_graph
     from tcms_ai_platform.knowledge import VectorStore, build_knowledge_graph
@@ -187,9 +187,9 @@ def test_systems_injected_and_all_faults_linked():
     vs = VectorStore()
     enrich_graph(g, vs)
     systems = {n.id for n in g.nodes.values() if n.kind == "system"}
-    assert len(systems) >= 6  # SYS-TRAIN/BRAKE/TRACTION/DOOR/POWER/SENSING
+    assert len(systems) == 13  # SYS-TRAIN/BRAKE/TRACTION/DOOR/PANTO/BATT/AUX/HVAC/PIS/LIGHT/FIRE/BOGIE/SENSING
     linked = {e.src for e in g.edges if e.kind == "belongs_to" and e.src.startswith("fault:")}
-    assert len(linked) == 26  # 全部故障归属系统
+    assert len(linked) == 66  # 全部故障归属系统（_SUB_TO_SYS 覆盖 16 个子系统名）
 
 
 @NEEDS_UPSTREAM

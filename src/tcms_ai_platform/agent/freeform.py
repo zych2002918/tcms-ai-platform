@@ -117,6 +117,7 @@ def _score_candidates(goal: str, faults: list) -> list[dict]:
     for f in faults:
         score = 0.0
         matched_on = []
+        spec_len = 0  # 命中的名称串长度（平局时更长=更具体者优先，见排序键）
         # 键命中权重最高（键是场景 YAML 锚点；英文目标可直接命中 key）
         if f.key and _norm(f.key) in goal_n:
             score += 4.0
@@ -127,13 +128,16 @@ def _score_candidates(goal: str, faults: list) -> list[dict]:
         if name_zh and name_zh in goal_zh:
             score += 3.0
             matched_on.append("name")
+            spec_len = max(spec_len, len(name_zh))
         elif base_zh and base_zh in goal_zh:
             score += 3.0
             matched_on.append("name")
+            spec_len = max(spec_len, len(base_zh))
         # 名称中文 bigram 覆盖 ≥ 0.6 → 语义近似命中（容忍语序/插词；阈值防误伤）
         elif base_zh and _bigram_overlap(goal_zh, base_zh) >= 0.6:
             score += 2.5
             matched_on.append("name")
+            spec_len = max(spec_len, len(base_zh))
         # 描述字段子串命中（降权防误伤）
         for field, weight, label in (
             ("desc", 2.0, "desc"),
@@ -154,10 +158,12 @@ def _score_candidates(goal: str, faults: list) -> list[dict]:
                     "name": f.name,
                     "action": f.action,
                     "score": round(score, 3),
+                    "spec_len": spec_len,  # 名称串长度：同分时更长者=更具体（后车门故障 > 车门故障）
                     "matched_on": sorted(set(matched_on)),
                 }
             )
-    hits.sort(key=lambda h: h["score"], reverse=True)
+    # 同分平局倾向"更长更具体"的名称命中，保证确定性（多区烟火报警 > 烟火报警）
+    hits.sort(key=lambda h: (-h["score"], -h["spec_len"]))
     return hits
 
 
@@ -218,7 +224,9 @@ def parse_free_goal(
     # 产品红线：LLM 仲裁只允许「从规则候选里消歧」，不允许自由发明故障；
     # 无关目标（如「今天天气不错」）即使 LLM 可用也必须 422，不得硬猜真实键。
     if not cands:
-        raise NoFaultMatch(f"未在目标里识别出任何故障（可用的 22 个真实故障均未命中）：{goal!r}")
+        raise NoFaultMatch(
+            f"未在目标里识别出任何故障（可用的 {len(faults)} 个真实故障均未命中）：{goal!r}"
+        )
 
     # 三、规则弱/多候选歧义 → LLM 仲裁（仅当可用，从候选里挑一个）；失败落回规则兜底
     if use_llm:

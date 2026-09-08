@@ -141,10 +141,11 @@ def test_advisor_compose_scenario_steps(model, retriever):
 
 
 @NEEDS_UPSTREAM
-def test_advisor_llm_polish_falls_back_without_key(model, retriever, monkeypatch):
+def test_advisor_llm_polish_falls_back_without_key(model, retriever, monkeypatch, tmp_path):
     """无 key → 不做 LLM 调用，规则模板回复（离线确定性，诚实标注）。"""
     for k in ("DASH_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY"):
         monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("TCMS_AI_HOME", str(tmp_path / "home"))  # 隔离设置层（GUI 存的 key 不入测）
     monkeypatch.setenv("DSH_CREDENTIALS_FILE", str(Path("Z:/no-cred.yaml")))
     t = advisor_turn(model, retriever, "验证超速降级", use_llm=True)
     assert t.intent == "match_fault"
