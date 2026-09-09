@@ -57,3 +57,105 @@ def test_no_fault_raises_honest_error():
     m = _model()
     with pytest.raises(ComposeError):
         plan_compose_seq(m, "今天天气不错")
+
+
+@NEEDS_UPSTREAM
+def test_pick_one_keeps_other_unresolved():
+    """用户点选一个未锚定子句 → 只并这一个（按原句位置），其余未锚定子句保留继续可点。"""
+    from tcms_ai_platform.agent.composer import plan_compose_seq
+
+    m = _model()
+    s = plan_compose_seq(m, "先车门故障，后空调失效，随后牵引失效，最后紧急制动")
+    assert [u["clause"] for u in s["unresolved"]] == ["后空调失效", "牵引失效"]
+    hvac_dc = s["unresolved"][0]["domain_candidates"]["faults"]
+    pick_key = hvac_dc[0]["key"]
+    assert pick_key in m.faults_by_key
+
+    s2 = plan_compose_seq(
+        m, "先车门故障，后空调失效，随后牵引失效，最后紧急制动",
+        picks=[{"clause": "后空调失效", "key": pick_key}],
+    )
+    # 只并 1 个，按它在句中的位置排在 door 之后；牵引失效必须还在 unresolved 里
+    assert s2["keys"] == ["door_fault", pick_key]
+    assert [u["clause"] for u in s2["unresolved"]] == ["牵引失效"]
+    assert s2["picked_count"] == 1
+    # 再并第二个 → 全部锚定，按原句顺序 door → hvac → overspeed/牵引域候选
+    s3 = plan_compose_seq(
+        m, "先车门故障，后空调失效，随后牵引失效，最后紧急制动",
+        picks=[
+            {"clause": "后空调失效", "key": pick_key},
+            {"clause": "牵引失效", "key": s2["unresolved"][0]["domain_candidates"]["faults"][0]["key"]},
+        ],
+    )
+    assert s3["keys"] == ["door_fault", pick_key, s2["unresolved"][0]["domain_candidates"]["faults"][0]["key"]]
+    assert s3["unresolved"] == []
+    assert s3["picked_count"] == 2
+
+
+@NEEDS_UPSTREAM
+def test_pick_rejects_out_of_clause_key():
+    """诚实门禁：picks 里非该子句域候选的键不并入（不跨子句错位、不认任意键）。"""
+    from tcms_ai_platform.agent.composer import plan_compose_seq
+
+    m = _model()
+    # 给『后空调失效』塞一个门域键 door_fault —— 不在空调候选里 → 拒绝
+    s = plan_compose_seq(
+        m, "先车门故障，后空调失效，随后牵引失效，最后紧急制动",
+        picks=[{"clause": "后空调失效", "key": "door_fault"}],
+    )
+    assert s["keys"] == ["door_fault"]  # door 只来自首句规则命中，不被重复并入
+    assert [u["clause"] for u in s["unresolved"]] == ["后空调失效", "牵引失效"]
+    assert s["picked_count"] == 0
+    # 不在任何子句文本上的 clause 也不并入
+    s2 = plan_compose_seq(
+        m, "先车门故障，后空调失效",
+        picks=[{"clause": "不存在子句", "key": "overspeed"}],
+    )
+    assert s2["keys"] == ["door_fault"]
+    assert [u["clause"] for u in s2["unresolved"]] == ["后空调失效"]
+
+
+@NEEDS_UPSTREAM
+def test_compose_seq_endpoint_multi_pick_no_disappear():
+    """端到端（真实引擎）：『选一个候选、另一个不消失』——先并空调，再并牵引，
+    每次响应里其余未锚定子句都保留，最终三故障按原句顺序真实执行全过。"""
+    from fastapi.testclient import TestClient
+
+    from tcms_ai_platform.server.app import create_app
+
+    app = TestClient(create_app(upstream=UPSTREAM))
+    msg = "先车门故障，后空调失效，随后牵引失效，最后紧急制动"
+
+    b0 = app.post("/api/agent/compose_seq", json={"message": msg}).json()
+    assert b0["faults"] == ["door_fault"]
+    clauses = [u["clause"] for u in b0["unresolved"]]
+    assert clauses == ["后空调失效", "牵引失效"]
+
+    hvac_key = b0["unresolved"][0]["domain_candidates"]["faults"][0]["key"]
+    b1 = app.post(
+        "/api/agent/compose_seq",
+        json={"message": msg, "picks": [{"clause": "后空调失效", "key": hvac_key}]},
+    ).json()
+    assert b1["faults"] == ["door_fault", hvac_key], "并入后按原句位置排在 door 之后"
+    assert [u["clause"] for u in b1["unresolved"]] == ["牵引失效"], "另一个未锚定子句必须保留"
+
+    tr_key = b1["unresolved"][0]["domain_candidates"]["faults"][0]["key"]
+    b2 = app.post(
+        "/api/agent/compose_seq",
+        json={
+            "message": msg,
+            "picks": [
+                {"clause": "后空调失效", "key": hvac_key},
+                {"clause": "牵引失效", "key": tr_key},
+            ],
+        },
+    ).json()
+    assert b2["faults"] == ["door_fault", hvac_key, tr_key], "逐句并入后三故障按原句顺序"
+    assert b2.get("unresolved", []) == []  # 全部锚定后不再有未锚定子句
+    assert b2["final_action"] == "emergency_brake"
+    assert b2["run"]["all_passed"] is True and b2["run"]["passed"] == 3
+    # 演示顺序：门 1.0s → 空调 4.0s → 牵引 7.0s，再依次 recover
+    inj = [s["fault"] for s in b2["steps"] if s["action"] == "inject"]
+    rec = [s["fault"] for s in b2["steps"] if s["action"] == "recover"]
+    assert inj == ["door_fault", hvac_key, tr_key]
+    assert rec == ["door_fault", hvac_key, tr_key]

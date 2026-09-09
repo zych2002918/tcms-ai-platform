@@ -229,6 +229,24 @@ class ToolAssistRequest(BaseModel):
     max_rounds: int = 3
 
 
+class ComposeSeqPick(BaseModel):
+    """用户对某条未锚定子句的点选并入：clause=该句原文，key=该句域候选的真实键。"""
+
+    clause: str
+    key: str
+
+
+class ComposeSeqRequest(BaseModel):
+    """时序连锁原子化请求：原句 + 已点选并入的未锚定子句（可逐个点选，逐个并入）。
+
+    message 始终是用户**原始一句话**（不重写）；每次点候选都带上前几轮 picks 累积，
+    让其余未锚定子句保留在响应里继续可点，不再"选一个丢一个"。
+    """
+
+    message: str
+    picks: list[ComposeSeqPick] = []
+
+
 class AdvisorTurnRequest(BaseModel):
     """编排顾问对话请求（模块级：FastAPI 前向引用约束）。
 
@@ -1336,11 +1354,13 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         }
 
     @app.post("/api/agent/compose_seq")
-    def agent_compose_seq(req: AdvisorTurnRequest) -> dict:
+    def agent_compose_seq(req: ComposeSeqRequest) -> dict:
         """时序连锁原子化（Q3 v2）：先A后B随后C最后D → 逐原子故障错峰注入 + 真实执行。
 
         - 按时序连接词/标点逐子句锚定真实故障（不是只取整句第一个）；
-        - 锚不上的句子不进计划，返回 unresolved + 该域候选（用户点选后再补组，不自动发明）；
+        - 锚不上的句子不进计划，返回 unresolved + 该域候选（用户逐句点选后并入）；
+        - picks：已点选的 {clause,key} 按原句位置并入 keys（只认该子句域候选真实键），
+          其余未锚定子句继续留在 unresolved 里可点——不再"选中一个、另一个消失"；
         - "最后紧急制动"等收尾期望句 → final_action（整链期望，不是故障）；
         - 步骤语义：错峰注入=连锁叠加（非"好了再下一个"），全部注入后统一恢复。
         """
@@ -1348,7 +1368,11 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         from ..agent.composer import ComposeError, plan_compose_seq
 
         try:
-            seq = plan_compose_seq(asset_model, req.message)
+            seq = plan_compose_seq(
+                asset_model,
+                req.message,
+                picks=[{"clause": p.clause, "key": p.key} for p in req.picks],
+            )
         except ComposeError as e:
             return {
                 "goal": req.message,
@@ -1438,7 +1462,16 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         resp["chain_note"] = (
             f"已按时序把 {len(keys)} 个真实故障做原子化错峰注入（连锁叠加，不是“好了再下一个”）；"
             + (f"整链收尾期望：{resp.get('final_action','')}。" if seq.get("final_action") else "收尾统一恢复。")
-            + (f"另有 {len(resp.get('unresolved', []))} 句没能锚定到故障，可在下方点选后继续补组。" if resp.get("unresolved") else "")
+            + (
+                f"其中 {seq.get('picked_count', 0)} 个由你在未锚定句中点选并入（按原句位置）。"
+                if seq.get("picked_count")
+                else ""
+            )
+            + (
+                f"另有 {len(resp.get('unresolved', []))} 句还没锚定，下方点选可继续并入（选一个不丢另一个）。"
+                if resp.get("unresolved")
+                else ""
+            )
         )
         return resp
 

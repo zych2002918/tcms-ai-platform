@@ -184,6 +184,9 @@ export function AgentPage() {
   const [freeResp, setFreeResp] = useState<AgentFreeResp | null>(null);
   const [composeResp, setComposeResp] = useState<AgentComposeResp | null>(null);
   const [composing, setComposing] = useState(false);
+  // 用户对"未锚定子句"的点选并入：{clause=该句原文, key=候选真实键}；点一个只并一个，
+  // 其余未锚定子句保留在响应里继续可点（不再"选一个、另一个消失"）。
+  const [composePicks, setComposePicks] = useState<{ clause: string; key: string }[]>([]);
   // 症状诊断（无码症状 → 图谱因果链；确定性规则，derived 显式标注）
   const [diagQ, setDiagQ] = useState("");
   const [diagResp, setDiagResp] = useState<Awaited<ReturnType<typeof api.agentDiagnose>> | null>(null);
@@ -306,21 +309,26 @@ export function AgentPage() {
 
   const runs: AgentRun[] = result?.runs ?? freeResp?.runs ?? [];
 
-  /** Q3：时序连锁原子化（/api/agent/compose_seq）——分句逐故障，绝不只取第一个 */
-  const runCompose = async (g?: string) => {
+  /** Q3：时序连锁原子化（/api/agent/compose_seq）——分句逐故障，绝不只取第一个。
+   *  picks：本轮已点选的未锚定子句并入 [{clause, key}]；空 = 从头组合。
+   *  组合中永远把用户**原始句**当 message 发后端，picks 按句累积——点一个候选
+   *  不会把其他未锚定子句丢掉。 */
+  const runCompose = async (g?: string, picks?: { clause: string; key: string }[]) => {
     const goalText = (g ?? goal).trim();
+    const nextPicks = picks ?? [];
     if (!goalText || phase === "running" || composing) return;
     if (sys && !sys.engine.ok) {
       setErr("engine_missing");
       return;
     }
+    setComposePicks(nextPicks);
     setComposing(true);
     setErr("");
     setGoalHint("");
     setComposeResp(null);
     begin();
     try {
-      const r = await api.agentComposeSeq(goalText);
+      const r = await api.agentComposeSeq(goalText, nextPicks);
       setComposeResp(r);
       setPhase("done");
     } catch (e) {
@@ -331,6 +339,14 @@ export function AgentPage() {
     } finally {
       setComposing(false);
     }
+  };
+
+  /** 用户点选某未锚定子句的域候选 → 只并这一句（原句不变），其余子句仍可点 */
+  const pickComposeClause = async (clause: string, key: string) => {
+    if (!composeResp?.goal || phase === "running" || composing) return;
+    const already = composePicks.some((p) => p.clause === clause && p.key === key);
+    if (already) return;
+    void runCompose(composeResp.goal, [...composePicks, { clause, key }]);
   };
 
   /** 把组合步骤送到 FaultLab 播放（与场景编排同通道） */
@@ -790,6 +806,10 @@ export function AgentPage() {
             {/* 未锚定的子句 → 该域真实候选，点选继续补组（不自动发明、不尬住） */}
             {composeResp.unresolved && composeResp.unresolved.length > 0 && (
               <div className="mt-3 space-y-2">
+                <div className="text-[11.5px] text-warn leading-5">
+                  还有 {composeResp.unresolved.length} 句没锚定到唯一故障——下方每句都能点选并入；选一个并入后，
+                  其余句子仍保留可继续点选（逐个并入，不消失）。
+                </div>
                 {composeResp.unresolved.map((u, ui) => (
                   <div key={ui} className="rounded-md border border-warn/40 bg-warn/5 px-3 py-2">
                     <div className="text-[11.5px] text-ink-dim">
@@ -798,7 +818,7 @@ export function AgentPage() {
                     {u.domain_candidates?.faults && u.domain_candidates.faults.length > 0 && (
                       <>
                         <div className="mt-1 text-[11px] text-ink-faint">
-                          {u.domain_candidates.domain_zh ?? "该域"}候选（点选即可并入本轮时序，真实键）：
+                          {u.domain_candidates.domain_zh ?? "该域"}候选（点选后按此句在原句中的位置并入时序，真实键）：
                         </div>
                         <div className="mt-1 flex flex-wrap gap-1.5">
                           {u.domain_candidates.faults.map((f) => (
@@ -806,8 +826,8 @@ export function AgentPage() {
                               key={f.key}
                               type="button"
                               className="tag text-info border-info/40 bg-info/10 hover:bg-info/20 cursor-pointer"
-                              title={`等级 ${f.level ?? "?"} · 处置 ${f.action ?? "?"}`}
-                              onClick={() => void runCompose(`组合：${[...(composeResp.faults ?? [])].join("、")}，${f.name}（${f.key}）`)}
+                              title={`等级 ${f.level ?? "?"} · 处置 ${f.action ?? "?"}（点击后并入本轮时序，其他未锚定句仍可继续选）`}
+                              onClick={() => void pickComposeClause(u.clause, f.key)}
                             >
                               + {f.name} ({f.key})
                             </button>
@@ -837,8 +857,8 @@ export function AgentPage() {
               )}
               <button
                 className="btn-ghost btn-sm"
-                onClick={() => void runCompose(`组合：${composeResp.goal}`)}
-                title="加『组合：』前缀强化意图后重新原子化"
+                onClick={() => void runCompose(composeResp.goal, [])}
+                title="回到用户原始句重新原子化（清空已点选并入）"
               >
                 ↻ 重新组合
               </button>

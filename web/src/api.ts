@@ -265,9 +265,11 @@ export const api = {
     req<AgentFreeResp>("/agent/free", { method: "POST", body: JSON.stringify({ goal }) }),
   agentCompose: (message: string) =>
     req<AgentComposeResp>("/agent/compose", { method: "POST", body: JSON.stringify({ message }) }),
-  /** 时序连锁原子化：先A后B随后C最后D → 逐原子故障错峰注入 + 真实执行 */
-  agentComposeSeq: (message: string) =>
-    req<AgentComposeResp>("/agent/compose_seq", { method: "POST", body: JSON.stringify({ message }) }),
+  /** 时序连锁原子化：先A后B随后C最后D → 逐原子故障错峰注入 + 真实执行。
+   *  picks：已点选并入的未锚定子句 [{clause, key}]——message 恒为用户原始句，
+   *  每次点选累积传入，其余未锚定子句保留在响应里继续可点。 */
+  agentComposeSeq: (message: string, picks: { clause: string; key: string }[] = []) =>
+    req<AgentComposeResp>("/agent/compose_seq", { method: "POST", body: JSON.stringify({ message, picks }) }),
   /** 症状多跳诊断（无故障码症状 → 图谱因果链候选 + 诊断建议；derived 显式标注；
    *  use_llm=true 启用 LLM 候选内仲裁——仅重排候选、需已配置 key；
    *  session_id=P1-1 多轮锚点记忆键（追问"刚才/那个部位"可沿用上一轮症状锚点） */

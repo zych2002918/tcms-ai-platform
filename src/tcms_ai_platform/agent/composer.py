@@ -171,11 +171,16 @@ def _domain_candidates_for(m, clause: str) -> dict | None:
         return None
 
 
-def plan_compose_seq(m, goal: str, max_faults: int = COMPOSE_CAP) -> dict:
+def plan_compose_seq(m, goal: str, max_faults: int = COMPOSE_CAP, picks: list[dict] | None = None) -> dict:
     """按"先…后…随后…最后…"逐原子子句解析，而不是只挑整句话里的第一个故障。
 
+    picks：用户对未锚定子句的点选并入 [{clause, key}]——clause 必须是该句原文
+    （与 unresolved.clause 一致），key 必须 ∈ 该句域候选的真实键；否则该子句
+    保持未锚定（诚实门禁：不认任意键、不跨子句错位并入）。被并入的子句按它在
+    句中的原始位置进 keys（保持时序），其余未锚定子句继续返回供用户逐个点选。
+
     返回 {keys(按时序), unresolved:[{clause, domain_candidates?}], final_action?,
-    goal}；一条真实故障都没锚定 → ComposeError（诚实引导）。
+    picked_count, goal}；一条真实故障都没锚定 → ComposeError（诚实引导）。
     """
     goal = (goal or "").strip()
     if not goal:
@@ -185,9 +190,16 @@ def plan_compose_seq(m, goal: str, max_faults: int = COMPOSE_CAP) -> dict:
     if not clauses:
         clauses = [goal]
 
+    picks_by_clause: dict[str, str] = {}
+    for p in picks or []:
+        c = str(p.get("clause", "")).strip()
+        if c:
+            picks_by_clause[c] = str(p.get("key", ""))
+
     keys: list[str] = []
     unresolved: list[dict] = []
     final_action: str | None = None
+    picked_count = 0
     for cl in clauses:
         hits = _clause_faults(m, cl)
         if hits:
@@ -201,6 +213,13 @@ def plan_compose_seq(m, goal: str, max_faults: int = COMPOSE_CAP) -> dict:
             continue
         # 未命中 → 若像"设备+坏了/失效"则给出域候选（诚实让用户点选，不自动塞）
         dc = _domain_candidates_for(m, cl)
+        allowed = {f["key"] for f in (dc or {}).get("faults", [])} if dc else set()
+        pk = picks_by_clause.get(cl)
+        if pk and pk in allowed:  # 只认该子句域候选里的真实键（跨子句/任意键一律不并入）
+            if pk not in keys:
+                keys.append(pk)
+            picked_count += 1
+            continue
         unresolved.append({"clause": cl, "domain_candidates": dc})
     if not keys:
         raise ComposeError(
@@ -208,5 +227,11 @@ def plan_compose_seq(m, goal: str, max_faults: int = COMPOSE_CAP) -> dict:
             "请直接点名故障键（如 车门故障/超速/烟火报警），我可逐句原子化编排。"
         )
     keys = keys[:max_faults]
-    out: dict = {"goal": goal, "keys": keys, "unresolved": unresolved, "final_action": final_action}
+    out: dict = {
+        "goal": goal,
+        "keys": keys,
+        "unresolved": unresolved,
+        "final_action": final_action,
+        "picked_count": picked_count,
+    }
     return out
