@@ -145,9 +145,12 @@
 ## 完工状态（2026-09-09）
 - 工单 11/11 全部完成并勾选（P0-1/P0-2/P1-1/P1-2/P1-3/**P1-4 新增**/P2-1~P2-5）。
 - 基线：`pytest -q` = 205 passed + 1 skipped（追加 ROI P1-a function-calling 6 例与 P1-b MCP 7 例后；skip=真语义近义条件 golden）；`ruff check src tests` clean；web vitest 16/16；图谱交互 e2e 5/5。
-- 追加能力（见 docs/TECH_DEPTH_AUDIT.md §11/§12）：受约束 function-calling（/api/agent/toolassist）与最小 MCP server（python -m tcms_ai_platform.agent.mcp_server）——已于 ROI 收敛声明后冻结新功能，转维护期。
-- 下一步（维护期）：首次提交生效并核对 Actions；P2-4 结论落地留档；只做 bug 修/润色/文档一致性。
-- 纪律：未 git commit（等指令）。
+- 追加能力（见 docs/TECH_DEPTH_AUDIT.md §11/§12）：受约束 function-calling（/api/agent/toolassist，
+  含 kb_filter_assets 过滤工具）、最小 MCP server（python -m tcms_ai_platform.agent.mcp_server）、
+  Agent 对『仅告警/降级仍可运行』类问题的确定性枚举（/agent/free kb_answer）——以问题驱动继续改进，
+  不设“新功能冻结”（见 §12 修订）。
+- 下一步（问题驱动）：CI 已绿（GitHub Actions, Node22+pnpm11 修复）；后续按被戳穿的缺口逐条修。
+- 纪律：未 git commit（等指令）→（2026-09 用户已授权全量推送，HEAD 已在远端）。
 
 ## 全部改动清单（2026-09-09，未 commit）
 - **docs/**：HARDENING_BACKLOG.md（勾选/记录）· P0-1_TERMINOLOGY_AUDIT.md（审计清单）· CONFIDENCE_CONVENTION.md（置信度口径）
