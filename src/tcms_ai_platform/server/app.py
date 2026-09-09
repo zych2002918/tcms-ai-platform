@@ -1335,6 +1335,113 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             },
         }
 
+    @app.post("/api/agent/compose_seq")
+    def agent_compose_seq(req: AdvisorTurnRequest) -> dict:
+        """时序连锁原子化（Q3 v2）：先A后B随后C最后D → 逐原子故障错峰注入 + 真实执行。
+
+        - 按时序连接词/标点逐子句锚定真实故障（不是只取整句第一个）；
+        - 锚不上的句子不进计划，返回 unresolved + 该域候选（用户点选后再补组，不自动发明）；
+        - "最后紧急制动"等收尾期望句 → final_action（整链期望，不是故障）；
+        - 步骤语义：错峰注入=连锁叠加（非"好了再下一个"），全部注入后统一恢复。
+        """
+        from ..agent.advisor import _compose_steps
+        from ..agent.composer import ComposeError, plan_compose_seq
+
+        try:
+            seq = plan_compose_seq(asset_model, req.message)
+        except ComposeError as e:
+            return {
+                "goal": req.message,
+                "composed": False,
+                "intent": "compose_seq",
+                "reply": str(e),
+                "fault_matches": [],
+                "needs_clarification": True,
+            }
+
+        keys = seq["keys"]
+        steps = _compose_steps(asset_model, keys)
+        fault_matches = [
+            {
+                "key": k,
+                "name": asset_model.faults_by_key[k].name,
+                "level": asset_model.faults_by_key[k].level,
+                "action": asset_model.faults_by_key[k].action,
+            }
+            for k in keys
+        ]
+        # 三栏溯源（与 /api/agent/compose 同口径）
+        provenance: list[dict] = []
+        for fk in keys:
+            fd = asset_model.faults_by_key[fk]
+            fnode = f"fault:{fk}"
+            sys_name = ""
+            scen_list: list[str] = []
+            for e in graph.edges:
+                if e.src == fnode and e.kind == "belongs_to" and e.dst.startswith("system:"):
+                    n = graph.nodes.get(e.dst)
+                    if n:
+                        sys_name = n.label
+                elif e.dst == fnode and e.kind == "injects" and e.src.startswith("scenario:"):
+                    scen_list.append(e.src.split(":", 1)[1])
+            provenance.append(
+                {
+                    "fault": fk,
+                    "name": fd.name,
+                    "asset": {
+                        "fid": fd.fid,
+                        "level": fd.level,
+                        "action": fd.action,
+                        "sil": fd.sil,
+                        "desc": fd.desc,
+                        "detect": fd.detect,
+                        "inject": fd.inject,
+                    },
+                    "graph_facts": {"system": sys_name or "未归类", "scenarios": sorted(scen_list)},
+                    "agent_action": fd.action,
+                }
+            )
+        rep = _run_custom_steps(asset_model, req.message[:40] or "compose_seq", steps, _app_upstream)
+        _run_counter["n"] += 1
+        sink.record_run(
+            f"run-{_run_counter['n']:03d}",
+            "compose",
+            {"passed": rep.get("passed"), "failed": rep.get("failed"), "all_passed": rep.get("all_passed")},
+        )
+        resp: dict = {
+            "goal": req.message,
+            "composed": True,
+            "intent": "compose_scenario",
+            "fault_matches": fault_matches,
+            "faults": keys,
+            "steps": steps,
+            "provenance": provenance,
+            "run": {
+                "scenario": rep.get("scenario"),
+                "passed": rep.get("passed"),
+                "failed": rep.get("failed"),
+                "all_passed": rep.get("all_passed"),
+                "assertions": rep.get("assertions"),
+                "engine_version": __import__("tcms").__version__,
+            },
+        }
+        if seq.get("final_action"):
+            resp["final_action"] = seq["final_action"]
+        if seq.get("unresolved"):
+            resp["unresolved"] = [
+                {
+                    "clause": u["clause"],
+                    "domain_candidates": u.get("domain_candidates"),
+                }
+                for u in seq["unresolved"]
+            ]
+        resp["chain_note"] = (
+            f"已按时序把 {len(keys)} 个真实故障做原子化错峰注入（连锁叠加，不是“好了再下一个”）；"
+            + (f"整链收尾期望：{resp.get('final_action','')}。" if seq.get("final_action") else "收尾统一恢复。")
+            + (f"另有 {len(resp.get('unresolved', []))} 句没能锚定到故障，可在下方点选后继续补组。" if resp.get("unresolved") else "")
+        )
+        return resp
+
     @app.post("/api/agent/advisor")
     def agent_advisor(req: AdvisorTurnRequest) -> dict:
         """编排顾问：多轮对话（输入无法匹配内存故障时**绝不 422**）。

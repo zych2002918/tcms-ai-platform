@@ -265,6 +265,9 @@ export const api = {
     req<AgentFreeResp>("/agent/free", { method: "POST", body: JSON.stringify({ goal }) }),
   agentCompose: (message: string) =>
     req<AgentComposeResp>("/agent/compose", { method: "POST", body: JSON.stringify({ message }) }),
+  /** 时序连锁原子化：先A后B随后C最后D → 逐原子故障错峰注入 + 真实执行 */
+  agentComposeSeq: (message: string) =>
+    req<AgentComposeResp>("/agent/compose_seq", { method: "POST", body: JSON.stringify({ message }) }),
   /** 症状多跳诊断（无故障码症状 → 图谱因果链候选 + 诊断建议；derived 显式标注；
    *  use_llm=true 启用 LLM 候选内仲裁——仅重排候选、需已配置 key；
    *  session_id=P1-1 多轮锚点记忆键（追问"刚才/那个部位"可沿用上一轮症状锚点） */
@@ -462,6 +465,21 @@ export interface AgentComposeResp {
   needs_clarification?: boolean;
   followup_question?: string;
   rag_evidence?: unknown[];
+  /** compose_seq（时序连锁原子化）新增字段 */
+  faults?: string[];
+  chain_note?: string;
+  final_action?: string;
+  unresolved?: {
+    clause: string;
+    domain_candidates?: {
+      kind?: string;
+      domain?: string;
+      domain_zh?: string;
+      reply?: string;
+      faults?: { key: string; name: string; level?: string; action?: string }[];
+      scenarios?: { file: string; name: string }[];
+    } | null;
+  }[];
 }
 
 // ---- 自定义场景执行（/api/run/custom）----

@@ -306,10 +306,10 @@ export function AgentPage() {
 
   const runs: AgentRun[] = result?.runs ?? freeResp?.runs ?? [];
 
-  /** Q3：一句话 → 原子资产组合 → 真实执行（/api/agent/compose） */
-  const runCompose = async () => {
-    const g = goal.trim();
-    if (!g || phase === "running" || composing) return;
+  /** Q3：时序连锁原子化（/api/agent/compose_seq）——分句逐故障，绝不只取第一个 */
+  const runCompose = async (g?: string) => {
+    const goalText = (g ?? goal).trim();
+    if (!goalText || phase === "running" || composing) return;
     if (sys && !sys.engine.ok) {
       setErr("engine_missing");
       return;
@@ -320,7 +320,7 @@ export function AgentPage() {
     setComposeResp(null);
     begin();
     try {
-      const r = await api.agentCompose(g);
+      const r = await api.agentComposeSeq(goalText);
       setComposeResp(r);
       setPhase("done");
     } catch (e) {
@@ -331,6 +331,17 @@ export function AgentPage() {
     } finally {
       setComposing(false);
     }
+  };
+
+  /** 把组合步骤送到 FaultLab 播放（与场景编排同通道） */
+  const composeToFaultLab = (steps?: { at: number; action: string; fault?: string | null; node?: string | null; expect?: string | null }[]) => {
+    if (!steps || steps.length === 0) return;
+    try {
+      sessionStorage.setItem("tcms.faultlab.draft", JSON.stringify({ name: "Agent 时序组合", from: "agent-compose", steps }));
+    } catch {
+      /* sessionStorage 不可用时仅跳页 */
+    }
+    window.location.href = "/faultlab";
   };
 
   const runDiagnose = async () => {
@@ -683,6 +694,9 @@ export function AgentPage() {
             }
             bodyClass="p-4"
           >
+            {composeResp.chain_note && (
+              <div className="mb-2 text-[12px] text-info/90 leading-5">{composeResp.chain_note}</div>
+            )}
             {composeResp.composed ? (
               <>
                 {/* 组合步骤（原子资产错峰注入/恢复） */}
@@ -773,6 +787,73 @@ export function AgentPage() {
                 )}
               </>
             )}
+            {/* 未锚定的子句 → 该域真实候选，点选继续补组（不自动发明、不尬住） */}
+            {composeResp.unresolved && composeResp.unresolved.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {composeResp.unresolved.map((u, ui) => (
+                  <div key={ui} className="rounded-md border border-warn/40 bg-warn/5 px-3 py-2">
+                    <div className="text-[11.5px] text-ink-dim">
+                      这段没锚定到唯一故障：<code className="kbd-mono">{u.clause}</code>
+                    </div>
+                    {u.domain_candidates?.faults && u.domain_candidates.faults.length > 0 && (
+                      <>
+                        <div className="mt-1 text-[11px] text-ink-faint">
+                          {u.domain_candidates.domain_zh ?? "该域"}候选（点选即可并入本轮时序，真实键）：
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {u.domain_candidates.faults.map((f) => (
+                            <button
+                              key={f.key}
+                              type="button"
+                              className="tag text-info border-info/40 bg-info/10 hover:bg-info/20 cursor-pointer"
+                              title={`等级 ${f.level ?? "?"} · 处置 ${f.action ?? "?"}`}
+                              onClick={() => void runCompose(`组合：${[...(composeResp.faults ?? [])].join("、")}，${f.name}（${f.key}）`)}
+                            >
+                              + {f.name} ({f.key})
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    {!u.domain_candidates?.faults?.length && (
+                      <div className="mt-1 text-[11px] text-ink-faint">
+                        该句不在故障字典/域词表内——请换说法点名故障名或设备+现象。
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* 下一步可操作（Agent 工作台不让用户"尬住"） */}
+            <div className="mt-3 pt-2 border-t border-line-soft flex flex-wrap items-center gap-1.5">
+              {composeResp.steps && composeResp.steps.length > 0 && (
+                <button
+                  className="btn btn-sm"
+                  onClick={() => composeToFaultLab(composeResp.steps!)}
+                  title="把当前组合步骤作为动画序列播放"
+                >
+                  ▶ 去 FaultLab 播放这组步骤
+                </button>
+              )}
+              <button
+                className="btn-ghost btn-sm"
+                onClick={() => void runCompose(`组合：${composeResp.goal}`)}
+                title="加『组合：』前缀强化意图后重新原子化"
+              >
+                ↻ 重新组合
+              </button>
+              {!composeResp.composed &&
+                composeResp.fault_matches &&
+                composeResp.fault_matches.map((fm) => (
+                  <button
+                    key={fm.key}
+                    className="btn-ghost btn-sm"
+                    onClick={() => void runFreeGoal(`验证${fm.name ?? fm.key}（${fm.key}）`)}
+                  >
+                    单独查证：{fm.name ?? fm.key}
+                  </button>
+                ))}
+            </div>
           </Panel>
         </div>
       )}

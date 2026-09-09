@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import re
+
 from ..knowledge.vector import DOMAIN_ZH, subsystem_domain
 from .advisor import _compose_steps
 
@@ -18,6 +20,17 @@ from .advisor import _compose_steps
 COMPOSE_CAP = 6
 # 规则命中强度门槛：与 freeform 明确命中一致（name/key 3.0 起）
 MIN_SCORE = 3.0
+
+# 时序连接词/标点：用来把"先A，后B，随后C，最后D"切成原子子句
+_CLAUDE_SPLIT = re.compile(r"[，,。；;\n]|先|再|然后|随后|接着|后来|继而|之后|最后|最后再")
+
+# 收尾/期望类动作词（单独成句时 = 整链期望，不是故障）
+_FINAL_ACTION_TERMS = {
+    "emergency_brake": ("紧急制动", "紧急刹车", "立即制动", "紧急停车", " EB", "eb"),
+    "derate": ("降级运行", "限速运行", "降级", "限制功率"),
+    "shutdown": ("停机", "关断", "停运", "断电"),
+    "warning": ("只告警", "仅告警", "报警即可", "告警"),
+}
 
 
 class ComposeError(ValueError):
@@ -115,3 +128,85 @@ def plan_compose(m, goal: str, max_faults: int = COMPOSE_CAP, history: list[str]
         plan["summary"]["history_resolved"] = True
         plan["summary"]["history_faults"] = from_history
     return plan
+
+
+# ---------------------------------------------------------------------------
+# 时序连锁分句解析（v2）："先A后B随后C最后D" → 原子故障序列
+# ---------------------------------------------------------------------------
+
+
+def _split_clauses(goal: str) -> list[str]:
+    """按时序连接词/标点切成子句，保留顺序；去掉空句。"""
+    parts = [p.strip() for p in _CLAUDE_SPLIT.split(goal or "")]
+    return [p for p in parts if p]
+
+
+def _final_action_of(clause: str) -> str | None:
+    """子句是否只表达了『收尾期望』（如"最后紧急制动"）→ 返回 action，否则 None。"""
+    c = clause.lower()
+    for action, terms in _FINAL_ACTION_TERMS.items():
+        if any(t.lower() in c for t in terms):
+            return action
+    return None
+
+
+def _clause_faults(m, clause: str) -> list[str]:
+    """单句内规则命中（按出现顺序，≥MIN_SCORE）。"""
+    from .freeform import _score_candidates  # noqa: PLC0415
+
+    return [
+        h["key"]
+        for h in _score_candidates(clause, list(m.faults_by_key.values()))
+        if h["score"] >= MIN_SCORE
+    ]
+
+
+def _domain_candidates_for(m, clause: str) -> dict | None:
+    """未命中句子但有域词×故障句式 → 给出该域候选故障（供用户点选，不自动加入）。"""
+    try:
+        from ..knowledge.vague import analyze_vague
+
+        return analyze_vague(m, clause)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def plan_compose_seq(m, goal: str, max_faults: int = COMPOSE_CAP) -> dict:
+    """按"先…后…随后…最后…"逐原子子句解析，而不是只挑整句话里的第一个故障。
+
+    返回 {keys(按时序), unresolved:[{clause, domain_candidates?}], final_action?,
+    goal}；一条真实故障都没锚定 → ComposeError（诚实引导）。
+    """
+    goal = (goal or "").strip()
+    if not goal:
+        raise ComposeError("目标不能为空：请一句话描述时序（如「先车门故障，后空调失效，随后牵引失效，最后紧急制动」）。")
+
+    clauses = _split_clauses(goal)
+    if not clauses:
+        clauses = [goal]
+
+    keys: list[str] = []
+    unresolved: list[dict] = []
+    final_action: str | None = None
+    for cl in clauses:
+        hits = _clause_faults(m, cl)
+        if hits:
+            for k in hits:
+                if k not in keys:
+                    keys.append(k)
+            continue
+        act = _final_action_of(cl)
+        if act:
+            final_action = act  # 收尾期望（对整链，非某个故障）
+            continue
+        # 未命中 → 若像"设备+坏了/失效"则给出域候选（诚实让用户点选，不自动塞）
+        dc = _domain_candidates_for(m, cl)
+        unresolved.append({"clause": cl, "domain_candidates": dc})
+    if not keys:
+        raise ComposeError(
+            f"按时序逐句都没识别出真实故障（可用 {len(m.faults_by_key)} 条均未命中）：{goal!r}。"
+            "请直接点名故障键（如 车门故障/超速/烟火报警），我可逐句原子化编排。"
+        )
+    keys = keys[:max_faults]
+    out: dict = {"goal": goal, "keys": keys, "unresolved": unresolved, "final_action": final_action}
+    return out
