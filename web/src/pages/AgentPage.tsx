@@ -271,9 +271,10 @@ export function AgentPage() {
     }
   };
 
-  const runFree = async () => {
-    const g = goal.trim();
-    if (!g || phase === "running") return;
+  const runFreeGoal = async (g: string) => {
+    const goalText = (g ?? "").trim();
+    if (!goalText || phase === "running") return;
+    setGoal(goalText); // 同步输入框，方便用户看到“去查证”的是哪句
     if (sys && !sys.engine.ok) {
       setErr("engine_missing");
       return;
@@ -281,7 +282,7 @@ export function AgentPage() {
     begin();
     try {
       // 契约：命中 → 200 恒带 parsed；规则未命中 → 200 no_match + suggested_faults（RAG 候选）
-      const r = await api.agentFree(g);
+      const r = await api.agentFree(goalText);
       setFreeResp(r);
       if (r.no_match) {
         setGoalHint(r.detail ?? "");
@@ -300,6 +301,8 @@ export function AgentPage() {
       setPhase("done");
     }
   };
+
+  const runFree = () => runFreeGoal(goal);
 
   const runs: AgentRun[] = result?.runs ?? freeResp?.runs ?? [];
 
@@ -581,8 +584,8 @@ export function AgentPage() {
                   key={s.key}
                   type="button"
                   className="tag text-info border-info/40 bg-info/10 hover:bg-info/20 cursor-pointer transition-colors text-left"
-                  title={`等级 ${s.level ?? "?"} · 期望处置 ${s.action ?? "?"}`}
-                  onClick={() => setGoal(`验证${s.name ?? s.key}必须${s.action ?? ""}的处置`)}
+                  title={`等级 ${s.level ?? "?"} · 处置 ${s.action ?? "?"}（点击直接用这个故障让 Agent 查证）`}
+                  onClick={() => void runFreeGoal(`验证${s.name ?? s.key}（${s.key}）`)}
                 >
                   {s.name ?? s.key} <span className="opacity-70">({s.key})</span>
                 </button>
