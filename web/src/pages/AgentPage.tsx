@@ -589,6 +589,11 @@ export function AgentPage() {
               ))}
             </div>
           )}
+          {freeResp?.kb_answer && (
+            <div className="px-2 pb-2 -mt-1 whitespace-pre-line text-[12.5px] text-ink-dim leading-5 max-w-xl mx-auto text-left border-t border-line-soft pt-2">
+              {freeResp.kb_answer}
+            </div>
+          )}
           <div className="flex flex-wrap gap-1.5 justify-center">
             {["车门故障了还能发车吗", "超速后系统该怎么办", "验证紧急制动失败必须停车"].map((ex) => (
               <Tag key={ex} tone="dim" onClick={() => setGoal(ex)}>

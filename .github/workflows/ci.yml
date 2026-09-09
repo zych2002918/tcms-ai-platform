@@ -49,7 +49,7 @@ jobs:
           node-version: "20"
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
       - name: Frontend pure-logic tests
         working-directory: platform/web
         run: |

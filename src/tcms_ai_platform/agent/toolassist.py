@@ -24,6 +24,26 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "kb_filter_assets",
+            "description": "按条件枚举真实资产（故障/场景），支持按等级(level)、处置(action)、关键字过滤。"
+            "问『什么只是警告/降级但仍能运行』时用它：action=warning/derate 为告警或降级运行类，"
+            "action=shutdown/emergency_brake 为停运类；等级 level ∈ critical/major/minor/info。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["fault", "scenario"], "description": "枚举对象：故障字典或复现场景"},
+                    "level": {"type": "string", "description": "故障等级过滤（仅 fault）：critical/major/minor/info"},
+                    "action": {"type": "string", "description": "处置过滤（仅 fault）：warning/derate/shutdown/emergency_brake/none"},
+                    "keyword": {"type": "string", "description": "名称/描述关键字（可选）"},
+                    "limit": {"type": "integer", "description": "返回条数上限（默认 10）"},
+                },
+                "required": ["kind"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "kb_search",
             "description": "在 TCMS 知识库做混合检索（BM25+向量+图谱证据），返回 top 命中文档。问现象/术语/资产关系前先检索。",
             "parameters": {
@@ -82,8 +102,49 @@ def _fmt(text: str, n: int = 200) -> str:
     return str(text).replace("\n", " ")[:n]
 
 
+def _filter_assets(m, kind: str, level: str = "", action: str = "", keyword: str = "", limit: int = 10) -> dict:
+    """按条件枚举真实资产（fault/scenario）。level/action 仅对 fault 生效。"""
+    limit = max(1, min(int(limit or 10), 50))
+    kw = (keyword or "").strip().lower()
+    lv = (level or "").strip().lower()
+    ac = (action or "").strip().lower()
+    if kind == "fault":
+        out = []
+        for f in m.faults_by_key.values():
+            if lv and str(f.level or "").lower() != lv:
+                continue
+            if ac and str(f.action or "").lower() != ac:
+                continue
+            blob = f"{f.name} {f.desc} {f.key}".lower()
+            if kw and kw not in blob:
+                continue
+            out.append({"key": f.key, "name": f.name, "level": f.level, "action": f.action})
+        return {"kind": "fault", "level": lv or None, "action": ac or None, "keyword": keyword or None, "count": len(out), "items": out[:limit]}
+    if kind == "scenario":
+        if lv or ac:
+            return {"error": "scenario 没有 level/action 字段；请对 fault 使用 level/action，或用 keyword 过滤场景名"}
+        out = []
+        for s in m.scenarios.values():
+            blob = f"{s.file} {s.name}".lower()
+            if kw and kw not in blob:
+                continue
+            out.append({"file": s.file, "name": s.name, "fault_keys": sorted(s.fault_keys)[:5]})
+        return {"kind": "scenario", "keyword": keyword or None, "count": len(out), "items": out[:limit]}
+    return {"error": f"kind 只能是 fault/scenario，收到: {kind}"}
+
+
 def _run_tool(name: str, args: dict, m, g, hr) -> dict:
     """执行单个工具；返回 JSON 可序列化 dict（含 error 时也是诚实结果）。"""
+    if name == "kb_filter_assets":
+        kind = str(args.get("kind") or "").strip()
+        return _filter_assets(
+            m,
+            kind,
+            level=str(args.get("level") or ""),
+            action=str(args.get("action") or ""),
+            keyword=str(args.get("keyword") or ""),
+            limit=int(args.get("limit") or 10),
+        )
     if name == "kb_search":
         query = str(args.get("query") or "").strip()
         if not query:
@@ -180,6 +241,43 @@ _RULE_FALLBACK = (
     "或到设置页配置 OpenAI 兼容端点后重试。我不会假装调用过工具。"
 )
 
+# “仅告警/降级但仍运行”类问题的确定性枚举（无 LLM 也能答，结果来自真实故障字典）
+_WARN_TERMS = ("警告", "告警", "warning", "降级", "derate")
+_RUN_TERMS = ("运行", "能跑", "可运行", "还能", "不影响", "继续", "只是", "仅", "失效", "还能跑")
+
+
+def rule_enum_runnable(m, text: str) -> dict | None:
+    """检测『什么失效/故障只是警告/降级但仍能运行』类问题 → 枚举 action∈warning/derate 的故障。"""
+    t = (text or "")
+    if not any(k in t.lower() or k in t for k in _WARN_TERMS):
+        return None
+    if not any(k in t.lower() or k in t for k in _RUN_TERMS):
+        return None
+    try:
+        res = _filter_assets(m, "fault", limit=200)
+        runnable = [it for it in res["items"] if str(it.get("action", "")).lower() in ("warning", "derate")]
+    except Exception:  # noqa: BLE001 - m 不可用时退回通用引导
+        return None
+    if not runnable:
+        return None
+    shown = runnable[:8]
+    lines = ["（规则确定性枚举，未调用 LLM/未配 key）按故障字典回答："]
+    lines.append(
+        f"告警但可继续/降级运行的故障共 {len(runnable)} 个"
+        f"（action ∈ warning/derate；这类只告警或降级，不会触发停运）。示例："
+    )
+    for it in shown:
+        lines.append(f"  - {it['name']}（{it['key']}，等级 {it['level']}，处置 {it['action']}）")
+    lines.append("停运类（shutdown / emergency_brake）不在上列。可用工具 kb_filter_assets 精确过滤，或配 key 后让我继续推理。")
+    return {
+        "reply": "\n".join(lines),
+        "data": {
+            "kind": "rule_enum_warning_derate_runnable",
+            "count": len(runnable),
+            "shown": shown,
+        },
+    }
+
 
 def assist(
     m,
@@ -204,6 +302,11 @@ def assist(
         except Exception:  # noqa: BLE001
             chat = None
     if chat is None or not callable(getattr(chat, "_chat_tools", None)):
+        enum = rule_enum_runnable(m, text)
+        if enum:
+            base: dict = {"reply": enum["reply"], "llm_generated": False, "used_tools": [], "rounds": 0}
+            base["enumeration"] = enum["data"]
+            return base
         return {"reply": _RULE_FALLBACK, "llm_generated": False, "used_tools": [], "rounds": 0}
 
     used: list[str] = []

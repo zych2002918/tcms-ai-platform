@@ -1053,15 +1053,18 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         from ..agent.advisor import _rag_fault_candidates
         from ..agent.freeform import NoFaultMatch, parse_free_goal
         from ..agent.llm_backend import llm_available as _llm_ok
+        from ..agent.toolassist import rule_enum_runnable
 
         try:
             parsed = parse_free_goal(
                 asset_model, req.goal, seq=1, use_llm=_llm_ok()
             )
         except NoFaultMatch as e:
-            # 规则零命中 → KB 检索澄清（"你可能指这些"），给候选而非硬 422
+            # 规则零命中 → ① 若是“仅告警/降级但仍可运行”类盘点问题：先用规则直接枚举真实故障作答；
+            # ② 否则走 KB 检索澄清（“你可能指这些”），给候选而非硬 422
+            enum = rule_enum_runnable(asset_model, req.goal)
             rag_cands, evidence = _rag_fault_candidates(asset_model, retriever, req.goal)
-            return {
+            resp: dict = {
                 "goal": req.goal,
                 "no_match": True,
                 "detail": str(e),
@@ -1069,6 +1072,26 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
                 "rag_evidence": evidence,
                 "followup_question": "上面哪个最接近你想验证的？回复/点选故障名即可继续。",
             }
+            if enum:
+                shown = enum.get("data", {}).get("shown") or []
+                resp["kb_answer"] = enum["reply"]
+                resp["kb_items"] = enum["data"]
+                resp["suggested_faults"] = (
+                    [
+                        {
+                            "key": s["key"],
+                            "name": s["name"],
+                            "level": s.get("level") or "",
+                            "action": s.get("action") or "",
+                            "confidence": 0,
+                            "matched_on": "rule:action∈{warning,derate}",
+                        }
+                        for s in shown
+                    ]
+                    or rag_cands[:5]
+                )
+                resp["followup_question"] = "这些是字典里『告警/降级但仍可运行』的真实故障——想深挖哪一个？点选后我会继续。"
+            return resp
         task = parsed.to_task(req.goal, seq=1)
         resp = _make_harness().run_tasks([task])
         return {

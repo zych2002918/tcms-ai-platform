@@ -120,6 +120,35 @@ def test_no_key_falls_back_to_honest_rule_reply(monkeypatch):
 
 
 @NEEDS_UPSTREAM
+def test_no_key_can_answer_warning_runnable_question_by_rule(monkeypatch):
+    """无 LLM 也能确定性回答『什么只是警告/降级但仍能运行』：枚举 action∈warning/derate 真实故障。"""
+    from tcms_ai_platform.agent.toolassist import assist
+
+    m, g, hr = _kb()
+    monkeypatch.setattr("tcms_ai_platform.agent.llm_backend.llm_available", lambda: False)
+    res = assist(m, g, hr, "什么失效了只是警告但能正常运行", chat=None, use_llm=True)
+    assert res["llm_generated"] is False
+    assert res.get("enumeration", {}).get("kind") == "rule_enum_warning_derate_runnable"
+    assert res["enumeration"]["count"] > 0, "故障字典中应有 action∈warning/derate 的真实故障"
+    assert "示例" in res["reply"] and "停运" in res["reply"]
+
+
+@NEEDS_UPSTREAM
+def test_kb_filter_assets_real_filters():
+    """kb_filter_assets：action/level 过滤只出对应处置；scenario 用 keyword；坏 kind 报错。"""
+    from tcms_ai_platform.agent.toolassist import run_tool_safe
+
+    m, g, hr = _kb()
+    r = run_tool_safe("kb_filter_assets", {"kind": "fault", "action": "warning", "limit": 5}, m, g, hr)
+    assert r["count"] >= 1 and all(it["action"] == "warning" for it in r["items"])
+    r2 = run_tool_safe("kb_filter_assets", {"kind": "fault", "action": "shutdown"}, m, g, hr)
+    assert all(it["action"] == "shutdown" for it in r2["items"])
+    r3 = run_tool_safe("kb_filter_assets", {"kind": "scenario", "keyword": "制动"}, m, g, hr)
+    assert r3["count"] >= 1 and all("制动" in it["name"] or "制动" in it["file"] for it in r3["items"])
+    assert run_tool_safe("kb_filter_assets", {"kind": "bogus"}, m, g, hr).get("error")
+
+
+@NEEDS_UPSTREAM
 def test_pure_tools_return_real_data():
     """工具执行（纯函数）返回真实资产；错误路径诚实报错。"""
     from tcms_ai_platform.agent.toolassist import run_tool_safe
@@ -142,6 +171,26 @@ def test_pure_tools_return_real_data():
     assert run_tool_safe("kb_search", "not-dict", m, g, hr).get("error")
 
 
+def test_agent_free_warning_runnable_kb_answer():
+    """/api/agent/free 对『什么只是警告但能正常运行』返回规则枚举答案（无 key 也答）。"""
+    from fastapi.testclient import TestClient
+
+    from tcms_ai_platform.server.app import create_app
+
+    app = create_app(upstream=UPSTREAM)
+    client = TestClient(app)
+    r = client.post("/api/agent/free", json={"goal": "什么失效了只是警告但能正常运行"})
+    assert r.status_code == 200
+    b = r.json()
+    assert b["no_match"] is True
+    assert b.get("kb_answer") and "示例" in b["kb_answer"]
+    assert b["kb_items"]["count"] > 0
+    assert b["suggested_faults"], "应给可点选的真实故障候选"
+    for s in b["suggested_faults"]:
+        assert s["key"] and s["name"]
+        assert s["action"] in ("warning", "derate"), "只列告警/降级运行类"
+
+
 def test_http_toolassist_contract_without_key():
     """HTTP：无 key（use_llm=false 强制）→ 200 + 契约字段 + 诚实降级。"""
     from fastapi.testclient import TestClient
@@ -156,4 +205,10 @@ def test_http_toolassist_contract_without_key():
     for k in ("reply", "llm_generated", "used_tools", "rounds", "tools_available"):
         assert k in b, f"缺字段 {k}"
     assert b["llm_generated"] is False
-    assert set(b["tools_available"]) == {"kb_search", "symptom_diagnose", "kb_node", "list_scenarios"}
+    assert set(b["tools_available"]) == {
+        "kb_search",
+        "symptom_diagnose",
+        "kb_node",
+        "list_scenarios",
+        "kb_filter_assets",
+    }

@@ -418,6 +418,9 @@ export interface AgentFreeResp extends AgentRunResp {
   }[];
   rag_evidence?: { doc_id: string; kind: string; score: number; text: string }[];
   followup_question?: string;
+  /** 无 LLM/未锚定时，对“仅告警/降级但仍可运行”类盘点问题返回的规则枚举回答 */
+  kb_answer?: string;
+  kb_items?: { kind?: string; count?: number; shown?: { key: string; name: string; level?: string; action?: string }[] };
 }
 
 /** /api/agent/compose：一句话 → 原子资产组合 → 真实执行（Q3）。 */

@@ -39,7 +39,14 @@ def test_tools_list_exposes_five_tools():
     ctx = build_context(UPSTREAM)
     r = dispatch({"id": 3, "method": "tools/list", "params": {}}, ctx)
     names = {t["name"] for t in r["result"]["tools"]}
-    assert names == {"kb_search", "symptom_diagnose", "kb_node", "list_scenarios", "run_scenario"}
+    assert names == {
+        "kb_search",
+        "symptom_diagnose",
+        "kb_node",
+        "list_scenarios",
+        "kb_filter_assets",
+        "run_scenario",
+    }
     for t in r["result"]["tools"]:
         assert t["description"] and t["inputSchema"]
 
@@ -113,7 +120,7 @@ def test_stdio_end_to_end():
     resp = [json.loads(x) for x in out.getvalue().strip().splitlines()]
     assert resp[0]["result"]["serverInfo"]["name"] == "tcms-ai-platform-mcp"
     names = {t["name"] for t in resp[1]["result"]["tools"]}
-    assert "kb_search" in names and "run_scenario" in names
+    assert "kb_search" in names and "run_scenario" in names and "kb_filter_assets" in names
     # 坏 JSON → -32700
     assert resp[2]["error"]["code"] == -32700
     # 诊断工具真实命中
