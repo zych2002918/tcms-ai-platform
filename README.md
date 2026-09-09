@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11+-2dd4a0)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Web_UI-4ca6ff)
 ![React](https://img.shields.io/badge/React-18+-8b7cf6)
-![pytest](https://img.shields.io/badge/pytest-164%20passed-2dd4a0)
+![pytest](https://img.shields.io/badge/pytest-205%20passed-2dd4a0)
 ![CI](https://github.com/zych2002918/tcms-ai-platform/actions/workflows/ci.yml/badge.svg)
 ![license](https://img.shields.io/badge/license-MIT-8ca0c0)
 
@@ -187,7 +187,7 @@ tcms-ai-platform/
 
 ```bash
 # 平台
-python -m pytest tests -q                 # 164 passed（含真实资产冒烟 + 症状诊断回归 + API 契约）
+python -m pytest tests -q                 # 205 passed + 1 skipped（含真实资产冒烟 + 症状诊断回归 + Agent/工具/MCP 契约）
 python -m ruff check src tests            # clean
 # 前端纯逻辑单测（播放器状态机等）
 cd web && pnpm test                       # vitest（src/lib/*.test.ts）
