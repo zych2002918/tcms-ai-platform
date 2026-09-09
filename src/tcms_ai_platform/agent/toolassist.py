@@ -307,6 +307,22 @@ def assist(
             base: dict = {"reply": enum["reply"], "llm_generated": False, "used_tools": [], "rounds": 0}
             base["enumeration"] = enum["data"]
             return base
+        # 宽泛问法推理（域词×故障句式 → 定向推荐；m 不可用则自然跳过）
+        try:
+            from ..knowledge.vague import analyze_vague
+
+            vg = analyze_vague(m, text)
+        except Exception:  # noqa: BLE001 - m 不可用/无上游时跳过
+            vg = None
+        if vg:
+            base = {"reply": vg["reply"], "llm_generated": False, "used_tools": [], "rounds": 0}
+            base["enumeration"] = {
+                "kind": vg["kind"],
+                "domain": vg["domain_zh"],
+                "faults": vg["faults"],
+                "scenarios": vg["scenarios"],
+            }
+            return base
         return {"reply": _RULE_FALLBACK, "llm_generated": False, "used_tools": [], "rounds": 0}
 
     used: list[str] = []

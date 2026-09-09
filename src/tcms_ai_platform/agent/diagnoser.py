@@ -215,7 +215,15 @@ def diagnose_symptom(
                 "未在症状资产中找到匹配 —— 需要补充：① 哪个部位/设备；② 什么工况下发生；"
                 "③ 是否伴随其它现象或告警。我不会把没把握的描述硬说成某个故障。",
             )
-            # 不空手引导：给可点击的“可能相关资产”（真实 fault/scenario）
+            # 不空手引导：先尝试"宽泛问法推理"（域词×故障句式 → 定向推荐），再给相关资产
+            from ..knowledge.vague import analyze_vague
+
+            try:
+                vg = analyze_vague(m, text)
+            except Exception:  # noqa: BLE001
+                vg = None
+            if vg:
+                r1["recommendation"] = vg
             r1["related_assets"] = _related_assets(retriever, text)
             return r1
 
@@ -556,6 +564,7 @@ def _no_match(query: str, reason: str) -> dict:
         "plan": [],
         "evidence": {},
         "clarification": None,
+        "recommendation": None,
         "related_assets": [],
         "no_fault_code_invented": True,
         "llm_generated": False,

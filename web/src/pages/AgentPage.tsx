@@ -489,6 +489,45 @@ export function AgentPage() {
                 <div className="text-[12px] text-ink-dim leading-5">
                   未匹配到症状资产 —— 不会编造故障码。请补充：部位/工况/是否伴随告警后重试；或改用上面“让 Agent 去查证”验证具体故障。
                 </div>
+                {diagResp.recommendation && (
+                  <div className="rounded-md border border-info/40 bg-info/5 px-3 py-2 space-y-2">
+                    <div className="whitespace-pre-line text-[12px] text-ink leading-5">{diagResp.recommendation.reply}</div>
+                    {(diagResp.recommendation.faults?.length ?? 0) > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {diagResp.recommendation.faults!.map((f) => (
+                          <button
+                            key={f.key}
+                            type="button"
+                            className="tag text-info border-info/40 bg-info/10 hover:bg-info/20 cursor-pointer transition-colors"
+                            title={`等级 ${f.level ?? "?"} · 处置 ${f.action ?? "?"}（点此在图谱中查看该真实故障）`}
+                            onClick={() => {
+                              window.location.href = `/graph?focus=${encodeURIComponent(`fault:${f.key}`)}`;
+                            }}
+                          >
+                            {f.name} ({f.key})
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {(diagResp.recommendation.scenarios?.length ?? 0) > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {diagResp.recommendation.scenarios!.map((s) => (
+                          <button
+                            key={s.file}
+                            type="button"
+                            className="tag text-warn border-warn/40 bg-warn/5 hover:bg-warn/10 cursor-pointer transition-colors"
+                            title="在 FaultLab 播放该复现场景"
+                            onClick={() => {
+                              window.location.href = `/faultlab?scenario=${encodeURIComponent(s.file)}&from=kb`;
+                            }}
+                          >
+                            ▶ {s.name || s.file.replace(".yaml", "")}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {diagResp.related_assets && diagResp.related_assets.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {diagResp.related_assets.map((a) => (

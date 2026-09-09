@@ -346,6 +346,16 @@ export interface DiagnoseResp {
   session_id?: string | null;
   /** no_match 时给出的“可能相关资产”（真实 fault/scenario，可点击跳图谱） */
   related_assets?: { doc_id: string; kind: string; text: string }[];
+  /** 宽泛问法推理（域词×故障句式 → 定向推荐真实故障/场景） */
+  recommendation?: {
+    kind?: string;
+    domain?: string;
+    domain_zh?: string;
+    reply?: string;
+    faults?: { key: string; name: string; level?: string; action?: string }[];
+    scenarios?: { file: string; name: string }[];
+    count?: number;
+  } | null;
 }
 
 export interface AgentRunResp {
