@@ -1091,6 +1091,30 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
                     or rag_cands[:5]
                 )
                 resp["followup_question"] = "这些是字典里『告警/降级但仍可运行』的真实故障——想深挖哪一个？点选后我会继续。"
+            elif not rag_cands:
+                # ③ RAG 澄清也没命中 → 用混合检索的 fault 命中兜底（真实键可点选继续），不空手引导
+                extra: list[dict] = []
+                for h in (retriever.retrieve_hybrid(req.goal, k=10).get("hits") or []):
+                    if h.get("kind") != "fault":
+                        continue
+                    doc_id = str(h.get("doc_id") or "")
+                    key = doc_id.split(":", 1)[1] if doc_id.startswith("fault:") else doc_id
+                    name = (str(h.get("text", "")).split(" ", 1)[0] or key)[:40]
+                    extra.append(
+                        {
+                            "key": key,
+                            "name": name,
+                            "level": "",
+                            "action": "",
+                            "confidence": round(float(h.get("score", 0)), 3),
+                            "matched_on": "hybrid",
+                        }
+                    )
+                    if len(extra) >= 5:
+                        break
+                if extra:
+                    resp["suggested_faults"] = extra
+                    resp["followup_question"] = "没锚定到唯一故障，但知识库找到这些可能相关的真实故障——点选继续查证。"
             return resp
         task = parsed.to_task(req.goal, seq=1)
         resp = _make_harness().run_tasks([task])

@@ -254,6 +254,9 @@ class AgentHarness:
             run.review = reviewer.review(task, run)
             healed = [d for d, st in run.review.dimensions.items() if st in ("warn", "fail")]
             run.log("report", f"修正后复评：缺口 {len(gaps)}→{len(healed)}")
+        elif run.attempts == 1 and run.achieved and not run.reflected:
+            # 一次通过也要有可见的“反思环节”（自检）：评审无缺口、无需修正（诚实：未触发修正）
+            run.log("reflect", "自检：6 维评审无缺口，首轮通过，无需修正")
         return run
 
     def run_tasks(self, tasks: list[TaskDef]) -> dict:

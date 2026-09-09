@@ -485,8 +485,27 @@ export function AgentPage() {
               </div>
             )}
             {diagResp.no_match && (
-              <div className="text-[12px] text-ink-dim leading-5">
-                未匹配到症状资产 —— 不会编造故障码。请补充：部位/工况/是否伴随告警后重试；或改用上面“让 Agent 去查证”验证具体故障。
+              <div className="space-y-2">
+                <div className="text-[12px] text-ink-dim leading-5">
+                  未匹配到症状资产 —— 不会编造故障码。请补充：部位/工况/是否伴随告警后重试；或改用上面“让 Agent 去查证”验证具体故障。
+                </div>
+                {diagResp.related_assets && diagResp.related_assets.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {diagResp.related_assets.map((a) => (
+                      <button
+                        key={a.doc_id}
+                        type="button"
+                        className="tag text-info border-info/40 bg-info/10 hover:bg-info/20 cursor-pointer transition-colors"
+                        title={a.text}
+                        onClick={() => {
+                          window.location.href = `/graph?focus=${encodeURIComponent(a.doc_id)}`;
+                        }}
+                      >
+                        {a.doc_id.replace(/^(fault|scenario):/, "").replace(".yaml", "")}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

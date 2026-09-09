@@ -196,7 +196,9 @@ def diagnose_symptom(
     """
     text = (text or "").strip()
     if not text:
-        return _no_match(text, "输入为空 —— 请描述你观察到的异常现象（部位/工况）。")
+        r0 = _no_match(text, "输入为空 —— 请描述你观察到的异常现象（部位/工况）。")
+        r0["related_assets"] = []
+        return r0
 
     anchor = session_anchor or {}
     anchor_used = False
@@ -208,11 +210,14 @@ def diagnose_symptom(
             sym = dict(a_sym)
             anchor_used = True
         else:
-            return _no_match(
+            r1 = _no_match(
                 text,
                 "未在症状资产中找到匹配 —— 需要补充：① 哪个部位/设备；② 什么工况下发生；"
                 "③ 是否伴随其它现象或告警。我不会把没把握的描述硬说成某个故障。",
             )
+            # 不空手引导：给可点击的“可能相关资产”（真实 fault/scenario）
+            r1["related_assets"] = _related_assets(retriever, text)
+            return r1
 
     sym_id = f"symptom:{sym['key']}"
     walk = graph.causal_chain(sym_id, depth=depth) if sym_id in graph.nodes else {
@@ -520,6 +525,25 @@ def _rule_reply(text: str, sym: dict, candidates: list[dict], plan: list[dict]) 
     return "\n".join(lines)
 
 
+def _related_assets(retriever, text: str, k: int = 4) -> list[dict]:
+    """no_match 时给"可能相关资产"（真实 fault/scenario，可点击跳图谱/演示），不空手引导。"""
+    t = (text or "").strip()
+    if not t:
+        return []
+    out: list[dict] = []
+    for h in retriever.store.search(t, k=max(k * 2, 8), domains=None):
+        if h.get("kind") not in ("fault", "scenario"):
+            continue
+        if float(h.get("score", 0.0)) < _SYMPTOM_MIN_ABS_SCORE:
+            continue
+        out.append(
+            {"doc_id": h["doc_id"], "kind": h["kind"], "text": str(h.get("text", ""))[:120]}
+        )
+        if len(out) >= k:
+            break
+    return out
+
+
 def _no_match(query: str, reason: str) -> dict:
     return {
         "query": query,
@@ -532,6 +556,7 @@ def _no_match(query: str, reason: str) -> dict:
         "plan": [],
         "evidence": {},
         "clarification": None,
+        "related_assets": [],
         "no_fault_code_invented": True,
         "llm_generated": False,
     }

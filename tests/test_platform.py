@@ -375,6 +375,18 @@ def test_diagnose_unknown_symptom_honest_http(client):
     assert "补充" in body["reply"] or "把握" in body["reply"]
 
 
+def test_diagnose_broad_phrase_gives_related_assets_http(client):
+    """宽泛描述(空调坏了)→ no_match 但给出可点击相关资产(真实 fault/scenario)，不空手引导。"""
+    r = client.post("/api/agent/diagnose", json={"message": "空调坏了"})
+    assert r.status_code == 200
+    b = r.json()
+    assert b["no_match"] is True
+    rel = b.get("related_assets") or []
+    assert rel, "空调坏了 应能给出相关资产（hvac 域故障/场景）"
+    assert all(a["doc_id"].startswith(("fault:", "scenario:")) for a in rel)
+    assert any("空调" in a["text"] or "hvac" in a["doc_id"] for a in rel)
+
+
 def test_diagnose_empty_message_guided(client):
     """空输入 → 引导（绝不 422/500）。"""
     r = client.post("/api/agent/diagnose", json={"message": ""})

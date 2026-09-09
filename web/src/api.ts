@@ -344,6 +344,8 @@ export interface DiagnoseResp {
   /** P1-1：本轮是否沿上一轮症状锚点继续（证据引用式多轮记忆） */
   session_anchor_used?: boolean;
   session_id?: string | null;
+  /** no_match 时给出的“可能相关资产”（真实 fault/scenario，可点击跳图谱） */
+  related_assets?: { doc_id: string; kind: string; text: string }[];
 }
 
 export interface AgentRunResp {
