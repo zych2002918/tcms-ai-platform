@@ -42,6 +42,29 @@
 - `domain/enrichment.py`：concept 注入对含 "EB" 的卡关联 `function:F-EBM`；interlock 关联 fault 增加 `integrity_loss`/`door_open_moving` 的 `enforces` 边（图谱可达，非孤立）。
 - 计数同步（纪律）：203 故障 / 104 场景 / 基础图 519 节点 / 508 资产文档 / enrich 655 节点，测试与 README/docs 全链更新。
 
+## 2.4 举一反三：interlock→fault 关联机制化（不再关键词猜）
+
+审计追问"只加这一个关联？图谱应按现实举一反三"——验证发现关键词猜关联存在**误连/漏连**
+（`door_open_moving`(字典 EB) interlock 邻居为空；`door_fault` 因"门"字被误连到
+ILK-INTEGRITY-EB / ILK-EB-DECISION）。修复为机制级：
+
+- **显式 fault_keys**：`domain_ebm.json` 每条 interlock 声明其真实约束的故障键
+  （依据 = 引擎函数语义 + 场景 expect 断言），enrichment 注入只读声明，废除关键词猜测：
+  - `ILK-DOOR-MOTION → door_open_moving, door_fault`（移动×门开/门故障违规）
+  - `ILK-EB-DECISION → overspeed, door_open_moving`（超速或门联锁冲突 → EB 请求）
+  - `ILK-OVERSPEED → overspeed`；`ILK-PANTOGRAPH-ARC → pantograph_arc`
+  - `ILK-TRACTION-BRAKE → traction_brake_conflict`
+  - `ILK-INTEGRITY-EB → integrity_loss, door_open_moving`（SIL4 严重原因 → EB 环线）
+- **同型条件化补齐**（都是引擎真实机制，非杜撰）：上游 faults.yaml 给 `door_fault`
+  加 action_note（静止=禁发车/derate；**运行中=门-车联锁违规走 EB**，见 door_open_moving）、
+  `overspeed` 加 action_note（处置取决于 ATP 三级：Warning/SBI→derate；达 EBI→EB 请求）。
+- **回归测试** `test_interlock_fault_links_are_explicit`：锁定显式声明结果（door_open_moving
+  必被三联锁约束、door_fault 不再误连、fault_keys 均指向真实键），防回退到关键词猜。
+
+诚实边界：`integrity_loss / door_open_moving` **不**加 `-causes-> traction_loss` 因果边——
+EB 环线失电导致的牵引切除是**预期联锁动作**，不是"牵引丢失部件故障"的成因；硬连会污染
+诊断链（把 EB 伴随当成故障因果）。该联合语义由 interlock + action_note + 概念卡承载。
+
 ## 3. 诚实边界（不夸大）
 - 场景执行器（ScenarioRunner）按"注入故障 → 期望 = 故障字典默认处置"断言；**它不做环线失电的物理级联仿真**。真正的"EB 施加须牵引切除"证据在引擎模块 `exec_feedback.py`（三重证据），不是 YAML 场景能断言的。
 - 新增 `integrity_loss` 是真实安全概念（列车完整性监视 / 分离检测），非杜撰；其 EB 处置与既有 `door_open_moving`(critical/EB) 同属 SIL4 严重原因分支。

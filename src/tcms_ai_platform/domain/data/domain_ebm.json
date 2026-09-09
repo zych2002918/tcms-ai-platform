@@ -272,63 +272,87 @@
    "name": "门-车联锁（door_motion_conflict）",
    "rule": "列车移动时，任一车门处于打开或故障状态即违规",
    "condition": "moving = speed_valid 且 speed_kmh > MOTION_THRESHOLD_KMH(0.5)；门状态枚举（DOOR_STATE）：1=Open、2=Fault",
-   "consequence": "返回 (True, 'door_open_while_moving') 或 (True, 'door_fault_while_moving')；安全原则：故障门按未关闭处理，故障与打开同判违规"
+   "consequence": "返回 (True, 'door_open_while_moving') 或 (True, 'door_fault_while_moving')；安全原则：故障门按未关闭处理，故障与打开同判违规",
+   "fault_keys": [
+    "door_open_moving",
+    "door_fault"
+   ]
   },
   {
    "id": "ILK-OVERSPEED",
    "name": "超速判定（overspeed_trigger）",
    "rule": "有效速度超过限速即触发超速（不含等于）",
    "condition": "speed_valid 且 speed_kmh > limit；limit 默认 proto.OVERSPEED_LIMIT_KMH = 160.0（km/h）",
-   "consequence": "返回 True（超速）。该限速常量同 atp.DEFAULT_LIMIT_KMH，与 protocol 超速报警阈值一致"
+   "consequence": "返回 True（超速）。该限速常量同 atp.DEFAULT_LIMIT_KMH，与 protocol 超速报警阈值一致",
+   "fault_keys": [
+    "overspeed"
+   ]
   },
   {
    "id": "ILK-EB-DECISION",
    "name": "紧急制动决策（emergency_brake_decision）",
    "rule": "超速 或 门联锁冲突 时触发紧急制动",
    "condition": "overspeed_flag or door_conflict 任一为真",
-   "consequence": "返回 True → 触发紧急制动请求"
+   "consequence": "返回 True → 触发紧急制动请求",
+   "fault_keys": [
+    "overspeed",
+    "door_open_moving"
+   ]
   },
   {
    "id": "ILK-PANTOGRAPH-ARC",
    "name": "受电弓拉弧风险（pantograph_arc_risk）",
    "rule": "弓升（pantograph_up 为真）但接触网电压异常（过低/过高）存在拉弧风险",
    "condition": "弓升 且 line_voltage < 19000 V → 'line_voltage_low_with_pantograph_up'；弓升 且 line_voltage > 31000 V → 'line_voltage_high_with_pantograph_up'（接触网标称约 25kV/DC，阈值即真实弓网电压上下限）",
-   "consequence": "返回 (True, 具体原因)；弓未升起返回 (False, '')"
+   "consequence": "返回 (True, 具体原因)；弓未升起返回 (False, '')",
+   "fault_keys": [
+    "pantograph_arc"
+   ]
   },
   {
    "id": "ILK-SOC-LOW",
    "name": "能源联锁（soc_low_charge_guard）",
    "rule": "SOC 过低且未充电时提示（非安全违规，降级运行信号）",
    "condition": "soc_percent < 10 且 charging=False",
-   "consequence": "返回 (True, 'soc_critical_not_charging')"
+   "consequence": "返回 (True, 'soc_critical_not_charging')",
+   "fault_keys": []
   },
   {
    "id": "ILK-TRACTION-BRAKE",
    "name": "牵引-制动互锁（traction_brake_conflict）",
    "rule": "手柄在牵引位且同时存在制动请求 → 冲突（危及安全）；牵引与制动同时施加会损坏机械/导致失控，必须互锁",
    "condition": "traction_request = handle_position > 0；traction_request 且 brake_request → 'traction_brake_conflict'；traction_request 且 not traction_allowed → 'traction_not_allowed'",
-   "consequence": "返回 (True, 具体原因)；手柄位置 >0 视为牵引请求"
+   "consequence": "返回 (True, 具体原因)；手柄位置 >0 视为牵引请求",
+   "fault_keys": [
+    "traction_brake_conflict"
+   ]
   },
   {
    "id": "ILK-DIRECTION-SPEED",
    "name": "方向-速度联动（direction_speed_conflict）",
    "rule": "方向为 Neutral(0)/Invalid(3) 时不允许有非零速度（未选方向却移动=危险）；方向信号与速度符号必须一致",
    "condition": "direction in (0,3) 且 speed_kmh > MOTION_THRESHOLD_KMH(0.5) → 'direction_neutral_with_motion'；direction 不在 (0,1,2,3) → 'invalid_direction'；DIRECTION 枚举：0=Neutral、1=Forward、2=Reverse、3=Invalid",
-   "consequence": "返回 (True, 具体原因)"
+   "consequence": "返回 (True, 具体原因)",
+   "fault_keys": []
   },
   {
    "id": "ILK-PLATFORM-DOOR",
    "name": "车门-站台联动（platform_door_release）",
    "rule": "站台侧门释放必须满足『零速 + 站台对准』；列车未停稳或未对准站台时禁止释放站台侧门（防坠落/挤伤）",
    "condition": "speed_kmh > zero_speed_threshold(默认 MOTION_THRESHOLD_KMH=0.5) 且 platform_aligned=True → 'platform_door_release_moving'",
-   "consequence": "返回 (True, 'platform_door_release_moving')"
+   "consequence": "返回 (True, 'platform_door_release_moving')",
+   "fault_keys": []
   },
   {
    "id": "ILK-INTEGRITY-EB",
    "name": "列车完整性/门联锁 → EB 环线失电联锁（integrity→EB loop）",
    "rule": "检测到列车完整性丧失（integrity_loss）或运行中车门打开（door_open_moving）等 SIL4 严重安全原因时，紧急制动环线失电 → 同时失去牵引力并施加紧急制动（处置取决于原因：可恢复部件级牵引丢失仅 derate，不自行升级 EB）",
    "condition": "严重安全原因存在（完整性回路失电 / 移动×门开或门故障违规）；EB 执行须 exec_feedback 三重证据（压力+回执+牵引切除）",
-   "consequence": "EB 环线失电 → 牵引切除 + 紧急制动同现（integrity_loss / door_open_moving 资产锚定，见 integrity_loss_eb_loop.yaml 场景）"
+   "consequence": "EB 环线失电 → 牵引切除 + 紧急制动同现（integrity_loss / door_open_moving 资产锚定，见 integrity_loss_eb_loop.yaml 场景）",
+   "fault_keys": [
+    "integrity_loss",
+    "door_open_moving"
+   ]
   }
  ],
  "voting": {

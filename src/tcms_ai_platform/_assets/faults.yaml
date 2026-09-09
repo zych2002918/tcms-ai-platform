@@ -60,6 +60,7 @@ faults:
   detect: DoorControl 状态枚举检查（DOOR_STATE=2/3）
   inject: 注入 DoorControl 帧门状态为 Fault/Unknown
   recovery: 车门状态恢复正常且联锁通过
+  action_note: 处置取决于运行状态：列车静止/未移动 → 按未关处理、禁止发车（derate）；列车移动中门状态不可信/打开 → 门-车联锁（ILK-DOOR-MOTION）判违规并走紧急制动，见 door_open_moving 资产（door_motion_conflict：移动>0.5km/h × 门开/门故障即违规）。
 - fid: F-TCMS-006
   key: traction_loss
   name: 牵引丢失
@@ -85,6 +86,7 @@ faults:
   detect: ATP 速度监督（atp.SpeedSupervisor：Warning/SBI/EBI）
   inject: 仿真器 set_speed 越过限速
   recovery: 速度回落后按 ATP 曲线缓解
+  action_note: 处置取决于严重度分级（ATP 三级监督）：Warning/SBI 阶段 → 告警/常用制动（derate 处置）；持续超速达到 EBI 触发边界 → ATP 紧急制动请求（overspeed 也列入 EBM 紧急制动原因表，见 ILK-OVERSPEED / ILK-EB-DECISION）。本键默认 derate 为"初超速"处置，EB 升级由 ATP 曲线/EBI 边界驱动。
 - fid: F-TCMS-008
   key: heartbeat_loss_vcu
   name: VCU 心跳丢失

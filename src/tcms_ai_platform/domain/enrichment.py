@@ -152,14 +152,10 @@ def inject_ebm(g: KnowledgeGraph, store: VectorStore | None, data: dict) -> int:
         rule = il.get("rule", "")
         cond = il.get("condition", "")
         cons = il.get("consequence", "")
-        # 粗略关联 fault
-        blob = name + rule
-        for fk, kw in [("door_fault", "门"), ("overspeed", "超速"), ("pantograph_arc", "受电弓"), ("traction_brake_conflict", "牵引"), ("soc_low", "SOC")]:
-            if kw in blob and f"fault:{fk}" in g.nodes:
-                links.append(("enforces", f"fault:{fk}"))
-        # SIL4 严重安全原因 → EB 环线联锁（完整性/运行中门开），见 ILK-INTEGRITY-EB
-        for fk, kw in [("integrity_loss", "完整性"), ("door_open_moving", "门开")]:
-            if kw in blob and f"fault:{fk}" in g.nodes:
+        # 显式 fault 关联（domain_ebm.json 每条 interlock 的 fault_keys——按引擎函数
+        # 语义 + 场景 expect 声明，杜绝"关键词泛匹配"造成的误连/漏连，如 door_open_moving）
+        for fk in il.get("fault_keys", []) or []:
+            if fk and f"fault:{fk}" in g.nodes:
                 links.append(("enforces", f"fault:{fk}"))
         _add_knowledge(
             g, store, "interlock", iid, name,

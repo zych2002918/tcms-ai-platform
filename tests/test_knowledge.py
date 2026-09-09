@@ -258,6 +258,43 @@ def test_systems_injected_and_all_faults_linked():
 
 
 @NEEDS_UPSTREAM
+def test_interlock_fault_links_are_explicit():
+    """联锁→故障关联必须来自显式声明（domain_ebm.json fault_keys），不是关键词猜。
+
+    防回退：door_open_moving（运行中门开，字典 EB）必须被门-车联锁/EB 决策/完整性联锁
+    约束；door_fault 只能挂门-车联锁（不再因"门"字被误连到完整性联锁）；overspeed 挂
+    超速判定 + EB 决策；traction_brake_conflict 挂牵引-制动互锁。
+    """
+    from tcms_ai_platform.core import load_asset_model
+    from tcms_ai_platform.domain import enrich_graph
+    from tcms_ai_platform.knowledge import VectorStore, build_knowledge_graph
+
+    m = load_asset_model(UPSTREAM)
+    g = build_knowledge_graph(m)
+    vs = VectorStore()
+    enrich_graph(g, vs)
+
+    def il_links(fid: str) -> set[str]:
+        return {nb.split(":", 1)[1] for nb, _k in g.neighbors(fid) if nb.startswith("interlock:")}
+
+    assert il_links("fault:door_open_moving") == {
+        "ILK-DOOR-MOTION", "ILK-EB-DECISION", "ILK-INTEGRITY-EB",
+    }, "运行中门开应被门联锁/EB决策/完整性联锁约束（显式声明，非空）"
+    assert il_links("fault:door_fault") == {"ILK-DOOR-MOTION"}, "door_fault 只挂门-车联锁（不再因'门'字误连）"
+    assert "ILK-OVERSPEED" in il_links("fault:overspeed")
+    assert "ILK-EB-DECISION" in il_links("fault:overspeed")
+    assert il_links("fault:traction_brake_conflict") == {"ILK-TRACTION-BRAKE"}
+    assert il_links("fault:integrity_loss") == {"ILK-INTEGRITY-EB"}
+    # 每个 fault_keys 都指向真实故障键
+    from tcms_ai_platform.domain.enrichment import load_domain_json
+
+    data = load_domain_json("domain_ebm.json")
+    for il in data.get("interlocks", []):
+        for fk in il.get("fault_keys", []):
+            assert fk in m.faults_by_key, f"interlock {il['id']} 引用未知故障 {fk}"
+
+
+@NEEDS_UPSTREAM
 def test_system_view_routing_returns_system():
     """系统视角查询（"制动系统有哪些故障"）→ 路由到域且顶层命中 system 节点。"""
     from tcms_ai_platform.core import load_asset_model
