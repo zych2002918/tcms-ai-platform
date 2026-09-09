@@ -24,8 +24,8 @@ def test_load_real_assets_counts():
     s = m.stats()
     assert s["messages"] == 22
     assert s["signals"] == 116
-    assert s["faults"] == 202
-    assert s["scenarios"] == 103
+    assert s["faults"] == 203
+    assert s["scenarios"] == 104
     assert s["req_ids"] == 52
     assert s["functions"] == 11
     assert s["devices"] == 11
@@ -161,7 +161,7 @@ def test_devices_endpoint(client):
 
 def test_faults_endpoint(client):
     faults = client.get("/api/faults").json()
-    assert len(faults) == 202
+    assert len(faults) == 203
     eb = next(f for f in faults if f["key"] == "eb_failure")
     assert eb["action"] == "emergency_brake"
 
@@ -174,7 +174,7 @@ def test_fault_detail(client):
 
 def test_scenarios_endpoint(client):
     scs = client.get("/api/scenarios").json()
-    assert len(scs) == 103
+    assert len(scs) == 104
     assert any(s["file"] == "door_cascade.yaml" for s in scs)
 
 
@@ -208,11 +208,11 @@ def test_run_scenario_404(client):
 
 
 def test_run_scenarios_all(client):
-    """批量执行全部 103 场景全部通过（真实引擎）。"""
+    """批量执行全部 104 场景全部通过（真实引擎）。"""
     r = client.post("/api/run/scenarios", json={})
     assert r.status_code == 200
     body = r.json()
-    assert body["scenario_count"] == 103
+    assert body["scenario_count"] == 104
     assert body["all_passed"] is True
     assert body["total_fail"] == 0
 
@@ -252,7 +252,7 @@ def test_kb_subgraph(client):
 
 def test_kb_nodes_filter(client):
     nodes = client.get("/api/kb/nodes", params={"kind": "fault", "limit": 5000}).json()
-    assert len(nodes) == 202
+    assert len(nodes) == 203
     assert all(n["kind"] == "fault" for n in nodes)
 
 
@@ -345,7 +345,7 @@ def test_diagnose_dashboard_flicker_regression_http(client):
     assert body["no_fault_code_invented"] is True
     # 溯源：候选全部为真实故障字典键
     fk = {f["key"] for f in client.get("/api/faults").json()}
-    assert len(fk) == 202
+    assert len(fk) == 203
     for c in body["candidates"]:
         assert c["fault"] in fk, f"编造故障键: {c['fault']}"
         assert c["basis"] in ("real_mechanism", "derived")
@@ -447,7 +447,7 @@ def test_faultlab_scenarios(client):
     r = client.get("/api/faultlab/scenarios")
     assert r.status_code == 200
     scs = r.json()
-    assert len(scs) == 103
+    assert len(scs) == 104
     assert any(s["file"] == "overspeed_derate.yaml" for s in scs)
 
 

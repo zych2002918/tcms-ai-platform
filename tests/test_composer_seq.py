@@ -159,3 +159,28 @@ def test_compose_seq_endpoint_multi_pick_no_disappear():
     rec = [s["fault"] for s in b2["steps"] if s["action"] == "recover"]
     assert inj == ["door_fault", hvac_key, tr_key]
     assert rec == ["door_fault", hvac_key, tr_key]
+
+
+@NEEDS_UPSTREAM
+def test_compose_seq_interlock_note_on_door_traction_eb():
+    """门/牵引域故障 + 收尾 EB 期望 → 联锁联合提示（处置取决于原因 + 现成联锁场景）。"""
+    from fastapi.testclient import TestClient
+
+    from tcms_ai_platform.server.app import create_app
+
+    app = TestClient(create_app(upstream=UPSTREAM))
+    msg = "先车门故障，后空调失效，随后牵引失效，最后紧急制动"
+    picks = [
+        {"clause": "后空调失效", "key": "hvac_airflow_low_cabin"},
+        {"clause": "牵引失效", "key": "traction_loss"},
+    ]
+    b = app.post("/api/agent/compose_seq", json={"message": msg, "picks": picks}).json()
+    assert b["final_action"] == "emergency_brake"
+    assert b["interlock_note"], "门/牵引域 + EB 收尾应带处置取决于原因的联锁提示"
+    files = {s["file"] for s in b["interlock_scenarios"]}
+    assert "integrity_loss_eb_loop.yaml" in files, "应引用列车完整性丧失联锁场景"
+    assert "door_open_moving_eb.yaml" in files, "应引用运行中车门打开联锁场景"
+    # 无 EB 收尾 → 不给联锁提示（不误标）
+    b2 = app.post("/api/agent/compose_seq", json={"message": "车门故障，随后超速"}).json()
+    assert b2.get("final_action") is None
+    assert not b2.get("interlock_note")

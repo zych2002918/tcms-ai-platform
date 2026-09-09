@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-2dd4a0)](#快速开始)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Web_UI-4ca6ff)](#)
 [![React](https://img.shields.io/badge/React-18+-8b7cf6)](#)
-[![pytest](https://img.shields.io/badge/pytest-205%20passed-2dd4a0)](#测试--门禁)
+[![pytest](https://img.shields.io/badge/pytest-220%20passed-2dd4a0)](#测试--门禁)
 [![CI](https://github.com/zych2002918/tcms-ai-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/zych2002918/tcms-ai-platform/actions)
 [![license](https://img.shields.io/badge/license-MIT-8ca0c0)](#license)
 
@@ -42,7 +42,7 @@ Agent(Harness · 8 类真实任务 / 自由目标 / 症状多跳诊断)
 ## 核心亮点
 
 ### 🧠 真实资产驱动的知识底座
-- 202 条 FMEA 故障（13 系统域）/ 103 个可执行场景 / 22 报文·116 信号 / 52 安全需求，全部来自上游引擎 `tcms-can-test`；
+- 203 条 FMEA 故障（13 系统域）/ 104 个可执行场景 / 22 报文·116 信号 / 52 安全需求，全部来自上游引擎 `tcms-can-test`；
 - **GraphRAG 风格混合检索**：BM25 词法 + 向量 + 图谱证据三通道 RRF 融合；默认**字符级确定性通道**（离线、可复现），真语义近义为**可选增强**（`TCMS_EMBEDDER=api` 接入 OpenAI 兼容 embedding，无 key/失败自动降级，绝不冒充语义）；
 - **出处链**：检索与诊断的每条证据都可点到资产 `file:key`（`faults.yaml`/`symptoms.yaml`/`tcms.dbc`…）；
 - **弱证据升级**：A、B 无直接边时给出可溯源的资产锚点与 2 跳路径，不靠黑盒硬编。
@@ -119,14 +119,14 @@ bash start.sh
 
 | 门禁 | 结果 | 说明 |
 |---|---|---|
-| `pytest -q` | **205 passed + 1 skipped** | 检索 14 golden、诊断 8 golden、26 条对抗集、多轮/澄清/MCP/function-calling 契约… |
+| `pytest -q` | **220 passed + 1 skipped** | 检索 14 golden、诊断 8 golden、26 条对抗集、多轮/澄清/MCP/function-calling 契约… |
 | `ruff check src tests` | clean | |
 | `pnpm vitest run` | 16/16 | 播放器状态机/3D 布局纯逻辑 |
 | `node e2e/graph-interact.mjs` | 5/5 | 图谱单击详情/双击跳转/返回/3D 交互（真浏览器） |
 | GitHub Actions | ✅ 绿 | push/PR：pytest+ruff → vitest（双仓自动带真实上游） |
 
 ```bash
-python -m pytest tests -q                 # 205 passed + 1 skipped
+python -m pytest tests -q                 # 220 passed + 1 skipped
 python -m ruff check src tests            # All checks passed
 cd web && pnpm test                       # vitest 16/16
 ```

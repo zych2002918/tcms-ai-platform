@@ -113,7 +113,7 @@ def validate_symptom_assets(m) -> dict:
                 if h not in {f"system:{c}" for c in sys_codes}:
                     errs.append(f"{key}: 未知系统域候选 {h}")
             elif h not in fault_keys:
-                errs.append(f"{key}: 候选故障键 {h} 不在 202 条故障字典")
+                errs.append(f"{key}: 候选故障键 {h} 不在故障字典（{len(fault_keys)} 条）")
         domains = s.get("domains") or []
         if not domains:
             errs.append(f"{key}: 缺涉及域 domains")

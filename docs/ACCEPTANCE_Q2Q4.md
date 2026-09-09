@@ -49,7 +49,7 @@
 
 | 子项 | 实测 |
 |---|---|
-| ⑤-a 域特征演示档 | `faultlab._domain_alarm`：**202/202 故障**均可生成结构化告警（名·子系统域/层·期望处置，诚实标注"示意/巡航基线"） |
+| ⑤-a 域特征演示档 | `faultlab._domain_alarm`：**203/203 故障**均可生成结构化告警（名·子系统域/层·期望处置，诚实标注"示意/巡航基线"） |
 | ⑤-b 通道级示例档案 | 8 个 Wave A/B/C 域代表故障 curated（door_open_moving→EB 施加等，语义保守映射）；190+ 由域文案兜底 |
 | FaultLab 冒烟 | door_open_moving_eb → emergency_brake；aux_converter_fault_derate → derate（事件时间线完整） |
 
@@ -81,7 +81,7 @@
 | 症状资产文件 | `src/tcms_ai_platform/domain/data/symptoms.yaml`（随包分发；选择平台侧理由：症状消费方=图谱/规划器全在平台，上游引擎不感知，快照字节级纪律不受影响） |
 | 首批症状 | **12 条**：仪表盘闪烁/HMI 无显示/灯具闪烁/客室灯组频闪/大屏花屏/时钟跳变/网络时断时续/SOC 跳变/速度瞬时归零/开门到位灯闪/报警音误响/制动灯异常 |
 | schema 合规 | key/name/description/涉及域(13 域标签，主域=向量分区)/hints(2-4 个)/annotation/evidence 全齐 |
-| 无孤儿/不冲突 | 症状 key 不与 202 故障键冲突；hints 全部 ∈ 真实故障字典或 13 系统域（`domain/causal.validate_symptom_assets` 强制） |
+| 无孤儿/不冲突 | 症状 key 不与 203 故障键冲突；hints 全部 ∈ 真实故障字典或 13 系统域（`domain/causal.validate_symptom_assets` 强制） |
 | 诚实标注 | annotation：real 7 / mixed 5（derived 示意候选显式标注，绝不冒充真实机制） |
 
 ## B. 因果边 + 多跳遍历 ✅
@@ -124,7 +124,7 @@
 
 | 用户点 | 交付与实测 |
 |---|---|
-| ① 场景命名 | 44 个 wave_a/b/c 模板名 → 简短中文名；**103/103 场景补齐 `desc`**（故障序列中文释义，机器生成，审计 0 缺失）；name 唯一、无模板残留；desc 全链（models/loader/列表端点）透出；Scenarios/Agent 结果标题 file→中文名映射 |
+| ① 场景命名 | 44 个 wave_a/b/c 模板名 → 简短中文名；**104/104 场景补齐 `desc`**（故障序列中文释义，机器生成，审计 0 缺失）；name 唯一、无模板残留；desc 全链（models/loader/列表端点）透出；Scenarios/Agent 结果标题 file→中文名映射 |
 | ② FaultLab 提示 | DemoEvent 增 `fault_name/subsystem/domain_zh`（字典派生）；高亮点与 chip **显示具体故障名 + 「【系统域 · 子系统】」定位**（不再是“系统异常”）；注入瞬间横幅“哪里+什么”；**点击高亮点/chip 弹出异常说明**（等级/现象/检测语义，原生 tooltip 悬停） |
 | ③ 图谱默认+交互 | `GET /api/kb/overview`（13 系统+11 功能+代表故障 = **56 节点/65 边**）进页即显；2D/3D 节点单击详情/双击跳转；3D 滚轮缩放+适配+停转 3s 自动恢复自转；修复 `?focus=` 直达前缀拼坏 |
 | ④ 遗留盘点/资产健康 | 见上文“遗留/下一步”与下方资产健康快照；本批新落地：**症状诊断前端卡片**（Agent 页，全离线确定性） |

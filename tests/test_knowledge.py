@@ -37,11 +37,11 @@ def kb():
 @NEEDS_UPSTREAM
 def test_graph_stats(kb):
     s = kb["graph"].stats()
-    assert s["nodes"] == 517  # 22 报文/116 信号/202 故障/103 场景/52 需求/11 功能/11 设备（基础图，不含 enrich）
+    assert s["nodes"] == 519  # 22 报文/116 信号/203 故障/104 场景/52 需求/11 功能/11 设备（基础图，不含 enrich）
     assert s["edges"] >= 300
-    assert s["by_kind"]["fault"] == 202
+    assert s["by_kind"]["fault"] == 203
     assert s["by_kind"]["signal"] == 116
-    assert s["by_kind"]["scenario"] == 103
+    assert s["by_kind"]["scenario"] == 104
     assert s["by_kind"]["function"] == 11
 
 
@@ -71,8 +71,8 @@ def test_graph_subgraph_overspeed(kb):
 @NEEDS_UPSTREAM
 def test_vector_store_stats(kb):
     s = kb["store"].stats()
-    assert s["docs"] == 506  # 资产文档：202 故障/116 信号/103 场景/52 需求/11 功能/22 报文
-    assert s["by_kind"]["fault"] == 202
+    assert s["docs"] == 508  # 资产文档：203 故障/116 信号/104 场景/52 需求/11 功能/22 报文
+    assert s["by_kind"]["fault"] == 203
     assert s["by_kind"]["requirement"] == 52
 
 
@@ -162,10 +162,10 @@ def test_asset_docs_all_partitioned(kb):
     def nonempty(kind: str) -> int:
         return sum(1 for d in kinds.get(kind, []) if (d.meta.get("domain") or ""))
 
-    assert nonempty("fault") == len(m.faults_by_key) == 202
+    assert nonempty("fault") == len(m.faults_by_key) == 203
     assert nonempty("message") == len(m.messages) == 22
     assert nonempty("signal") == len(m.signals) == 116
-    assert nonempty("scenario") == len(m.scenarios) == 103
+    assert nonempty("scenario") == len(m.scenarios) == 104
     assert nonempty("function") == len(m.functions) == 11
     # 需求：只有不被任何功能追溯的 SR 才允许空域（基础设施类，如 recorder/replay/rtm）
     covered = {rid for fn in m.functions.values() for rid in fn.requirements}
@@ -242,7 +242,7 @@ def test_unrouted_query_falls_back_global(kb):
 
 @NEEDS_UPSTREAM
 def test_systems_injected_and_all_faults_linked():
-    """enrich 后 system 节点存在（13 系统域），且 202 条故障全部 belongs_to 某系统。"""
+    """enrich 后 system 节点存在（13 系统域），且全部故障 belongs_to 某系统。"""
     from tcms_ai_platform.core import load_asset_model
     from tcms_ai_platform.domain import enrich_graph
     from tcms_ai_platform.knowledge import VectorStore, build_knowledge_graph
@@ -254,7 +254,7 @@ def test_systems_injected_and_all_faults_linked():
     systems = {n.id for n in g.nodes.values() if n.kind == "system"}
     assert len(systems) == 13  # SYS-TRAIN/BRAKE/TRACTION/DOOR/PANTO/BATT/AUX/HVAC/PIS/LIGHT/FIRE/BOGIE/SENSING
     linked = {e.src for e in g.edges if e.kind == "belongs_to" and e.src.startswith("fault:")}
-    assert len(linked) == 202  # 全部故障归属系统（_SUB_TO_SYS 覆盖 16 个子系统名）
+    assert len(linked) == len(m.faults_by_key) == 203  # 全部故障归属系统（_SUB_TO_SYS 覆盖 16 个子系统名）
 
 
 @NEEDS_UPSTREAM

@@ -157,6 +157,10 @@ def inject_ebm(g: KnowledgeGraph, store: VectorStore | None, data: dict) -> int:
         for fk, kw in [("door_fault", "门"), ("overspeed", "超速"), ("pantograph_arc", "受电弓"), ("traction_brake_conflict", "牵引"), ("soc_low", "SOC")]:
             if kw in blob and f"fault:{fk}" in g.nodes:
                 links.append(("enforces", f"fault:{fk}"))
+        # SIL4 严重安全原因 → EB 环线联锁（完整性/运行中门开），见 ILK-INTEGRITY-EB
+        for fk, kw in [("integrity_loss", "完整性"), ("door_open_moving", "门开")]:
+            if kw in blob and f"fault:{fk}" in g.nodes:
+                links.append(("enforces", f"fault:{fk}"))
         _add_knowledge(
             g, store, "interlock", iid, name,
             {"rule": rule, "condition": cond, "consequence": cons},
@@ -310,6 +314,8 @@ def inject_safety(g: KnowledgeGraph, store: VectorStore | None, data: dict) -> i
         for fn, kw in [("F-EBM", "EBM"), ("F-ATP", "ATP"), ("F-NET", "Bus-Off"), ("F-NET", "心跳"), ("F-DOOR", "门")]:
             if kw in blob and f"function:{fn}" in g.nodes:
                 links.append(("explains", f"function:{fn}"))
+        if "EB" in term and "function:F-EBM" in g.nodes:
+            links.append(("explains", "function:F-EBM"))
         _add_knowledge(
             g, store, "concept", cid, term,
             {"plain": cc.get("plain_explanation", ""), "why": cc.get("why_it_matters", "")},
@@ -400,7 +406,7 @@ def inject_systems(g: KnowledgeGraph, store: VectorStore | None, data: dict) -> 
                 )
             )
         count += 1
-    # 故障 → 系统（按子系统名精确映射到 13 系统域；完整覆盖全部 202 故障）
+    # 故障 → 系统（按子系统名精确映射到 13 系统域；完整覆盖全部 203 故障）
     # 与 domain/data/domain_systems.json 的 subsystems 字段保持一致（双源同口径）
     _SUB_TO_SYS = {
         "VCU": "SYS-TRAIN",

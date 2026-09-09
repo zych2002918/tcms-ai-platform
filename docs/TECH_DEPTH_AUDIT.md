@@ -73,7 +73,7 @@
 ## 7. 图谱知识 —— 从"存图谱"到"用图谱推理 + 可审计"
 | 能力 | 证据 |
 |---|---|
-| 本体 | 651 节点（enrich）：13 系统域分类 / 202 故障 / 103 场景 / 需求 / 功能 / threshold / interlock / hazard / 概念 |
+| 本体 | 655 节点（enrich）：13 系统域分类 / 203 故障 / 104 场景 / 需求 / 功能 / threshold / interlock / hazard / 概念 |
 | 因果 | 54 条 indicates/causes 边，逐条 basis（real_mechanism/derived）+ note + **出处 file:key（P2-1）** |
 | 遍历 | `causal_chain` ≤3 跳取诊断候选、`shortest_path` BFS 逐边证据（图查询 /api/kb/path） |
 | 端到端 | 症状(12) → 因果链 → 候选故障（真实字典键）→ 验证动作 → 复现场景 → run 记忆 → evidence 逐链可点到资产 |

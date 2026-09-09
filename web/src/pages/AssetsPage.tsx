@@ -398,6 +398,11 @@ export function AssetsPage() {
                         <div>
                           <dt className="text-ink-faint text-[11px]">处置动作</dt>
                           <dd className="kbd-mono">{selFault.action}</dd>
+                          {selFault.action_note && (
+                            <dd className="mt-1 text-[11.5px] text-vio leading-5 border-t border-line-soft pt-1">
+                              ⚙ 处置取决于原因：{selFault.action_note}
+                            </dd>
+                          )}
                         </div>
                         <div>
                           <dt className="text-ink-faint text-[11px]">注入层</dt>

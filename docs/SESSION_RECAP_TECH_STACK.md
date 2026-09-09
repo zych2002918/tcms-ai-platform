@@ -9,7 +9,7 @@
    - B：`domain/data/causal_edges.yaml` 54 条因果边（indicates 41 / causes 13；real 41 / derived 13）+ 图谱 `causal_chain` ≤3 跳遍历（逐跳 basis/note）。
    - C：`agent/diagnoser.py` + `POST /api/agent/diagnose`（无码症状 → 候选链 → 建议/置信/溯源；无命中诚实“不确定/需补充”；derived 显式标注）。
 2. **产品体验四件事**
-   - ① 场景命名释义：103/103 场景简短中文名 + 故障序列 `desc`（44 个 wave_* 模板名改写），desc 全链建模并展示。
+   - ① 场景命名释义：104/104 场景简短中文名 + 故障序列 `desc`（44 个 wave_* 模板名改写），desc 全链建模并展示。
    - ② FaultLab 高亮可读化：事件带 `fault_name/subsystem/domain_zh`；高亮点/chip 显示具体异常并可点击看说明；注入瞬间横幅“哪里+什么”。
    - ③ 图谱默认骨架 `/api/kb/overview`（56 节点/65 边）进页即显；2D/3D 单击详情、双击跳转；3D 缩放/适配/自转恢复。
    - ④ 遗留盘点/资产健康：derived 复核、LLM 仲裁、真 3D、e2e 等列为后续（本轮起逐项推进）。

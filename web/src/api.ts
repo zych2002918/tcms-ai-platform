@@ -68,6 +68,8 @@ export interface FaultInfo {
   detect?: string;
   inject?: string;
   recovery?: string;
+  /** 处置条件化说明（action_note：单一默认处置背后的"取决于原因"语义，可为空） */
+  action_note?: string;
 }
 
 export interface ScenarioInfo {
@@ -471,6 +473,9 @@ export interface AgentComposeResp {
   faults?: string[];
   chain_note?: string;
   final_action?: string;
+  /** 联锁联合提示：门/牵引域故障 + EB 收尾 → 处置取决于原因（EB 环线 vs derate） */
+  interlock_note?: string;
+  interlock_scenarios?: { file: string; name: string; cause_fault: string }[];
   unresolved?: {
     clause: string;
     domain_candidates?: {

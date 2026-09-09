@@ -54,9 +54,9 @@ def test_contract_kb_overview_skeleton(client):
 
 @NEEDS_UPSTREAM
 def test_contract_scenarios_name_and_desc(client):
-    """场景列表契约：103 个场景 name 与 desc 全非空（命名/释义链路）。"""
+    """场景列表契约：104 个场景 name 与 desc 全非空（命名/释义链路）。"""
     sc = client.get("/api/scenarios").json()
-    assert len(sc) == 103
+    assert len(sc) == 104
     for s in sc:
         assert (s.get("name") or "").strip(), f"{s['file']}: 缺 name"
         assert (s.get("desc") or "").strip(), f"{s['file']}: 缺 desc"

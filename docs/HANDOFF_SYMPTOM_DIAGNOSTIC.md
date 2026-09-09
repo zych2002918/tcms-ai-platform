@@ -22,7 +22,7 @@
 分三步落地，每步双侧测试全绿、数字/文档机器自证、诚实纪律（不编造，示意标注 derived）。
 
 A. 症状/无码故障资产层（上游数据 + 平台知识层）
-   - 在上游 tcms-can-test 故障字典（tcms/faults.yaml，现 202 条）之外建立"症状资产"：
+   - 在上游 tcms-can-test 故障字典（tcms/faults.yaml，现 203 条）之外建立"症状资产"：
      建议新增独立文件 tcms/symptoms.yaml（或平台侧 assets），schema 至少含
      key/name/中文症状名/涉及域(13 域)/可能的故障键 hints/证据或来源/示意标注；
      首批 ≥12 个真实症状：仪表盘(显示屏)闪烁、HMI 无显示、灯具闪烁、客室灯组频闪、

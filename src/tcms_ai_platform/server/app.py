@@ -58,6 +58,41 @@ def _validate_steps(m: AssetModel, steps: list[dict]) -> None:
             raise HTTPException(422, f"at={at} 的 recover 步骤缺少 fault")
 
 
+def _compose_interlock_note(m, keys: list[str], final_action: str | None) -> dict | None:
+    """时序组合中的联锁联合提示（处置取决于原因的诚实标注）。
+
+    触发：组合含 门域/牵引域 故障，且整链收尾期望 = emergency_brake。
+    现实机制（KB 资产锚定）：由列车完整性丧失（integrity_loss）/ 运行中车门打开
+    （door_open_moving）等 SIL4 严重安全原因引起的牵引丢失 → 紧急制动环线失电 →
+    同时失去牵引并施加紧急制动；而可恢复部件故障/正常指令引起的牵引丢失仅 derate
+    （traction_loss 默认处置，见其 action_note）。返回 None = 无联锁联合语义。
+    """
+    if final_action != "emergency_brake":
+        return None
+    dom = {m.faults_by_key[k].subsystem for k in keys if k in m.faults_by_key}
+    # 门域 / 牵引域 参与 + EB 收尾 → 存在“严重原因 → EB 环线”的联合语境
+    if not ({"车门", "牵引"} & dom):
+        return None
+    # 覆盖这些 SIL4 严重安全原因的现成联锁场景（真实资产，非杜撰）
+    related = []
+    for fk in ("integrity_loss", "door_open_moving"):
+        if fk not in m.faults_by_key:
+            continue
+        for s in m.scenarios.values():
+            if fk in s.fault_keys:
+                related.append({"file": s.file, "name": s.name, "cause_fault": fk})
+                break
+    return {
+        "msg": (
+            "处置取决于原因：组合含门/牵引域故障且收尾期望紧急制动。若牵引丢失由列车完整性丧失"
+            "（integrity_loss）或运行中车门打开（door_open_moving）等 SIL4 严重安全原因引起，"
+            "紧急制动环线会失电，列车同时失去牵引并施加紧急制动；可恢复部件/正常指令引起的"
+            "牵引丢失仅降级（traction_loss 默认处置）。"
+        ),
+        "scenarios": related,
+    }
+
+
 def _run_custom_steps(
     m: AssetModel,
     name: str,
@@ -763,6 +798,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
                 "level": f.level,
                 "action": f.action,
                 "sil": f.sil,
+                "action_note": f.action_note,
             }
             for f in asset_model.faults_by_key.values()
         ]
@@ -786,6 +822,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             "detect": f.detect,
             "inject": f.inject,
             "recovery": f.recovery,
+            "action_note": f.action_note,
         }
 
     @app.get("/api/scenarios")
@@ -1217,7 +1254,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             2. 图谱沿 indicates/causes 因果边取 depth≤3 候选链（逐跳带依据）；
             3. 输出候选故障（真实字典键）+ 排序分（非概率）+ 验证动作 + 场景复现建议。
         诚实纪律：无命中 → no_match=true + 需补充引导；derived 候选明确标注
-        仅示意；所有故障键来自 202 条真实字典，不编造故障码。
+        仅示意；所有故障键来自 203 条真实字典，不编造故障码。
 
         P1-1：带 session_id 时读写锚点记忆（evidence.session.anchor_used 标注是否
         沿上一轮症状锚点继续；只存证据引用，不存摘要）。P1-2：候选不可区分时
@@ -1356,7 +1393,6 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
     @app.post("/api/agent/compose_seq")
     def agent_compose_seq(req: ComposeSeqRequest) -> dict:
         """时序连锁原子化（Q3 v2）：先A后B随后C最后D → 逐原子故障错峰注入 + 真实执行。
-
         - 按时序连接词/标点逐子句锚定真实故障（不是只取整句第一个）；
         - 锚不上的句子不进计划，返回 unresolved + 该域候选（用户逐句点选后并入）；
         - picks：已点选的 {clause,key} 按原句位置并入 keys（只认该子句域候选真实键），
@@ -1473,6 +1509,14 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
                 else ""
             )
         )
+        # 联锁联合提示：牵引丢失/门域故障 + 收尾 EB 期望 → 处置取决于原因的诚实标注。
+        # 现实机制：由列车完整性丧失（integrity_loss）/ 运行中门开（door_open_moving）等
+        # SIL4 严重安全原因引起的牵引丢失 → EB 环线失电 → 同时失去牵引并紧急制动；
+        # 可恢复部件/正常指令引起的牵引丢失仅 derate（traction_loss 默认处置）。
+        interlock_note = _compose_interlock_note(asset_model, keys, seq.get("final_action"))
+        if interlock_note:
+            resp["interlock_note"] = interlock_note["msg"]
+            resp["interlock_scenarios"] = interlock_note["scenarios"]
         return resp
 
     @app.post("/api/agent/advisor")

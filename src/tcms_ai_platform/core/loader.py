@@ -166,6 +166,7 @@ def _read_faults(yaml_path: Path) -> tuple[dict[str, FaultDef], dict[str, FaultD
             detect=raw.get("detect", ""),
             inject=raw.get("inject", ""),
             recovery=raw.get("recovery", ""),
+            action_note=raw.get("action_note", ""),  # 处置条件化说明（可选字段，缺省空串）
         )
         by_key[fd.key] = fd
         by_fid[fd.fid] = fd

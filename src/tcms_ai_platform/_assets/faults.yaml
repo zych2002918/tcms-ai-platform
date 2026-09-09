@@ -72,6 +72,7 @@ faults:
   detect: TractionBrakeHandle.TractionActive 与速度矛盾检查
   inject: 注入牵引不可用状态
   recovery: 牵引恢复请求后重建
+  action_note: 处置取决于原因：可恢复部件故障 / 站台停稳后的正常操作指令引起的牵引丢失 → 降级运行（derate）；由列车完整性丧失（integrity_loss）、运行中车门打开（door_open_moving）等 SIL4 严重安全原因引起时，EB 环线失电会同时切除牵引并施加紧急制动——本键默认处置不自行升级 EB，严重原因分支由对应联锁资产承担（见 integrity_loss）。
 - fid: F-TCMS-007
   key: overspeed
   name: 超速
@@ -2424,3 +2425,16 @@ faults:
   detect: 前端自检/频域特征
   inject: 注入滤波异常
   recovery: 前端修复后恢复
+- fid: F-TCMS-203
+  key: integrity_loss
+  name: 列车完整性丧失
+  subsystem: 网络
+  layer: application
+  level: critical
+  action: emergency_brake
+  sil: '4'
+  desc: 列车完整性丧失（解体/分离检测）——安全电路串联的紧急制动环线失电，同时失去牵引并施加紧急制动
+  detect: 列车完整性监视（完整性回路状态/分离检测）
+  inject: 注入完整性丧失（EB 环线失电）
+  recovery: 完整性回路恢复 + 人工复位
+  action_note: SIL4 严重安全原因：列车完整性丧失 → 紧急制动环线失电 → 同时切除牵引并施加紧急制动（与 traction_loss 的降级处置互为原因分支：可恢复部件级牵引丢失不升级 EB，完整性/门联锁等安全原因才走 EB 环线）。

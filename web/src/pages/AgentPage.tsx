@@ -713,6 +713,25 @@ export function AgentPage() {
             {composeResp.chain_note && (
               <div className="mb-2 text-[12px] text-info/90 leading-5">{composeResp.chain_note}</div>
             )}
+            {composeResp.interlock_note && (
+              <div className="mb-2 rounded-md border border-vio/40 bg-vio/5 px-3 py-2">
+                <div className="text-[11px] font-medium text-vio mb-1">⚙ 联锁联合提示（处置取决于原因）</div>
+                <div className="text-[12px] text-ink-dim leading-5">{composeResp.interlock_note}</div>
+                {composeResp.interlock_scenarios && composeResp.interlock_scenarios.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {composeResp.interlock_scenarios.map((s) => (
+                      <span
+                        key={s.file}
+                        className="tag text-vio border-vio/40 bg-vio/10"
+                        title={`覆盖严重安全原因 ${s.cause_fault} 的现成联锁场景（可在场景页真实执行）`}
+                      >
+                        {s.name} <span className="opacity-60">({s.file})</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {composeResp.composed ? (
               <>
                 {/* 组合步骤（原子资产错峰注入/恢复） */}
