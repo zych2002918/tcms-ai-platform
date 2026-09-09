@@ -238,7 +238,7 @@ _SYSTEM = (
 _RULE_FALLBACK = (
     "当前未接入可用的 LLM 工具通道（无 API key 或通道不可用），因此没有真正调用工具。"
     "你可以在本页改用自己的目标走「让 Agent 去查证」（检索→真实执行→评审），"
-    "或到设置页配置 OpenAI 兼容端点后重试。我不会假装调用过工具。"
+    "或到设置页配置 OpenAI 兼容端点后重试。未实际调用工具时会如实标注。"
 )
 
 # “仅告警/降级但仍运行”类问题的确定性枚举（无 LLM 也能答，结果来自真实故障字典）
@@ -268,7 +268,7 @@ def rule_enum_runnable(m, text: str) -> dict | None:
     )
     for it in shown:
         lines.append(f"  - {it['name']}（{it['key']}，等级 {it['level']}，处置 {it['action']}）")
-    lines.append("停运类（shutdown / emergency_brake）不在上列。可用工具 kb_filter_assets 精确过滤，或配 key 后让我继续推理。")
+    lines.append("停运类（shutdown / emergency_brake）不在上列。可用工具 kb_filter_assets 精确过滤，或配 key 后继续推理。")
     return {
         "reply": "\n".join(lines),
         "data": {

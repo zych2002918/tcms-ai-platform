@@ -659,7 +659,7 @@ export function AgentPage() {
         <div className="panel px-4 py-5 step-in">
           <EmptyState
             icon="?"
-            title="这句我没法锚定到具体故障"
+            title="这句未能锚定到具体故障"
             desc={`${goalHint}${freeResp?.suggested_faults?.length ? " —— 但 AI 检索到了几个可能相关的真实故障，点选即可让 Agent 去查证：" : " —— 试试让目标里出现故障对象（如：车门故障 / 超速 / 心跳丢失）和期望（如：不能发车 / 降级 / 停车）。"}`}
           />
           {freeResp && freeResp.suggested_faults && freeResp.suggested_faults.length > 0 && (

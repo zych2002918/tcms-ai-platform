@@ -414,13 +414,13 @@ def _rule_reply(m: AssetModel, turn: AdvisorTurn, goal: str) -> str:
         if turn.scenario_suggestions:
             names = "、".join(s["name"] for s in turn.scenario_suggestions[:3])
             lines.append(f"可用现成场景覆盖它：{names}（点「运行」即可真实执行验证）。")
-        lines.append("想编排成多步场景，我也可以帮你把步骤草稿补全——告诉我你想验证的行为即可。")
+        lines.append("想编排成多步场景，可把步骤草稿补全——描述想验证的行为即可。")
         return "\n".join(lines)
     if i == "compose_scenario":
         keys = [f["key"] for f in turn.fault_matches]
         names = "、".join(f"{m.fault(k).name}" for k in keys if k in m.faults_by_key)
         return (
-            f"按你的编排意图，我把涉及的故障（{names}）组装成了一份可执行步骤草稿"
+            f"按你的编排意图，涉及的故障（{names}）已组装成一份可执行步骤草稿"
             "（已附真实字典处置 expect，可直接提交 /api/run/custom 真实执行，"
             "或一键转到 FaultLab 生成演示动画）。需要调整注入时刻/期望处置，直接说。"
         )
@@ -430,21 +430,21 @@ def _rule_reply(m: AssetModel, turn: AdvisorTurn, goal: str) -> str:
             for i, f in enumerate(turn.fault_matches)
         )
         return (
-            "我听到的可能对应多个真实故障，帮我确认一下你指的是哪个：\n"
+            "该描述可能对应多个真实故障，请确认指向哪个：\n"
             f"{cands}\n直接回复序号或故障名即可。"
         )
     if i == "custom_proposal":
         return (
             f"你说的像是 TCMS 故障字典（{len(m.faults_by_key)} 个真实故障）还没收录的新故障，或者是"
-            "一个更口语的说法。我不会乱猜成已有故障。请补三点：① 怎么注入/发生在哪个"
+            "一个更口语的说法。未确认的内容不会归为已有故障。请补三点：① 怎么注入/发生在哪个"
             "部件；② 会造成什么影响（速度/制动/车门/网络…）；③ 你期望系统如何处置。"
-            "我据此帮你组装成步骤草稿（可用最接近的字典故障演示，或登记为新故障资产）。"
+            "据此可组装成步骤草稿（用最接近的字典故障演示，或登记为新故障资产）。"
         )
     # out_of_domain
     return (
-        f"这句我没在 TCMS 测试主题里找到对应内容（我熟悉 {len(m.faults_by_key)} 个真实故障、"
+        f"这句未在 TCMS 测试主题里找到对应内容（知识库含 {len(m.faults_by_key)} 个真实故障、"
         f"{len(m.scenarios)} 个场景、报文/信号与安全需求）。可以试试说「车门故障不能发车」"
-        "「验证超速降级」「VCU 心跳丢失怎么处置」，或直接描述你想注入/验证的故障现象。"
+        "「验证超速降级」「VCU 心跳丢失怎么处置」，或直接描述想注入/验证的故障现象。"
     )
 
 
@@ -502,7 +502,7 @@ def advisor_turn(
     # 空消息 / 只有标点 → 引导（永不 422）
     if not goal:
         return AdvisorTurn(
-            reply="请告诉我你想做什么：验证某个故障、编排一个故障场景，或描述一个异常现象都行。",
+            reply="请描述想做什么：验证某个故障、编排一个故障场景，或描述一个异常现象都行。",
             intent="clarify",
             needs_clarification=True,
             followup_question="你想验证哪个故障 / 编排什么场景？",
@@ -636,8 +636,8 @@ def advisor_turn(
         rag_evidence=evidence,
         needs_clarification=True,
         followup_question=(
-            f"我在 {len(m.faults_by_key)} 个真实故障里没找到匹配项，可能是未收录的新故障。"
-            "请描述：① 怎么注入/发生在哪个部件；② 影响；③ 期望处置。我帮你组装草稿。"
+            f"在 {len(m.faults_by_key)} 个真实故障里未找到匹配项，可能是未收录的新故障。"
+            "请描述：① 怎么注入/发生在哪个部件；② 影响；③ 期望处置。据此组装草稿。"
         ),
     )
     turn.reply = _rule_reply(m, turn, goal)

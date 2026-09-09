@@ -229,7 +229,7 @@ const turnLocalAdvisor = (
   if (/^(今天|明天|天气|你好|hi|hello|谢谢|感谢|再见|拜拜|在吗|你会|你是谁|吃|饿|累|困)/i.test(message.trim()) || /天气|你好|吃饭|笑话|唱歌/.test(message)) {
     return {
       reply:
-        "这个话题我帮不上编排的忙——我是 TCMS 故障编排顾问，只擅长把你的测试意图变成可执行的注入/恢复步骤。说说你想验证的故障或行为吧，比如「车门故障不能发车」「超速时会不会降级」「恢复后状态是否复原」。",
+        "这个话题与故障编排无关——编排只处理 TCMS 注入/恢复步骤。可描述想验证的故障或行为，比如「车门故障不能发车」「超速时会不会降级」「恢复后状态是否复原」。",
       intent: "out_of_domain",
       needs_clarification: false,
       rag_evidence: [{ kind: "local-dict", text: "域外闲聊 → 本地兜底引导回故障编排域（顾问服务未接线）" }],
@@ -264,8 +264,8 @@ const turnLocalAdvisor = (
       : [];
     return {
       reply: uncertain
-        ? `我按故障字典做了模糊匹配，下面几个可能相关（${matches.map((x) => x.name ?? x.key).join("、")}）。点一个 chip 就能把它作为新步骤加进编排；或再描述下你观察到的现象/想验证的行为。`
-        : `这个我能对上——「${top.f.name}（${top.f.key}）」在字典里：注入后期望处置 ${top.f.action ?? "—"}。点 chip 直接把它加为新步骤（会预填等级/期望），也可以继续说你的意图。`,
+        ? `按故障字典做了模糊匹配，下面几个可能相关（${matches.map((x) => x.name ?? x.key).join("、")}）。点一个 chip 就能把它作为新步骤加进编排；或再描述下观察到的现象/想验证的行为。`
+        : `已对上——「${top.f.name}（${top.f.key}）」在字典里：注入后期望处置 ${top.f.action ?? "—"}。点 chip 直接把它加为新步骤（会预填等级/期望），也可以继续说意图。`,
       intent: uncertain ? "clarify" : "match_fault",
       fault_matches: matches,
       suggested_steps: suggested.length ? suggested : undefined,
@@ -274,7 +274,7 @@ const turnLocalAdvisor = (
   }
   const hot = faults.slice(0, 5).map((f) => f.name).join("、");
   return {
-    reply: `我先不猜——内存故障字典里没有直接对应你说的描述。为了帮你排出能真实执行的步骤，麻烦补充：① 想验证什么故障或行为（如「车门故障」「超速」）？② 大概在哪个设备、什么时候注入？你也可以直接说意图，我从这些热门故障里帮你找：${hot}。`,
+    reply: `内存故障字典里没有直接对应这段描述——为排出能真实执行的步骤，需补充：① 想验证什么故障或行为（如「车门故障」「超速」）？② 大概在哪个设备、什么时候注入？也可以直接说意图，下面这些热门故障可供参考：${hot}。`,
     fault_matches: undefined,
     intent: "custom_proposal",
     needs_clarification: true,
@@ -334,7 +334,7 @@ export function ScenariosPage() {
       {
         id: nextId(),
         role: "ai",
-        text: "我是你的编排顾问：把「想验证的情形」说给我听，我会用故障知识库（RAG）+ AI 把它翻译成可执行的注入/恢复步骤。比如：",
+        text: "编排顾问就绪：把「想验证的情形」写下来，将按故障知识库（RAG）翻译成可执行的注入/恢复步骤。例如：",
         offline: false,
       },
     ]);
@@ -514,7 +514,7 @@ export function ScenariosPage() {
     chatPush({
       id: nextId(),
       role: "ai",
-      text: resp.reply ?? "收到，我再看一下怎么帮你。",
+      text: resp.reply ?? "收到，继续处理。",
       matches: normMatches(resp.fault_matches),
       suggested: normSteps(resp.suggested_steps),
       clarify: !!resp.needs_clarification,
@@ -1033,7 +1033,7 @@ export function ScenariosPage() {
               <div className="flex items-center gap-2 px-3 py-2 border-b border-line-soft bg-surface-2/30">
                 <span className="text-vio text-[12px]">◇</span>
                 <span className="text-[12px] font-semibold text-ink">AI 编排顾问</span>
-                <span className="text-[10px] text-ink-faint">把「想验证的情形」说给我听 → 帮你翻译成可执行步骤（RAG 检索 + 真 Agent）</span>
+                <span className="text-[10px] text-ink-faint">描述「想验证的情形」 → 翻译成可执行步骤（RAG 检索 + 规则编排）</span>
               </div>
               <div ref={chatBoxRef} className="px-3 py-2.5 space-y-2.5 max-h-80 overflow-y-auto">
                 {chat.map((m) => (

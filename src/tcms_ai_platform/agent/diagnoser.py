@@ -213,7 +213,7 @@ def diagnose_symptom(
             r1 = _no_match(
                 text,
                 "未在症状资产中找到匹配 —— 需要补充：① 哪个部位/设备；② 什么工况下发生；"
-                "③ 是否伴随其它现象或告警。我不会把没把握的描述硬说成某个故障。",
+                "③ 是否伴随其它现象或告警。未确认的描述不会归为某个故障。",
             )
             # 不空手引导：先尝试"宽泛问法推理"（域词×故障句式 → 定向推荐），再给相关资产
             from ..knowledge.vague import analyze_vague
@@ -502,7 +502,7 @@ def _rule_reply(text: str, sym: dict, candidates: list[dict], plan: list[dict]) 
         lines.append(
             f"按症状描述「{text}」命中了症状资产「{sym.get('name', sym.get('key', ''))}」，"
             "但图谱上没有可审计的因果链候选 —— 说明该症状资产还没被因果表覆盖，"
-            "我不能凭猜给出故障结论。需补充更具体的现象（部位/工况/伴随告警）。"
+            "无法凭猜给出故障结论。需补充更具体的现象（部位/工况/伴随告警）。"
         )
         return "\n".join(lines)
     lines.append(
@@ -666,7 +666,7 @@ def _ambiguity_suffix(clar: dict) -> str:
     """把澄清需求转成 reply 的追问段落（诚实：承认不可区分，给区分路径）。"""
     a, b = clar["between"][0], clar["between"][1]
     lines = [
-        "⚠ 候选不可区分 —— 我不硬排第一。",
+        "⚠ 候选不可区分 —— 不硬排第一。",
         f"「{a['name']}」与「{b['name']}」置信接近且同域/同跳，请补充区分性观测：",
     ]
     for o in clar["distinguishing_observations"] or []:

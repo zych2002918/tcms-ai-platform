@@ -224,7 +224,7 @@ def plan_compose_seq(m, goal: str, max_faults: int = COMPOSE_CAP, picks: list[di
     if not keys:
         raise ComposeError(
             f"按时序逐句都没识别出真实故障（可用 {len(m.faults_by_key)} 条均未命中）：{goal!r}。"
-            "请直接点名故障键（如 车门故障/超速/烟火报警），我可逐句原子化编排。"
+            "请直接点名故障键（如 车门故障/超速/烟火报警），可逐句原子化编排。"
         )
     keys = keys[:max_faults]
     out: dict = {

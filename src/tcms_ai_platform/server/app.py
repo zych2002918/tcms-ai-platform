@@ -1145,7 +1145,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
                     ]
                     or rag_cands[:5]
                 )
-                resp["followup_question"] = "这些是字典里『告警/降级但仍可运行』的真实故障——想深挖哪一个？点选后我会继续。"
+                resp["followup_question"] = "这些是字典里『告警/降级但仍可运行』的真实故障——想深挖哪一个？点选后继续。"
             elif not rag_cands:
                 # ③ 宽泛问法推理（域词×故障句式 → 该域真实故障+场景定向推荐），离线可答
                 from ..knowledge.vague import analyze_vague
