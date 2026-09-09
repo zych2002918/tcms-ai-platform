@@ -1052,7 +1052,7 @@ export function ScenariosPage() {
                 {chatPending && (
                   <div className="flex items-center gap-2 text-[11px] text-ink-faint">
                     <span className="h-1.5 w-1.5 rounded-full bg-vio pulse-dot" />
-                    顾问思考中：语义检索故障知识 → 匹配意图…
+                    顾问思考中：检索故障知识 → 匹配意图…
                   </div>
                 )}
                 {chat.length === 0 && (

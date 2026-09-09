@@ -212,7 +212,7 @@ export function OnboardingModal({
                   ——Agent 全流程（理解目标 → 检索证据 → 真实执行 → 自证）零成本、可复现地跑给你看。
                 </p>
                 <p>
-                  <b className="text-ink">接上自己的 LLM</b> 后，Agent 的"规划 / 选场景 / 语义理解"由真实大模型决策，
+                  <b className="text-ink">接上自己的 LLM</b> 后，Agent 的"规划 / 选场景 / 意图解析"由真实大模型决策，
                   输出会标注 <Tag tone="vio">[LLM 模型名]</Tag>。兼容任何 <b className="text-ink">OpenAI 兼容协议</b>
                   端点：阿里云百炼 / DeepSeek / OpenAI / 自建 vLLM 等。
                 </p>
@@ -379,7 +379,7 @@ export function OnboardingModal({
                   {provider ? `已接入 ${provs[provider]?.label ?? provider}` : "已接入自定义端点"} · {model}
                 </h3>
                 <p className="text-[12px] text-ink-dim leading-5 max-w-sm mx-auto">
-                  Agent 现在会用 <b className="text-ok">{model}</b> 做规划与语义理解。
+                  Agent 现在会用 <b className="text-ok">{model}</b> 做规划与意图解析。
                   {okMsg && <span className="block mt-1 text-ok">{okMsg}</span>}
                 </p>
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">

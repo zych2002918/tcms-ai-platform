@@ -9,6 +9,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-Web_UI-4ca6ff)
 ![React](https://img.shields.io/badge/React-18+-8b7cf6)
 ![pytest](https://img.shields.io/badge/pytest-164%20passed-2dd4a0)
+![CI](https://github.com/zych2002918/tcms-ai-platform/actions/workflows/ci.yml/badge.svg)
 ![license](https://img.shields.io/badge/license-MIT-8ca0c0)
 
 **黑夜 / 白天双主题 · 图谱 2D 缩放平移 + 3D 俯瞰 · 一键本地启动**
@@ -68,13 +69,13 @@ bash start.sh
 
 ### 核心亮点
 
-- **知识图谱工作台**：语义检索 + 关系图谱。图谱画布支持**滚轮缩放、拖拽平移、
+- **知识图谱工作台**：混合检索（词法 + 图谱证据的离线确定性通道）+ 关系图谱。图谱画布支持**滚轮缩放、拖拽平移、
   双击/按钮一键适配**，并可切换 **3D 俯瞰**（拖拽旋转 / 自动缓转）——不同深度
   （1/2/3 跳）扩缩关联范围，节点可点开看属性与邻居。
 - **图谱默认骨架图**：打开图谱页**无需先搜索**即展示“基础关联图谱”（13 系统域 + 11 功能 +
   每功能代表故障，`/api/kb/overview` 56 节点/65 边）；2D/3D 节点**单击看详情、双击以其为中心跳转**，
   3D 支持滚轮缩放与一键适配，停转后 3 秒自动恢复待机自转。
-- **混合检索（P1-1）**：`/api/kb/search` 由 **向量 + BM25 词法（RRF 融合）**双通道驱动（兼顾语义近义与字面精确）；配 **golden 检索评测集**（14 条真实期望 id）作防回退门禁（混合 14/14、纯向量 ≥13/14）。
+- **混合检索（P1-1）**：`/api/kb/search` 由 **向量 + BM25 词法（RRF 融合）**双通道驱动（向量通道默认字符级哈希，离线、确定性、重字面/近形；**真语义近义为可选增强**——设 `TCMS_EMBEDDER=api` 且配 key 后启用 OpenAI 兼容 `/embeddings`，无 key/失败自动降级哈希，`EMBEDDING_MODEL` 可指定模型否则自动探测）；配 **golden 检索评测集**（14 条真实期望 id）作防回退门禁（混合 14/14、纯向量 ≥13/14）。
 - **场景名 = 简短中文释义**：全部 103 个内置场景均带简短中文名（唯一、无批量模板残留）与故障序列 `desc`；
   列表/下拉/执行结果标题都优先显示中文名（文件名为次级标识）。
 - **FaultLab 高亮 = 具体异常可点**：列车动画高亮点与下方 chip 直接显示具体故障（不再笼统“系统异常”），
@@ -84,14 +85,26 @@ bash start.sh
 - **症状多跳诊断**：输入「仪表盘闪烁但无故障码」这类**无码症状描述** → kb 检索
   症状资产（12 条）→ 图谱沿因果边（indicates 41 / causes 13，共 54 条，每条带
   依据）≤3 跳取候选链 → 给出诊断步骤建议（验证哪条真实故障/查哪个报文信号/
-  用什么场景复现）+ 置信度 + 逐条溯源；derived 示意候选显式标注，证据不足时
-  诚实输出“不确定/需补充”，**绝不编造故障码**（`POST /api/agent/diagnose`）。
+  用什么场景复现）+ **排序分**（依据充分性排序分数，非概率）+ 逐条溯源；derived
+  示意候选显式标注，证据不足时诚实输出“不确定/需补充”，**绝不编造故障码**
+  （`POST /api/agent/diagnose`）。**多轮追问（P1-1）**：带 `session_id` 的连续
+  会话用证据引用式锚点记忆（只存上轮症状/候选/现象事实，不存摘要），“刚才那个
+  部位/再说一下”可沿用上轮锚点继续走链；**可分性澄清（P1-2）**：top 候选置信
+  接近且同域/同跳时返回 clarification 追问“缺哪个区分性观测”，不硬排第一。
+- **受约束工具查证（P1-a）**：配 key 后 LLM 可在**真实只读工具面**内自主查证
+  （`kb_search` / `symptom_diagnose` / `kb_node` / `list_scenarios`，OpenAI 兼容
+  function-calling ≤3 轮；参数经校验、未开放工具一律拦截、失败诚实回填、回复自证
+  used_tools）；无 key / 失败 → `llm_generated=false` 确定性引导，绝不假装调用过工具
+  （`POST /api/agent/toolassist`）。
+- **MCP server（P1-b）**：平台可作 **Model Context Protocol server** 被任意 MCP 客户端指挥
+  ——`python -m tcms_ai_platform.agent.mcp_server`（零第三方依赖，stdio JSON-RPC；暴露
+  kb_search / symptom_diagnose / kb_node / list_scenarios / run_scenario 工具）。
 - **故障演示（FaultLab）**：真实场景 → 可播放动画。列车/驾驶台 SVG + 故障部位
   高亮脉冲 + 速度/制动缸压曲线，随进度条逐帧推进；每个事件都可溯源到
   「场景 YAML / 故障字典 / 引擎断言 / 示意模型」四级数据来源。
 - **AI Agent 工作台**：内置 8 类真实故障任务（紧急制动/超速/心跳/总线/CRC/
-  重启风暴…），Agent 检索知识底座 → 真实执行 → 6 维语义评审 → 轨迹可审计；
-  也支持**自由目标**：输入「车门故障了还能发车吗」，Agent 理解后查证。
+  重启风暴…），Agent 检索知识底座 → 真实执行 → 6 维 KB 锚定规则评审 → 轨迹可审计；
+  也支持**自由目标**：输入「车门故障了还能发车吗」，Agent 解析意图后查证。
 - **手动编排 + AI 编排顾问**：在场景执行页自己编排「何时注入什么故障 → 期望
   什么处置」并真实执行；旁边 AI 顾问可多轮对话，给出可一键采纳的编排建议。
 - **黑夜 / 白天双主题**：右上角一键切换，跟随系统/手动/持久化到本机设置。
@@ -137,7 +150,7 @@ python -m tcms_ai_testgen.cli --llm --target "TCMS 超速防护"   # 真 LLM（�
 tcms-ai-platform/
 ├── src/tcms_ai_platform/      平台 Python 包
 │   ├── core/                  L1 资产模型 + loader + 三级资产源
-│   ├── knowledge/             知识底座：图谱(基础517/含enrich 651节点 · 13系统域) + 向量(506/640文档) + 因果遍历(≤3跳) + GraphRAG + 沉淀
+│   ├── knowledge/             知识底座：图谱(基础517/含enrich 651节点 · 13系统域) + 向量(506/640文档) + 因果遍历(≤3跳) + GraphRAG 风格混合检索 + 沉淀
 │   ├── agent/                 Agent Harness：8任务/自由目标/advisor/reviewer/diagnoser(症状诊断)/LLM后端
 │   ├── faultlab.py            故障演示数据重建器（事件时间线 + 通道曲线）
 │   ├── domain/                领域知识注入 JSON（EBM/网络/安全/13 系统域）+ 症状资产与因果表(12 症状/54 因果边)
@@ -161,6 +174,8 @@ tcms-ai-platform/
 | `TCMS_UPSTREAM_DIR` | 指向活的上游 tcms-can-test（资产+引擎） | 自动：兄弟目录 → 内置快照 |
 | `TCMS_AI_HOME` | 本机设置目录 | `~/.tcms-ai-platform` |
 | `DASH_API_KEY` / `DEEPSEEK_API_KEY` | 真 LLM（可选，离线 Mock 已够演示） | 未设置走 Mock |
+| `TCMS_EMBEDDER` | 真语义检索通道：设 `api` 启用 OpenAI 兼容 `/embeddings`（配下方 key），默认关闭走字符哈希（离线零网络） | 空（哈希） |
+| `EMBEDDING_MODEL` | 真语义通道的 embedding 模型 id（缺省由 `GET /models` 自动探测；探测/请求失败自动降级哈希） | 自动探测 |
 
 **新人在设置页的「环境变量键值表」可实时看到每个变量当前取值与解析状态**，
 无遗留本地绝对路径——仓库源码不含任何 `D:\` 字面量（唯一 `C:\` 在注释里说明

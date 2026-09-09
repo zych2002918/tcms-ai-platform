@@ -199,21 +199,41 @@ class DiagnoseRequest(BaseModel):
     """症状多跳诊断请求（模块级：FastAPI 前向引用约束）。
 
     输入症状/无码故障描述（如「仪表盘闪烁但无故障码」）→ kb 检索症状资产 →
-    图谱沿因果边取候选链 → 诊断步骤建议（置信度 + 溯源）。证据不足时明确
+    图谱沿因果边取候选链 → 诊断步骤建议（排序分 + 溯源）。证据不足时明确
     "不确定/需补充"，绝不编造故障码（红线）。
+
+    P1-1：可选 `session_id` 启用多轮锚点记忆——服务端只存证据引用（上轮症状
+    资产 + 真实候选键 + 用户现象事实），追问（"刚才/继续/那个部位"）时复用
+    锚点继续走链；响应 evidence.session.anchor_used 如实标注。
+    P1-2：候选不可区分时响应带 clarification（需补充的区分性观测），不硬排。
     """
 
     message: str  # 症状描述
     depth: int = 3  # 因果多跳深度（2~3 为推荐诊断链深）
     max_candidates: int = 8
     use_llm: bool = False  # 开启 LLM 候选内仲裁（仅重排候选；需已配置 key）
+    session_id: str | None = None  # 多轮会话锚点记忆键（P1-1，可选）
+
+
+class ToolAssistRequest(BaseModel):
+    """受约束工具查证请求（P1-a function-calling）。
+
+    LLM（配 key 时）可在真实只读工具面内自主查证（kb_search / symptom_diagnose /
+    kb_node / list_scenarios），≤3 轮循环后给纯文本答复；工具结果全真实、
+    参数经 schema/JSON 校验、回复自证使用过的工具。无 key/失败 → llm_generated=false
+    的确定性引导（绝不假装调用过工具）。
+    """
+
+    message: str  # 用户问题/查证目标
+    use_llm: bool = True
+    max_rounds: int = 3
 
 
 class AdvisorTurnRequest(BaseModel):
     """编排顾问对话请求（模块级：FastAPI 前向引用约束）。
 
     永不 422 拒绝任何 message——无法匹配内存故障时进入多轮对话
-    （RAG 语义澄清 / 候选确认 / 自定义新故障流程草稿）。
+    （KB 检索澄清 / 候选确认 / 自定义新故障流程草稿）。
     """
 
     message: str
@@ -332,7 +352,11 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
 
     # 知识底座（P2）：图谱 + 向量 + 混合检索（同一 app 实例内单例）
     graph = build_knowledge_graph(asset_model)
-    store = VectorStore()
+    # 向量通道 embedder：默认字符级哈希（离线零网络）；TCMS_EMBEDDER=api 且配
+    # key 时启用真语义 /embeddings（失败自动降级哈希，见 llm_backend.make_kb_embedder）
+    from ..agent.llm_backend import make_kb_embedder
+
+    store = VectorStore(embedder=make_kb_embedder())
     store.add_many(build_docs_from_asset(asset_model))
     # 领域知识注入（P6）：真实列车领域知识(驾驶模式/联锁/阈值/标准/危害/概念)扩图谱
     from ..domain import enrich_graph as _enrich
@@ -341,6 +365,10 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
     retriever = HybridRetriever(store, graph)
     sink = GraphSink(graph)
     _run_counter = {"n": 0}
+    # P1-1 诊断会话锚点记忆（进程内；每次诊断调用 cleanup 过期会话）
+    from ..agent.diagnose_memory import AnchorMemory as _AnchorMemory
+
+    _diag_memory = _AnchorMemory()
 
     # Agent Harness：后端可插拔——有 LLM key(env / 本地设置 / 凭据文件)
     # 用 LLM 决策(失败自动落回 Mock)，否则 Mock 确定性（离线可复现）。
@@ -1018,7 +1046,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         像 DSH Harness 一样自由：不给任务 id，只给一句话目标。
         返回解析结果（命中故障/期望处置/置信度）+ 与 /api/agent/run 同构的执行报告。
 
-        未命中真实故障时**不裸 422 死路**：复用顾问的 RAG 语义澄清，返回
+        未命中真实故障时**不裸 422 死路**：复用顾问的 KB 检索澄清，返回
         HTTP 200 + { no_match: true, suggested_faults, followup_question }，
         前端据此引导用户点选候选故障继续 —— 让 AI 参与理解（而非只报错）。
         """
@@ -1031,7 +1059,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
                 asset_model, req.goal, seq=1, use_llm=_llm_ok()
             )
         except NoFaultMatch as e:
-            # 规则零命中 → RAG 语义澄清（"你可能指这些"），给候选而非硬 422
+            # 规则零命中 → KB 检索澄清（"你可能指这些"），给候选而非硬 422
             rag_cands, evidence = _rag_fault_candidates(asset_model, retriever, req.goal)
             return {
                 "goal": req.goal,
@@ -1058,6 +1086,27 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             **resp,
         }
 
+    @app.post("/api/agent/toolassist")
+    def agent_toolassist(req: ToolAssistRequest) -> dict:
+        """受约束工具查证（P1-a）：LLM 在真实只读工具面内自主查证（≤3 轮）。
+
+        工具：kb_search / symptom_diagnose / kb_node / list_scenarios —— 结果全真实，
+        参数经校验、未开放工具一律拦截、回复自证 used_tools；无 key/失败 → 确定性引导
+        （llm_generated=false），绝不假装调用过工具。
+        """
+        from ..agent.toolassist import TOOLS_AVAILABLE, assist
+
+        res = assist(
+            asset_model,
+            graph,
+            retriever,
+            req.message,
+            max_rounds=req.max_rounds,
+            use_llm=req.use_llm,
+        )
+        res["tools_available"] = list(TOOLS_AVAILABLE)
+        return res
+
     @app.post("/api/agent/diagnose")
     def agent_diagnose(req: DiagnoseRequest) -> dict:
         """症状多跳诊断（C 步）：无码症状描述 → 图谱因果链候选 + 诊断步骤建议。
@@ -1065,16 +1114,23 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
         输入「仪表盘闪烁但无故障码」这类症状文本：
             1. kb 检索症状资产（RAG）→ 定位 symptom 节点；
             2. 图谱沿 indicates/causes 因果边取 depth≤3 候选链（逐跳带依据）；
-            3. 输出候选故障（真实字典键）+ 置信度 + 验证动作 + 场景复现建议。
+            3. 输出候选故障（真实字典键）+ 排序分（非概率）+ 验证动作 + 场景复现建议。
         诚实纪律：无命中 → no_match=true + 需补充引导；derived 候选明确标注
         仅示意；所有故障键来自 202 条真实字典，不编造故障码。
+
+        P1-1：带 session_id 时读写锚点记忆（evidence.session.anchor_used 标注是否
+        沿上一轮症状锚点继续；只存证据引用，不存摘要）。P1-2：候选不可区分时
+        响应带 clarification 追问。
         """
+        from ..agent.diagnose_memory import build_anchor as _build_anchor
         from ..agent.diagnoser import diagnose_symptom
         from ..agent.llm_backend import llm_available as _llm_ok
 
         depth = max(2, min(req.depth, 3))  # 诊断链深限定 2~3（规格）
         use_llm = bool(req.use_llm) and _llm_ok()  # 显式开启 + key 就绪才真调 LLM
-        return diagnose_symptom(
+        _diag_memory.cleanup()
+        anchor = _diag_memory.get(req.session_id)
+        res = diagnose_symptom(
             asset_model,
             graph,
             retriever,
@@ -1082,19 +1138,25 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             depth=depth,
             max_candidates=req.max_candidates,
             use_llm=use_llm,  # 仅候选内仲裁；失败自动落回规则排序
+            session_anchor=anchor,
         )
+        res["session_id"] = req.session_id
+        res["session_anchor_used"] = bool(res.get("session_anchor_used"))
+        if req.session_id and (req.message or "").strip():
+            _diag_memory.put(req.session_id, _build_anchor(res, req.message))
+        return res
 
     @app.post("/api/agent/compose")
     def agent_compose(req: AdvisorTurnRequest) -> dict:
         """一句话 → 原子资产组合 → 真实执行（Q3 组合器闭环入口）。
 
         输入任意编排语句（如「编排一个场景：先车门故障再叠加超速最后恢复」）：
-        1. 经 advisor 语义理解 → 若意图为 compose_scenario（识别出 ≥1 真实故障）→
+        1. 经 advisor 意图识别 → 若意图为 compose_scenario（识别出 ≥1 真实故障）→
            生成错峰注入/恢复步骤草稿；
         2. 直接提交 /api/run/custom 真实引擎执行（含 sink 沉淀）；
         3. 返回组合步骤 + 执行报告（前端可展示步骤并跳转 FaultLab 动画）。
 
-        语义不明时返回 advisor 澄清回复（不 422）。依赖引擎，缺失时 503 引导。
+        意图不明时返回 advisor 澄清回复（不 422）。依赖引擎，缺失时 503 引导。
         """
         from ..agent.advisor import advisor_turn
         from ..agent.llm_backend import llm_available as _llm_ok
@@ -1199,7 +1261,7 @@ def create_app(asset_model: AssetModel | None = None, upstream: str | Path | Non
             - 规则明确命中 → match_fault（解释该故障 + 默认处置 + 现成场景）
             - 编排意图     → compose_scenario（suggested_steps 可直接 /api/run/custom）
             - 弱/多候选   → clarify（候选确认，followup_question 引导）
-            - 规则零候选   → 不拒绝：RAG 语义澄清（"你可能指这些"）或
+            - 规则零候选   → 不拒绝：KB 检索澄清（"你可能指这些"）或
                              out_of_domain（友好引导回 TCMS 主题）或
                              custom_proposal（自定义新故障流程草稿）
         LLM key 可用时回复文案由真 LLM 润色（llm_generated=true）；

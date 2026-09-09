@@ -56,6 +56,23 @@ export function GraphWorkspace() {
   const [activeKind, setActiveKind] = useState<string>("all");
   const [kbStats, setKbStats] = useState<{ graph: { nodes: number; edges: number; by_kind: Record<string, number> }; vector: { docs: number } } | null>(null);
   const didFocus = useRef(false);
+  // 选中节点 id（图内高亮环，与详情侧栏联动）；返回栈（上一视图，类“会话可回退”）
+  const [selId, setSelId] = useState<string | null>(null);
+  const [histLen, setHistLen] = useState(0);
+  const histRef = useRef<Array<{ kind: "overview" } | { kind: "seed"; seed: string; depth: number }>>([]);
+  const pushHistory = useCallback(() => {
+    if (!sub) return;
+    const desc = sub.seed === "overview"
+      ? { kind: "overview" as const }
+      : { kind: "seed" as const, seed: sub.seed, depth };
+    const st = histRef.current;
+    const last = st[st.length - 1];
+    // 相邻重复（连续同视图）不入栈，防返回原地踏步
+    if (last && JSON.stringify(last) === JSON.stringify(desc)) return;
+    st.push(desc);
+    if (st.length > 30) st.shift();
+    setHistLen(st.length);
+  }, [sub, depth]);
 
   useEffect(() => {
     api.kbStats().then(setKbStats).catch(() => undefined);
@@ -68,14 +85,16 @@ export function GraphWorkspace() {
     setErr("");
     try {
       const r = await api.kbOverview();
+      pushHistory(); // 记录当前视图，供“⬅ 返回”
       setSub(r);
       setHits(null);
       setSeedLabel("基础关联图谱（13 系统域骨架）");
       setSelNode(null);
+      setSelId(null);
     } catch (e) {
       setErr(String(e));
     }
-  }, []);
+  }, [pushHistory]);
 
   useEffect(() => {
     if (!focusParam && !didFocus.current) {
@@ -88,14 +107,40 @@ export function GraphWorkspace() {
     setErr("");
     try {
       const r = await api.kbSubgraph(seedId, d);
+      pushHistory(); // 成功后记录上一视图（⬅ 返回用）
       setSub(r);
       setHits(null);
       setSeedLabel(r.nodes.find((n) => n.id === seedId)?.label ?? seedId);
       setSelNode(null);
+      setSelId(null);
     } catch (e) {
       setErr(String(e));
     }
-  }, [depth]);
+  }, [depth, pushHistory]);
+
+  // 返回上一视图（overview 或上一个种子子图），不重复入栈
+  const goBack = async () => {
+    const prev = histRef.current.pop();
+    setHistLen(histRef.current.length);
+    if (!prev) return;
+    setErr("");
+    try {
+      if (prev.kind === "overview") {
+        const r = await api.kbOverview();
+        setSub(r);
+        setSeedLabel("基础关联图谱（13 系统域骨架）");
+      } else {
+        const r = await api.kbSubgraph(prev.seed, prev.depth);
+        setSub(r);
+        setSeedLabel(r.nodes.find((n) => n.id === prev.seed)?.label ?? prev.seed);
+      }
+      setHits(null);
+      setSelNode(null);
+      setSelId(null);
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
 
   // 深度切换：以当前 seed 重拉（保持中心不变，扩/缩一圈）；骨架视图无 seed，不适用
   const changeDepth = async (d: number) => {
@@ -130,6 +175,7 @@ export function GraphWorkspace() {
       });
       setActiveKind("all");
       setSelNode(null);
+      setSelId(null);
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -141,6 +187,7 @@ export function GraphWorkspace() {
     try {
       const n = await api.kbNode(id);
       setSelNode(n);
+      setSelId(id); // 图内高亮环跟随
     } catch (e) {
       setErr(String(e));
     }
@@ -226,7 +273,7 @@ export function GraphWorkspace() {
                 <span className="text-[12px] text-ink-dim">检索 / 追溯 / 沉淀 · 是 Agent 的「领域记忆」</span>
               </div>
               <ul className="space-y-1.5 text-[12px] leading-5 text-ink-dim">
-                <li>· <span className="text-ink">Agent 规划时检索证据</span>：混合检索（语义 + 图谱邻接）给 Agent 决策喂真实知识，评审按需求/联锁/阈值追溯。</li>
+                <li>· <span className="text-ink">Agent 规划时检索证据</span>：混合检索（向量/词法 + 图谱邻接）给 Agent 决策喂真实知识，评审按需求/联锁/阈值追溯。</li>
                 <li>· <span className="text-ink">评审核对需求追溯</span>：每次任务达成与否，都要在图谱里找到对应的安全需求与联锁规则作依据。</li>
                 <li>· <span className="text-ink">run 记录沉淀为组织记忆</span>：真实执行结果写成 run 节点连回场景/故障，越用越厚的知识底座。</li>
               </ul>
@@ -278,7 +325,7 @@ export function GraphWorkspace() {
             </Panel>
           ) : (
             <>
-              {/* 检索走向（Q4 有界分层：先图谱路由到域，再域内语义 topk） */}
+              {/* 检索走向（Q4 有界分层：先图谱路由到域，再域内向量 topk） */}
               {route && route.domains.length > 0 && (
                 <div className="px-1 -mt-1 mb-1 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-faint">
                   <span>检索已路由到分域：</span>
@@ -383,6 +430,11 @@ export function GraphWorkspace() {
             }
             right={
               <div className="flex items-center gap-2">
+                {histLen > 0 && (
+                  <button className="btn-ghost btn-sm" onClick={() => void goBack()} title="返回上一视图（浏览历史可回退）">
+                    ⬅ 返回
+                  </button>
+                )}
                 {isOverview ? (
                   <Tag tone="info">基础骨架 · 单击看详情 / 双击跳转</Tag>
                 ) : (
@@ -420,17 +472,22 @@ export function GraphWorkspace() {
                 </span>
               ))}
             </div>
-            <GraphCanvas sub={sub} onNodeClick={openNode} onJump={focus} />
+            <GraphCanvas sub={sub} selId={selId} onNodeClick={openNode} onJump={focus} />
           </Panel>
           <div className="px-1 -mt-2 text-[11px] text-ink-faint">
             说明：中心是「{seedLabel}」，连线标着关系（如“发送方→”“触发”）；色点代表实体类型，数字是该类型在本子图里的个数。
-            单击节点看详情，双击节点以其为中心跳转，点节点旁标签也可跳转；调整「深度」可扩/缩关联范围。
+            单击节点=选中并看详情（图上会出现高亮环），双击节点=以其为中心跳转；点节点旁标签也可跳转；调整「深度」可扩/缩关联范围，⬅ 返回可回上一视图。
           </div>
         </>
       )}
 
       {/* 节点详情 */}
-      {selNode && (
+      {selNode && (() => {
+        // 一键动作目标：scenario 本体，或 fault/… 关联的第一个复现场景
+        const scenFile = selNode.kind === "scenario"
+          ? selNode.id.split(":")[1]
+          : (selNode.neighbors?.find((nb) => nb.kind === "scenario")?.id.split(":")[1] ?? null);
+        return (
         <Panel
           title={
             <>
@@ -446,6 +503,30 @@ export function GraphWorkspace() {
         >
           <div className="kbd-mono mb-2">{selNode.id}</div>
           {KIND_META[selNode.kind] && <Explain text={KIND_META[selNode.kind].what} />}
+          {/* 图谱 → 动作（不绕回其它页） */}
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <button
+              className="btn btn-sm"
+              onClick={() => {
+                setSelNode(null);
+                void focus(selNode.id);
+              }}
+              title="以该节点为中心重新拉子图（与图上双击同效）"
+            >
+              ⤢ 以它为中心扩展
+            </button>
+            {scenFile && (
+              <button
+                className="btn btn-sm"
+                onClick={() => {
+                  window.location.href = `/faultlab?scenario=${encodeURIComponent(scenFile)}&from=kb`;
+                }}
+                title="跳到 FaultLab 播放该场景的故障动画"
+              >
+                ▶ 去 FaultLab 演示
+              </button>
+            )}
+          </div>
           {selNode.props && Object.keys(selNode.props).length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 mt-2">
               {Object.entries(selNode.props).map(([k, v]) => (
@@ -471,7 +552,8 @@ export function GraphWorkspace() {
             </div>
           )}
         </Panel>
-      )}
+        );
+      })()}
 
       {/* 无任何操作时：提示浏览实体 */}
       {!hits && !sub && !selNode && !searching && (
@@ -592,11 +674,13 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 /** 2D 力导向 + 缩放平移画布 */
 function GraphCanvas2D({
   sub,
+  selId,
   onNodeClick,
   onJump,
   fitSignal,
 }: {
   sub: KbSubgraph;
+  selId: string | null;
   onNodeClick: (id: string) => void;
   onJump?: (id: string) => void;
   fitSignal: number;
@@ -668,7 +752,10 @@ function GraphCanvas2D({
     drag.current = null;
   };
 
-  const onDoubleClick = () => fit();
+  const onDoubleClick = (e: React.MouseEvent<SVGSVGElement>) => {
+    e.preventDefault(); // 阻止空白区双击触发浏览器文本选择
+    fit();
+  };
   const showLabels = view.scale >= 0.42;
   const showEdgeText = view.scale >= 0.85;
 
@@ -679,7 +766,7 @@ function GraphCanvas2D({
       height={GRAPH_H}
       viewBox={`0 0 ${GRAPH_W} ${GRAPH_H}`}
       className="chart-bg"
-      style={{ display: "block", touchAction: "none", cursor: drag.current ? "grabbing" : "grab" }}
+      style={{ display: "block", touchAction: "none", cursor: drag.current ? "grabbing" : "grab", userSelect: "none", WebkitUserSelect: "none" }}
       role="img"
       aria-label="资产关系图谱（2D：滚轮缩放，拖拽平移，双击适配）"
       onWheel={onWheel}
@@ -710,22 +797,32 @@ function GraphCanvas2D({
           if (!p) return null;
           const isSeed = n.id === sub.seed;
           const r = isSeed ? 13 : 8;
+          const dr = r / Math.sqrt(view.scale); // 视觉半径
+          const hitR = dr + 7 / view.scale; // 命中区：比视觉半径多 ~7 屏幕像素
           return (
             <g
               key={n.id}
+              data-nid={n.id}
               transform={`translate(${p.x},${p.y})`}
               style={{ cursor: "pointer" }}
+              onPointerDown={(ev) => ev.stopPropagation()} /* 节点上按下不进平移捕获，保住 click/dblclick */
               onClick={(ev) => {
                 ev.stopPropagation();
                 onNodeClick(n.id);
               }}
               onDoubleClick={(ev) => {
+                ev.preventDefault(); // 防浏览器文本选中（“蓝色选中复制”）
                 ev.stopPropagation();
                 if (onJump) onJump(n.id);
               }}
             >
+              <title>{`${shortLabel(n.label)}${isSeed ? "（当前中心）" : ""} · 单击看详情 · 双击以它为中心跳转`}</title>
               {isSeed && <circle r={r + 7} fill="none" stroke={kindHex(n.kind)} strokeWidth={1.1 / view.scale} opacity={0.55} className="pulse-glow" style={{ transformBox: "fill-box", transformOrigin: "center" }} />}
-              <circle r={r / Math.sqrt(view.scale)} fill={kindHex(n.kind)} opacity={isSeed ? 1 : 0.92} stroke="var(--bg)" strokeWidth={2 / Math.sqrt(view.scale)} />
+              <circle r={hitR} fill="transparent" /> {/* 隐形命中区放大，点空白边缘也好点 */}
+              <circle r={dr} fill={kindHex(n.kind)} opacity={isSeed ? 1 : 0.92} stroke="var(--bg)" strokeWidth={2 / Math.sqrt(view.scale)} />
+              {selId === n.id && (
+                <circle r={dr + 5 / view.scale} fill="none" stroke="var(--info)" strokeWidth={2.2 / view.scale} opacity={0.95} />
+              )}
               {showLabels && (
                 <text
                   y={(isSeed ? 30 : 23) / view.scale}
@@ -748,6 +845,7 @@ function GraphCanvas2D({
 /** 3D 轨道俯瞰：球面散布 + 透视投影（几何/缓动纯函数见 lib/graph3d.ts），可拖拽旋转 + 自转 + 滚轮缩放 */
 function GraphCanvas3D({
   sub,
+  selId,
   onNodeClick,
   onJump,
   auto,
@@ -755,6 +853,7 @@ function GraphCanvas3D({
   fitSignal,
 }: {
   sub: KbSubgraph;
+  selId: string | null;
   onNodeClick: (id: string) => void;
   onJump?: (id: string) => void;
   auto: boolean;
@@ -867,9 +966,10 @@ function GraphCanvas3D({
       height={GRAPH_H}
       viewBox={`0 0 ${GRAPH_W} ${GRAPH_H}`}
       className="chart-bg"
-      style={{ display: "block", touchAction: "none", cursor: drag.current ? "grabbing" : "grab" }}
+      style={{ display: "block", touchAction: "none", cursor: drag.current ? "grabbing" : "grab", userSelect: "none", WebkitUserSelect: "none" }}
       role="img"
       aria-label="资产关系图谱 3D 俯瞰（拖拽旋转 · 节点可点）"
+      onPointerDownCapture={() => onAutoChange(false)} /* 捕获阶段即停自转：节点上按下也生效 */
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
@@ -881,23 +981,30 @@ function GraphCanvas3D({
       ))}
       {spots.map((s) => {
         const r = (s.seed ? 11 : 6.5) * (0.55 + 0.5 * s.depth);
-        const fill = kindHex(s.n.kind);
-        return (
+        const fill = kindHex(s.n.kind);        return (
           <g
             key={s.n.id}
+            data-nid={s.n.id}
             transform={`translate(${s.sx},${s.sy})`}
             style={{ cursor: "pointer", opacity: 0.3 + 0.7 * s.depth }}
+            onPointerDown={(ev) => ev.stopPropagation()} /* 节点上按下不进旋转捕获，保住 click/dblclick */
             onClick={(ev) => {
               ev.stopPropagation();
               onNodeClick(s.n.id);
             }}
             onDoubleClick={(ev) => {
+              ev.preventDefault(); // 防浏览器文本选中（“蓝色选中复制”）
               ev.stopPropagation();
               if (onJump) onJump(s.n.id);
             }}
           >
+            <title>{`${shortLabel(s.n.label)}${s.seed ? "（当前中心）" : ""} · 单击看详情 · 双击以它为中心跳转`}</title>
+            <circle r={r + 5} fill="transparent" /> {/* 隐形命中区放大（3D 小球更好点） */}
             {s.seed && <circle r={r + 6} fill="none" stroke={fill} strokeWidth={1.2} opacity={0.6} className="pulse-glow" style={{ transformBox: "fill-box", transformOrigin: "center" }} />}
             <circle r={r} fill={fill} stroke="var(--bg)" strokeWidth={1.5} />
+            {selId === s.n.id && (
+              <circle r={r + 3.5} fill="none" stroke="var(--info)" strokeWidth={2} opacity={0.95} />
+            )}
             {s.depth > 0.48 && (
               <text y={r + 13} fill="var(--ink-dim)" fontSize={s.seed ? 10.5 : 8.5} textAnchor="middle" style={{ pointerEvents: "none" }}>
                 {shortLabel(s.n.label)}
@@ -913,10 +1020,12 @@ function GraphCanvas3D({
 /** 图谱视图：2D（缩放/平移/适配）与 3D（轨道/自转/缩放）切换 + 控制条 */
 function GraphCanvas({
   sub,
+  selId,
   onNodeClick,
   onJump,
 }: {
   sub: KbSubgraph;
+  selId: string | null;
   onNodeClick: (id: string) => void;
   onJump?: (id: string) => void;
 }) {
@@ -934,9 +1043,9 @@ function GraphCanvas({
   return (
     <div className="relative">
       {mode === "2d" ? (
-        <GraphCanvas2D sub={sub} onNodeClick={onNodeClick} onJump={onJump} fitSignal={fitSignal} />
+        <GraphCanvas2D sub={sub} selId={selId} onNodeClick={onNodeClick} onJump={onJump} fitSignal={fitSignal} />
       ) : (
-        <GraphCanvas3D sub={sub} onNodeClick={onNodeClick} onJump={onJump} auto={auto} onAutoChange={setAuto} fitSignal={fitSignal} />
+        <GraphCanvas3D sub={sub} selId={selId} onNodeClick={onNodeClick} onJump={onJump} auto={auto} onAutoChange={setAuto} fitSignal={fitSignal} />
       )}
       {/* 视图控制条 */}
       <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5">
@@ -970,8 +1079,8 @@ function GraphCanvas({
       <div className="absolute bottom-2 right-2 z-10 pointer-events-none">
         <span className="rounded-md border border-line-soft bg-surface/70 px-1.5 py-0.5 text-[10px] text-ink-faint">
           {mode === "2d"
-            ? "滚轮缩放 · 拖拽平移 · 双击画布适配 · 双击节点=以其为中心跳转"
-            : "拖拽旋转 · 滚轮缩放 · 单击节点看详情 · 双击节点跳转"}
+            ? "滚轮缩放 · 空白拖拽平移 · 单击节点=选中看详情 · 双击节点=以其为中心跳转 · 双击空白适配"
+            : "拖拽空白旋转 · 滚轮缩放 · 单击节点=选中看详情 · 双击节点=以其为中心跳转"}
         </span>
       </div>
     </div>

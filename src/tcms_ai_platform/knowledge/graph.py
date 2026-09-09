@@ -185,6 +185,41 @@ class KnowledgeGraph:
             by_kind[n.kind] = by_kind.get(n.kind, 0) + 1
         return {"nodes": len(self.nodes), "edges": len(self.edges), "by_kind": by_kind}
 
+    # ---- 出处链（P2-1）：节点 → 资产出处 "file:key"，证据可机器追溯 ----
+
+    @staticmethod
+    def node_asset_ref(node_id: str) -> str:
+        """图节点 id → 权威出处（诊断 evidence/检索证据逐链可点到资产）。
+
+        约定单一冒号：`file:key`；场景资产为目录下文件 `scenarios/<file>.yaml`。
+        文件名为真实资产：上游引擎 tcms/faults.yaml、tcms/tcms.dbc、scenarios/*.yaml；
+        平台领域 domain/data/symptoms.yaml、domain_systems.json；需求/功能等非单文件
+        资产用可追溯语义标注（rtm / engine-functions …），不伪造文件名。
+        """
+        if ":" not in node_id:
+            return node_id
+        kind, key = node_id.split(":", 1)
+        if kind == "scenario":
+            return f"scenarios/{key}"
+        _FILE = {
+            "symptom": "symptoms.yaml",
+            "fault": "faults.yaml",
+            "system": "domain_systems.json",
+            "message": "tcms.dbc",
+            "signal": "tcms.dbc",
+            "req": "rtm",
+            "requirement": "rtm",
+            "function": "engine-functions",
+            "hazard": "engine-hazards",
+            "concept": "engine-concepts",
+            "threshold": "engine-thresholds",
+            "interlock": "engine-interlocks",
+            "mechanism": "engine-mechanisms",
+            "run": "runtime",
+        }
+        file = _FILE.get(kind)
+        return f"{file}:{key}" if file else node_id
+
     # ---- 因果/症状诊断遍历（B/C 步：深度优先候选链） ----
 
     def causal_hops(self, nid: str) -> list[dict]:

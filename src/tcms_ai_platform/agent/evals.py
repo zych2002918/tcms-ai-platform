@@ -20,6 +20,9 @@ import yaml
 from .diagnoser import diagnose_symptom
 
 GOLDEN_FILE = Path(__file__).resolve().parent.parent / "domain" / "data" / "agent_golden.yaml"
+ADVERSARIAL_FILE = (
+    Path(__file__).resolve().parent.parent / "domain" / "data" / "diagnose_adversarial.yaml"
+)
 
 
 def load_golden() -> list[dict]:
@@ -93,6 +96,89 @@ def evaluate_free_parse(m, tasks: list[dict] | None = None) -> dict:
             passed += 1
         rows.append({"q": t["q"], "expect": f"{t.get('expect_fault')}/{t.get('expect_action')}", "got": f"{fault}/{action}", "pass": ok})
     total = len(tasks)
+    return {"total": total, "passed": passed, "pass_rate": round(passed / total, 3) if total else 0.0, "rows": rows}
+
+
+def load_adversarial() -> list[dict]:
+    """读取诊断对抗集（P1-3，失败样本）。"""
+    if not ADVERSARIAL_FILE.is_file():
+        return []
+    data = yaml.safe_load(ADVERSARIAL_FILE.read_text(encoding="utf-8"))
+    return list(data.get("queries", []))
+
+
+def evaluate_adversarial(
+    m,
+    graph,
+    retriever,
+    entries: list[dict] | None = None,
+) -> dict:
+    """诊断对抗集门禁（P1-3 诚实与失败的机器锁）。
+
+    对每条对抗输入跑 diagnose_symptom，机器校验三类不变量：
+    - **不编造**：候选 fault 必须 ∈ 真实故障字典（全条目通用）；
+    - **expect_no_match**：必须 no_match=True + 零候选 + 回复带诚实引导
+      （补充/把握/为空/描述）——不得从"没把握"变成"硬答"；
+    - **expect symptom**：必须命中该症状资产，且候选域 ⊆ 症状声明域
+      （不得错域、不得输出声明域外的候选）。
+    数据：domain/data/diagnose_adversarial.yaml（[P1-3-fix] 条目先证旧实现会错
+    才纳入——防橡皮图章）。
+    """
+    entries = entries if entries is not None else load_adversarial()
+    rows = []
+    passed = 0
+    for e in entries:
+        q = e.get("q", "")
+        r = diagnose_symptom(m, graph, retriever, q, depth=3)
+        candidates = r.get("candidates", [])
+        fabricated = [c["fault"] for c in candidates if c["fault"] not in m.faults_by_key]
+        sym = r.get("symptom") or {}
+        sym_key = sym.get("key")
+        cand_domains = {c["domain"] for c in candidates}
+        declared = set(sym.get("domains") or [])
+        reasons: list[str] = []
+        ok = not fabricated
+        if fabricated:
+            reasons.append(f"编造故障键: {fabricated}")
+        if e.get("expect_no_match"):
+            if r.get("no_match") is not True:
+                ok = False
+                reasons.append(f"应 no_match 却匹配 symptom={sym_key!r}")
+            if candidates:
+                ok = False
+                reasons.append(f"no_match 却输出候选: {[c['fault'] for c in candidates]}")
+            reply = str(r.get("reply", ""))
+            if not any(k in reply for k in ("补充", "把握", "为空", "请描述")):
+                ok = False
+                reasons.append("no_match 回复缺诚实引导语（补充/把握）")
+        else:
+            exp = e.get("symptom")
+            if r.get("no_match") is not False or not candidates:
+                ok = False
+                reasons.append(f"未命中: symptom={sym_key!r}")
+            elif sym_key != exp:
+                ok = False
+                reasons.append(f"命中 {sym_key!r} ≠ 期望 {exp!r}")
+            leaked = cand_domains - declared
+            if leaked:
+                ok = False
+                reasons.append(f"错域: {sorted(leaked)} 超出声明域 {sorted(declared)}")
+        if ok:
+            passed += 1
+        rows.append(
+            {
+                "q": q,
+                "category": e.get("category", ""),
+                "expect": e.get("symptom") or "<no_match>",
+                "matched_key": sym_key,
+                "no_match": r.get("no_match"),
+                "domains": sorted(cand_domains),
+                "fabricated": fabricated,
+                "reasons": reasons,
+                "pass": ok,
+            }
+        )
+    total = len(entries)
     return {"total": total, "passed": passed, "pass_rate": round(passed / total, 3) if total else 0.0, "rows": rows}
 
 

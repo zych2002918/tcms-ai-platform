@@ -382,6 +382,41 @@ def test_diagnose_empty_message_guided(client):
     assert r.json()["no_match"] is True
 
 
+def test_diagnose_multi_turn_session_http(client):
+    """P1-1 HTTP 多轮：带 session_id 连续追问 → 第二轮回溯上一轮症状锚点。"""
+    sid = "test-session-http-1"
+    r1 = client.post("/api/agent/diagnose", json={"message": "仪表盘闪烁但无故障码", "session_id": sid})
+    assert r1.status_code == 200
+    b1 = r1.json()
+    assert b1["symptom"]["key"] == "dashboard_flicker"
+    assert b1["session_id"] == sid
+
+    r2 = client.post(
+        "/api/agent/diagnose",
+        json={"message": "再说一下刚才那个部位该查哪个信号", "session_id": sid},
+    )
+    assert r2.status_code == 200
+    b2 = r2.json()
+    assert b2["session_anchor_used"] is True
+    assert b2["symptom"]["key"] == "dashboard_flicker"
+    assert b2["evidence"]["session"]["prior_symptom_key"] == "dashboard_flicker"
+    # 换会话 id → 无历史，指代词不得凭空作答
+    r3 = client.post(
+        "/api/agent/diagnose",
+        json={"message": "再说一下刚才那个部位该查哪个信号", "session_id": "test-session-http-2"},
+    )
+    b3 = r3.json()
+    assert b3["no_match"] is True and b3["session_anchor_used"] is False
+
+    r4 = client.post(
+        "/api/agent/diagnose",
+        json={"message": "SOC 跳变", "session_id": sid},
+    )
+    b4 = r4.json()
+    assert b4["session_anchor_used"] is False
+    assert b4["symptom"]["key"] == "soc_jump", "换题（无指代词）应直配新症状"
+
+
 def test_system_status_capability_symptom_diagnosis(client):
     """system/status 能力清单包含 symptom_diagnosis。"""
     caps = client.get("/api/system/status").json()["capabilities"]

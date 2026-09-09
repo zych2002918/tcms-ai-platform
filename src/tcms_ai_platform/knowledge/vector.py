@@ -4,8 +4,12 @@
 - `Embedder` 抽象：`embed(text) -> np.ndarray`。默认 `HashedEmbedder`：
   确定性 token 哈希 → 归一化向量（中文按字符 + 英文按词切分，无需分词库），
   保证离线可用且对"故障/信号名/枚举"这类短结构化文本有效。
-- 可插拔：将来接真 embedding 模型（如 BGE/sentence-transformers）只需实现
-  同一接口并注入 store，检索代码零改动。
+- 可插拔：真语义近义为**可选**通道——`ApiEmbedder`（OpenAI 兼容
+  /embeddings，无 key/模型探测失败/请求失败 → 自动降级 HashedEmbedder）；
+  本地 BGE/sentence-transformers 同样只需实现同一接口并注入 store，
+  检索代码零改动。
+  **注意：默认哈希通道无近义能力——本平台"语义"的准确措辞是"字符级确定性
+  通道 + 图谱显式边证据的 GraphRAG 风格混合检索"。**
 - `VectorStore`：add(document) / search(query, k) → 带 score 的命中。
   score = cosine；命中带 doc_id / kind / text / meta，供 GraphRAG 混合。
 
@@ -39,6 +43,10 @@ class Embedder(ABC):
     @abstractmethod
     def embed(self, text: str) -> np.ndarray: ...
 
+    def embed_batch(self, texts: list[str]) -> list[np.ndarray]:
+        """批量嵌入(基座实现=逐条 embed)。真语义实现(API)可覆盖为单次批量请求。"""
+        return [self.embed(t) for t in texts]
+
 
 def _tokens(text: str) -> list[str]:
     """轻量切分：中文按字 + 英文按词 + 数字。无需分词库。"""
@@ -66,6 +74,121 @@ class HashedEmbedder(Embedder):
         if norm > 0:
             vec /= norm
         return vec
+
+
+class ApiEmbedder(Embedder):
+    """OpenAI 兼容 /embeddings 真语义向量通道（P0-2，**可选**）。
+
+    设计（诚实降级，与 LLM 后端"无 key 自动落回 Mock"同一哲学）：
+    - 显式开启（调用方确认端点可用）后才有 API 网络调用；未开启/无 key/
+      base_url 缺失/模型探测失败/请求失败 → 自动落回 fallback（默认
+      HashedEmbedder），离线与断网行为与旧版逐字节一致。
+    - 模型解析优先级：构造显式 model → env EMBEDDING_MODEL（由上层
+      make_kb_embedder 注入）→ GET /models 自动探测（取 id 含
+      embedding/text-vec 的第一个，缓存于实例）。
+    - embed_batch 按 chunk 分批；单批失败 → 该批逐条降级，不丢文档。
+    - api_active：最近一次批量嵌入是否真正走了 API（供上层"近义增益 golden"
+      判断当前通道是否可用，避免把"降级后的哈希余弦"误当真语义证据）。
+    """
+
+    _EMBEDDING_HINTS = ("embedding", "text-vec", "text-vector")
+
+    def __init__(
+        self,
+        base_url: str = "",
+        api_key: str = "",
+        model: str | None = None,
+        fallback: Embedder | None = None,
+        timeout: float = 25.0,
+        chunk: int = 64,
+        client=None,
+    ) -> None:
+        self.base_url = (base_url or "").rstrip("/")
+        self.api_key = api_key or ""
+        self.model = (model or "").strip() or None
+        self.fallback = fallback if fallback is not None else HashedEmbedder()
+        self.timeout = timeout
+        self.chunk = max(1, chunk)
+        self.api_active = False  # 最近一次批量嵌入是否成功走真 API
+        self._client = client  # 测试注入 httpx.Client(MockTransport)
+        self._lazy_client = None
+        self._resolved_model: str | None = None
+        self._resolve_done = False
+
+    # ---- 内部：客户端 / 模型解析 ----
+
+    def _http(self):
+        if self._client is not None:
+            return self._client
+        if self._lazy_client is None:
+            import httpx
+
+            self._lazy_client = httpx.Client(timeout=self.timeout)
+        return self._lazy_client
+
+    def _resolve_model(self) -> str | None:
+        """返回当前生效的 embedding 模型 id；不可用返回 None（走降级）。"""
+        if self._resolve_done:
+            return self._resolved_model
+        self._resolve_done = True
+        if self.model:
+            self._resolved_model = self.model
+            return self._resolved_model
+        if not self.api_key or not self.base_url:
+            return None
+        try:
+            headers = {"Authorization": f"Bearer {self.api_key}"}
+            r = self._http().get(f"{self.base_url}/models", headers=headers, timeout=self.timeout)
+            if r.status_code != 200:
+                return None
+            for it in (r.json().get("data") or []):
+                mid = str(it.get("id") or "")
+                s = f"{mid} {it.get('owned_by') or ''}".lower()
+                if any(h in s for h in self._EMBEDDING_HINTS):
+                    self._resolved_model = mid
+                    return mid
+        except Exception:  # noqa: BLE001 - 探测失败视为不可用（诚实降级）
+            return None
+        return None
+
+    def _api_embed_batch(self, texts: list[str]) -> list[list[float]] | None:
+        """单次 /embeddings 请求；任何失败返回 None（不抛，交由上层降级）。"""
+        m = self._resolve_model()
+        if not m or not self.api_key or not self.base_url:
+            return None
+        url = f"{self.base_url}/embeddings"
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        r = self._http().post(url, headers=headers, json={"model": m, "input": list(texts)}, timeout=self.timeout)
+        if r.status_code != 200:
+            return None
+        rows = []
+        for d in r.json().get("data") or []:
+            emb = d.get("embedding")
+            if not emb:
+                return None
+            rows.append(list(emb))
+        return rows if len(rows) == len(texts) else None
+
+    # ---- Embedder 接口 ----
+
+    def embed(self, text: str) -> np.ndarray:
+        return self.embed_batch([text])[0]
+
+    def embed_batch(self, texts: list[str]) -> list[np.ndarray]:
+        out: list[np.ndarray] = []
+        for i in range(0, len(texts), self.chunk):
+            chunk = list(texts[i : i + self.chunk])
+            try:
+                rows = self._api_embed_batch(chunk)
+                if rows is not None:
+                    self.api_active = True
+                    out.extend(np.asarray(r, dtype=np.float32) for r in rows)
+                    continue
+            except Exception:  # noqa: BLE001 - 任一环节失败 → 该批逐条降级
+                pass
+            self.api_active = False
+            out.extend(self.fallback.embed(t) for t in chunk)
+        return out
 
 
 class VectorStore:
@@ -105,10 +228,22 @@ class VectorStore:
         return True
 
     def add_many(self, docs: list[Doc]) -> int:
+        """批量加文档；返回成功数（超分区上限的拒绝）。嵌入走 embed_batch
+        （API 通道一次请求多句，失败逐条降级；哈希通道行为与逐条一致）。"""
+        if not docs:
+            return 0
+        vecs = self.embedder.embed_batch([d.text for d in docs])
         accepted = 0
-        for d in docs:
-            if self.add(d):
-                accepted += 1
+        for d, v in zip(docs, vecs):
+            dom = self._domain_of(d)
+            cap = self.partition_caps.get(dom)
+            if cap is not None:
+                cur = sum(1 for x in self.docs if self._domain_of(x) == dom)
+                if cur >= cap:
+                    continue
+            self.docs.append(d)
+            self._vectors.append(v)
+            accepted += 1
         return accepted
 
     def partition_stats(self) -> dict:
@@ -168,7 +303,8 @@ class VectorStore:
 
 
 # ---------------------------------------------------------------------------
-# 域分区（Q4 有界分层：检索先路由到域，再域内语义 topk）
+# 域分区（Q4 有界分层：检索先路由到域，再域内向量 topk；向量默认字符级哈希，
+# 真语义嵌入为可选通道（ApiEmbedder），与词法/图谱证据同层融合）
 # ---------------------------------------------------------------------------
 # 域词汇单一真源 = domain/data/domain_systems.json（13 系统域，每个 system 带
 # domain 标签字段）：system/code→标签、subsystem→标签、device→标签全部从该

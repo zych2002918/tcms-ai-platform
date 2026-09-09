@@ -3,6 +3,7 @@
 from .graph import KnowledgeGraph, build_knowledge_graph
 from .retriever import GraphSink, HybridRetriever, RetrievalHit
 from .vector import (
+    ApiEmbedder,
     Doc,
     Embedder,
     HashedEmbedder,
@@ -18,6 +19,7 @@ __all__ = [
     "RetrievalHit",
     "Doc",
     "Embedder",
+    "ApiEmbedder",
     "HashedEmbedder",
     "VectorStore",
     "build_docs_from_asset",

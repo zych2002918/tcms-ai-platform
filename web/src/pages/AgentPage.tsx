@@ -71,7 +71,7 @@ const DIM_LABELS: Record<string, string> = {
   result_grounded: "真实断言",
   evidence_used: "证据使用",
   threshold_aware: "阈值感知",
-  domain_aware: "领域语义",
+  domain_aware: "领域知识",
   requirement_trace: "需求追溯",
   honesty: "诚实性",
 };
@@ -146,8 +146,8 @@ function GoalParseCard({ resp }: { resp: AgentFreeResp }) {
         <span className="text-[11px] text-ink-faint font-medium uppercase tracking-wide">Agent 理解你的目标</span>
         <span className="text-[11px] text-ink-dim">“{resp.goal}”</span>
         {conf !== null && (
-          <span className="ml-auto">
-            <Tag tone={conf >= 60 ? "ok" : "warn"}>置信度 {conf}%</Tag>
+          <span className="ml-auto" title="解析命中的依据充分性分数（排序分，非概率）">
+            <Tag tone={conf >= 60 ? "ok" : "warn"}>依据分 {conf}</Tag>
           </span>
         )}
       </div>
@@ -190,6 +190,7 @@ export function AgentPage() {
   const [diagBusy, setDiagBusy] = useState(false);
   const [diagErr, setDiagErr] = useState("");
   const [diagLlm, setDiagLlm] = useState(false); // LLM 候选内仲裁开关（需已配置 key）
+  const diagSidRef = useRef<string | null>(null); // P1-1 多轮诊断锚点会话 id（追问沿用上一轮）
   const [visible, setVisible] = useState(0); // 事件流逐条揭示
   const [err, setErr] = useState("");
   const [goal, setGoal] = useState("");
@@ -336,13 +337,21 @@ export function AgentPage() {
     setDiagErr("");
     setDiagResp(null);
     try {
-      const r = await api.agentDiagnose(q, diagLlm);
+      // P1-1：携带会话 id → 服务端锚点记忆；追问"刚才/那个部位"可沿用上一轮症状
+      const r = await api.agentDiagnose(q, diagLlm, diagSidRef.current);
+      diagSidRef.current = r.session_id ?? diagSidRef.current;
       setDiagResp(r);
     } catch (e) {
       setDiagErr(e instanceof Error ? e.message : String(e));
     } finally {
       setDiagBusy(false);
     }
+  };
+
+  const resetDiagnose = () => {
+    diagSidRef.current = null;
+    setDiagResp(null);
+    setDiagErr("");
   };
 
   return (
@@ -398,6 +407,11 @@ export function AgentPage() {
           <button className="btn justify-center" onClick={() => void runDiagnose()} disabled={diagBusy || !diagQ.trim()}>
             {diagBusy ? "推理中…" : "🔎 症状诊断"}
           </button>
+          {(diagSidRef.current || diagResp) && (
+            <button className="btn-ghost justify-center" onClick={resetDiagnose} title="清空多轮记忆与会话，开始全新诊断">
+              ⟲ 新会话
+            </button>
+          )}
           <label className="inline-flex items-center gap-1.5 text-[11px] text-ink-dim cursor-pointer select-none" title="开启后 LLM 只在候选故障内重排诊断顺序（不引入候选外故障键）；需在设置中配置 API key">
             <input type="checkbox" className="accent-info" checked={diagLlm} onChange={(e) => setDiagLlm(e.target.checked)} disabled={diagBusy} />
             LLM 候选内仲裁
@@ -407,6 +421,11 @@ export function AgentPage() {
         {diagResp?.llm_generated && (
           <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-vio/40 bg-vio/10 px-2 py-0.5 text-[10.5px] text-vio">
             ✦ 本次结果已由真实 LLM 在候选内重排仲裁（llm_generated=true）
+          </div>
+        )}
+        {diagResp?.session_anchor_used && (
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-info/40 bg-info/10 px-2 py-0.5 text-[10.5px] text-info">
+            ↩ 沿上一轮症状锚点继续诊断（证据引用式多轮记忆，不存摘要）
           </div>
         )}
         {diagResp && (
@@ -421,6 +440,20 @@ export function AgentPage() {
               </div>
             )}
             <div className="whitespace-pre-line text-[13px] text-ink leading-6">{diagResp.reply}</div>
+            {diagResp.clarification?.needs_more && (
+              <div className="rounded-md border border-warn/50 bg-warn/5 px-3 py-2 text-[12px] leading-5 text-ink-dim">
+                ⚠ <span className="text-warn">候选不可区分 —— 不硬排第一。</span>
+                {diagResp.clarification.hint}
+                {diagResp.clarification.distinguishing_observations &&
+                  diagResp.clarification.distinguishing_observations.length > 0 && (
+                    <ul className="mt-1 list-disc pl-4">
+                      {diagResp.clarification.distinguishing_observations.map((o) => (
+                        <li key={o}>{o}</li>
+                      ))}
+                    </ul>
+                  )}
+              </div>
+            )}
             {diagResp.candidates.length > 0 && (
               <div className="grid gap-1.5 sm:grid-cols-2">
                 {diagResp.candidates.map((c) => (
@@ -429,8 +462,8 @@ export function AgentPage() {
                       <span className="text-ink font-medium">{c.name}</span>
                       <code className="kbd-mono">{c.fault}</code>
                       {c.derived && <Tag tone="warn">derived 示意</Tag>}
-                      <span className="ml-auto text-ink-faint num">
-                        {c.domain_zh} · 第{c.hop}跳 · {c.confidence.toFixed(2)}
+                      <span className="ml-auto text-ink-faint num" title="候选排序的依据充分性分数（排序分，非概率）">
+                        {c.domain_zh} · 第{c.hop}跳 · 排序分 {c.confidence.toFixed(2)}
                       </span>
                     </div>
                     {c.check && <div className="mt-1 text-ink-dim">{c.check}</div>}
@@ -813,11 +846,11 @@ export function AgentPage() {
                     </div>
                   </div>
                 )}
-                {/* 评审（真实领域语义, evaluator-optimizer） */}
+                {/* 评审（KB 锚定规则评审, evaluator-optimizer） */}
                 {run.review && (
                   <div className="px-4 pt-2 pb-3 border-t border-line-soft">
                     <div className="flex items-center gap-2 mb-1.5">
-                      <span className="text-[11px] text-ink-faint font-medium uppercase tracking-wide">真实语义评审</span>
+                      <span className="text-[11px] text-ink-faint font-medium uppercase tracking-wide">KB 锚定评审</span>
                       {run.review.passed ? <Tag tone="ok">通过</Tag> : <Tag tone="bad">未过</Tag>}
                     </div>
                     <div className="flex flex-wrap gap-1">

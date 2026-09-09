@@ -1,10 +1,13 @@
-"""P2 混合检索（GraphRAG）+ 有界分层路由 + 沉淀闭环。
+"""P2 混合检索（GraphRAG 风格）+ 有界分层路由 + 沉淀闭环。
 
-`HybridRetriever.retrieve(query)`（Q4 升级：图谱路由 → 域内语义 topk，不迷失）：
+`HybridRetriever.retrieve(query)`（Q4 升级：图谱路由 → 域内向量 topk，不迷失）：
 1. **路由**：从查询里提取域线索（子系统词/域别名/图谱 fault 邻接），映射到 1~2 个分区；
 2. **有界域内检索**：只在路由到的分区做向量 topk（候选池有界，不再全库线性扫）；
-   路由失败则回退全库 topk（诚实降级，保召回）；
-3. **证据富化**：对每个命中取其图谱 neighbors 作证据路径（结构化邻接）；
+   路由失败则回退全库 topk（诚实降级，保召回）；向量默认字符级哈希，真语义
+   近义为可选通道（ApiEmbedder，无 key/失败自动降级哈希）；
+3. **证据富化**：对每个命中取其图谱 neighbors 作证据路径（结构化邻接，带资产出处
+   ref），并给 2 跳弱路径样例 weak_links + 邻接资产计数 anchor_stats（P1-4：命中与
+   资产无直接边时仍给出"经谁可达"的可溯源弱关联，不发明）；
 4. 返回 {query, routed_domains, bounded, hits} —— 路由信息供 UI 展示「检索走向」。
 
 `GraphSink.record_run(result)`：执行结果 → run 节点 + 关联（组织记忆，L2 运行层）。
@@ -137,6 +140,85 @@ class HybridRetriever:
         routed = self._route_via_graph(query)
         return (routed, "graph") if routed else ([], "")
 
+    # ---- P1-4 弱证据：资产锚点 + 2 跳路径样例（A/B 无直接边时的可溯源弱关联） ----
+
+    def _two_hop_samples(self, nid: str, max_total: int = 4) -> list[dict]:
+        """命中节点经一个中间节点的 2 跳可达样例（最多 max_total 条，防爆量）。
+
+        目的：命中与某资产无直接边时，仍给出"经谁可达"的可溯源弱证据——每条带
+        中间节点与目标节点的资产出处 ref（node_asset_ref），路径真实存在于图，
+        不发明。若无 2 跳目标或节点不在图 → []。
+        """
+        if nid not in self.graph.nodes:
+            return []
+        direct = {nb for nb, _ in self.graph.neighbors(nid)}
+        out: list[dict] = []
+        for mid, via in self.graph.neighbors(nid)[:3]:
+            nb = self.graph.nodes.get(mid)
+            if nb is None:
+                continue
+            for nn, via2 in self.graph.neighbors(mid)[:3]:
+                if nn == nid or nn in direct:
+                    continue
+                nnb = self.graph.nodes.get(nn)
+                if nnb is None:
+                    continue
+                out.append(
+                    {
+                        "kind": "2hop",
+                        "path": [nid, mid, nn],
+                        "middle": {
+                            "id": mid,
+                            "kind": nb.kind,
+                            "label": nb.label,
+                            "via": via,
+                            "ref": KnowledgeGraph.node_asset_ref(mid),
+                        },
+                        "target": {
+                            "id": nn,
+                            "kind": nnb.kind,
+                            "label": nnb.label,
+                            "via": via2,
+                            "ref": KnowledgeGraph.node_asset_ref(nn),
+                        },
+                    }
+                )
+                if len(out) >= max_total:
+                    return out
+        return out
+
+    # ---- P2-3：run 记忆参与召回（真实执行过 → 检索/诊断证据可见 run 引用） ----
+
+    def _runs_index(self) -> dict[str, list[dict]]:
+        """一次调用内只建一次：executed 边 → {命中节点id: [run 引用]}（最近在前）。
+
+        run 引用含 passed/failed/all_passed + 资产出处（runtime:run_id）——让"该资产
+        近期有真实执行记录"成为可机器自证的证据，而非记忆摆设。
+        """
+        idx: dict[str, list[dict]] = {}
+        for e in self.graph.edges:
+            if e.kind != "executed":
+                continue
+            rid, nid = (e.src, e.dst) if e.dst.startswith(("scenario:", "fault:", "run:")) else (e.dst, e.src)
+            if not rid.startswith("run:") or not nid.startswith(("scenario:", "fault:")):
+                continue
+            rn = self.graph.nodes.get(rid)
+            if rn is None:
+                continue
+            props = rn.props or {}
+            idx.setdefault(nid, []).append(
+                {
+                    "run_id": rid.split(":", 1)[1],
+                    "node": rid,
+                    "scenario": props.get("scenario", ""),
+                    "passed": props.get("passed", 0),
+                    "failed": props.get("failed", 0),
+                    "all_passed": props.get("all_passed"),
+                    "ref": KnowledgeGraph.node_asset_ref(rid),
+                }
+            )
+        return {nid: runs[-3:][::-1] for nid, runs in idx.items()}  # 最近 3 条、新在前
+
     def _pack(
         self,
         query: str,
@@ -149,14 +231,29 @@ class HybridRetriever:
     ) -> dict:
         """把有序命中列表组装成统一响应（补图谱邻接证据 + 路由指标）。"""
         enriched = []
+        runs_idx = self._runs_index()  # P2-3：一次调用建一次（有真实 run 才非空）
         for h in ordered[: max(k, 8)]:
             nid = h["doc_id"]  # 向量 doc_id 与图节点 id 对齐（fault:x / req:x ...）
             neighbors = []
+            anchor_stats: dict[str, int] = {}
             if nid in self.graph.nodes:
-                for nb_id, via in self.graph.neighbors(nid)[:neighbor_limit]:
+                nbs = self.graph.neighbors(nid)
+                for nb_id, via in nbs[:neighbor_limit]:
                     nb = self.graph.nodes.get(nb_id)
                     if nb:
-                        neighbors.append({"id": nb.id, "kind": nb.kind, "label": nb.label, "via": via})
+                        neighbors.append(
+                            {
+                                "id": nb.id,
+                                "kind": nb.kind,
+                                "label": nb.label,
+                                "via": via,
+                                "ref": KnowledgeGraph.node_asset_ref(nb.id),  # P2-1 出处
+                            }
+                        )
+                for nb_id, _via in nbs:
+                    nb = self.graph.nodes.get(nb_id)
+                    if nb:
+                        anchor_stats[nb.kind] = anchor_stats.get(nb.kind, 0) + 1
             enriched.append(
                 {
                     "doc_id": h["doc_id"],
@@ -165,6 +262,12 @@ class HybridRetriever:
                     "score": h["score"],
                     "domain": (h.get("meta") or {}).get("domain", ""),
                     "graph_neighbors": neighbors,
+                    # P1-4：弱证据升级（无直接边时的可溯源关联）
+                    "source_ref": KnowledgeGraph.node_asset_ref(nid),
+                    "anchor_stats": anchor_stats,  # 邻接资产按类计数（场景/信号/需求…）
+                    "weak_links": self._two_hop_samples(nid),
+                    # P2-3：该资产近期的真实执行记录（有 run 边才出现）
+                    "recent_runs": runs_idx.get(nid, []),
                 }
             )
         # 分区路由命中率：最终 top-k 命中里属于路由分区的比例（bounded 时应 =1.0）

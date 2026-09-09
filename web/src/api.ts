@@ -266,9 +266,13 @@ export const api = {
   agentCompose: (message: string) =>
     req<AgentComposeResp>("/agent/compose", { method: "POST", body: JSON.stringify({ message }) }),
   /** 症状多跳诊断（无故障码症状 → 图谱因果链候选 + 诊断建议；derived 显式标注；
-   *  use_llm=true 启用 LLM 候选内仲裁——仅重排候选、需已配置 key） */
-  agentDiagnose: (message: string, use_llm = false) =>
-    req<DiagnoseResp>("/agent/diagnose", { method: "POST", body: JSON.stringify({ message, use_llm }) }),
+   *  use_llm=true 启用 LLM 候选内仲裁——仅重排候选、需已配置 key；
+   *  session_id=P1-1 多轮锚点记忆键（追问"刚才/那个部位"可沿用上一轮症状锚点） */
+  agentDiagnose: (message: string, use_llm = false, session_id?: string | null) =>
+    req<DiagnoseResp>("/agent/diagnose", {
+      method: "POST",
+      body: JSON.stringify({ message, use_llm, ...(session_id ? { session_id } : {}) }),
+    }),
   advisorTurn: (body: AdvisorTurnRequest) =>
     req<AdvisorTurnResp>("/agent/advisor", { method: "POST", body: JSON.stringify(body) }),
   runCustom: (body: CustomScenarioRequest) =>
@@ -329,6 +333,17 @@ export interface DiagnoseResp {
   evidence: Record<string, unknown>;
   no_fault_code_invented: boolean;
   llm_generated: boolean;
+  /** P1-2：候选不可区分时追问需补充的区分性观测（不硬排第一）；无则 null */
+  clarification?: {
+    needs_more: boolean;
+    kind?: string;
+    between?: { fault: string; name: string }[];
+    distinguishing_observations?: string[];
+    hint?: string;
+  } | null;
+  /** P1-1：本轮是否沿上一轮症状锚点继续（证据引用式多轮记忆） */
+  session_anchor_used?: boolean;
+  session_id?: string | null;
 }
 
 export interface AgentRunResp {

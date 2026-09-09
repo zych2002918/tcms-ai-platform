@@ -11,6 +11,18 @@
     4. 溯源：每条建议带 因果边 basis/note + 命中文档，derived 候选明确标注
        "仅示意，不可当已确认故障码"。
 
+置信度口径（P2-2）：`confidence` = **候选排序的依据充分性分数，不是概率**。
+取值只由 (跳数, 依据类型) 决定（见 _CONF），对外不宣称概率，只用于同批候选
+排序与 UI 展示（排序分/依据分）；口径锁值测试防漂移，UI 文案不得暗示概率。
+
+多轮追问（P1-1）：可传入上一轮 `session_anchor`（证据引用，见 diagnose_memory；
+非散文摘要），当本轮直配落空且语句带"刚才/继续/那个部位"等指代词时复用锚点
+症状继续走链，并在 evidence.session 中如实标注"使用了上一轮锚点"。
+
+可分性澄清（P1-2）：候选 top1/top2 置信接近（差 <0.15）且同域或同跳时不硬排
+第一——返回 `clarification`（需补充哪类区分性观测，文本全部来自真实
+detect/场景，不发明），reply 以追问口吻给出。
+
 诚实纪律：
     - 只输出真实故障字典键（faults.yaml 202 条）/ 真实系统域；
     - 证据不足 → uncertain=true + 明确"需补充 X"；
@@ -23,7 +35,8 @@ import re
 
 from ..core.models import AssetModel
 from ..domain.causal import symptoms as _catalog_symptoms
-from ..knowledge import HybridRetriever
+from ..knowledge import HybridRetriever, KnowledgeGraph
+from .diagnose_memory import is_follow_up
 
 # 与 retriever._route_via_graph 同款"通用/诊断中性字"（防止仅因"故障/检测/报警"
 # 等词重合而误判语义命中）
@@ -31,7 +44,18 @@ _GENERIC_CJK = frozenset(
     "故障检测处置注入恢复系统等级动作期望监控告警报警方法分析流程事件影响信息"
 )
 
-# 确定性置信度（跳数 × 依据类型；0~1 可解释单调）
+# 车辆框架/状态类"弱证据字"（P1-3 对抗集修复）：这些字散布在多数症状本体与
+# 用户口语里（列车/车厢/状态/正常/吗…），若计入共享字闸门会让"这列车整体都
+# 正常吧"这类无码废话误中某个症状（如 clock_jump）。闸门计数时剔除，但**不**
+# 影响向量相似度排序（召回面不变，只收紧"够不够格算症状证据"）。
+_SYMPTOM_CONTEXT_CJK = frozenset(
+    "列车辆厢乘客人室舱驾驶台司机操运内上中下前左右"
+    "状态正常否是否还在好都也很太" + "的有没无吗呢哪个这那"
+)
+
+# 置信度表（P2-2 口径）：**排序分数，非概率** —— 语义 = "该候选在证据链中的
+# 依据充分性排序值"，只由 (跳数, 依据类型) 单调决定，不与真实概率挂钩。
+# UI/文案必须按"排序分/依据分"展示，不得按百分比读作概率；锁值测试防漂移。
 _CONF = {
     (1, "real_mechanism"): 0.85,  # 症状直接指向的真实机制候选
     (1, "derived"): 0.5,  # 症状直接指向的示意候选
@@ -90,7 +114,13 @@ def match_symptom(
 ) -> dict | None:
     """在 kb 中找症状资产命中 → {key,name,...,score,doc_text} | None。
 
-    只采信 kind=symptom 的文档；噪声闸门：绝对分 + 非通用中文字符重合数。
+    只采信 kind=symptom 的文档；噪声闸门（P1-3 对抗集修复）：
+    - 绝对分下限；
+    - 共享字闸门只对症状**本体**（name + description）计数，**不**比对向量文档里
+      拼接的模板尾巴（涉及域 / 疑似候选故障清单 / 诚实标注）——否则候选清单里
+      的"列车级时间同步丢失"会让任何含"列车"的无码废话（如"列车地板漏水了"）
+      蹭过 ≥2 字闸门误中 network 症状；
+    - 车辆框架/状态类弱证据字（列车/车厢/状态/正常/吗…）不参与计数。
     """
     if not text.strip():
         return None
@@ -99,7 +129,12 @@ def match_symptom(
     # 故症状匹配走**全局检索**（不分区），再按 kind/噪声闸门过滤 —— 只影响召回面，
     # 不做错域路由。
     hits = retriever.store.search(text, k=max(k * 2, 16), domains=None)
-    qchars = _non_generic_cjk(text)
+    # 症状本体缓存：{key: "name description"}（仅正文，剔除模板/候选清单尾巴）
+    clean_by_key = {
+        s.get("key", ""): f"{s.get('name', '')} {s.get('description', '')}"
+        for s in _catalog_symptoms()
+    }
+    qchars = _non_generic_cjk(text) - _SYMPTOM_CONTEXT_CJK
     best: dict | None = None
     for h in hits:
         if h.get("kind") != "symptom":
@@ -107,12 +142,15 @@ def match_symptom(
         score = float(h.get("score", 0.0))
         if score < _SYMPTOM_MIN_ABS_SCORE:
             continue
-        tchars = _non_generic_cjk(str(h.get("text", "")))
+        doc_id = str(h.get("doc_id", ""))
+        key = doc_id.split(":", 1)[1] if doc_id.startswith("symptom:") else ""
+        clean = clean_by_key.get(key)
+        if not clean:
+            continue  # 不在症状目录 → 不采信（防注入模板噪声）
+        tchars = _non_generic_cjk(clean) - _SYMPTOM_CONTEXT_CJK
         if len(qchars & tchars) < _SYMPTOM_MIN_SHARED_CJK:
             continue
         if best is None or score > best["score"]:
-            doc_id = str(h.get("doc_id", ""))
-            key = doc_id.split(":", 1)[1] if doc_id.startswith("symptom:") else ""
             entry = {
                 "key": key,
                 "name": (h.get("meta") or {}).get("name", key),
@@ -148,27 +186,42 @@ def diagnose_symptom(
     max_candidates: int = 8,
     use_llm: bool = False,
     llm_chat=None,  # noqa: ARG001 - 预留 LLM 候选内仲裁；默认规则路径
+    session_anchor: dict | None = None,  # P1-1: 上轮锚点（证据引用，见 diagnose_memory）
 ) -> dict:
-    """症状文本 → 多跳诊断结果（结构化；绝不编造故障码）。"""
+    """症状文本 → 多跳诊断结果（结构化；绝不编造故障码）。
+
+    session_anchor：多轮追问时传入上一轮锚点 {symptom, candidates, facts}；
+    本轮直配落空且语句含指代词（刚才/继续/那个部位…）→ 复用锚点症状继续走链，
+    并在 evidence.session 如实标注 anchor_used=True（证据引用，非散文摘要）。
+    """
     text = (text or "").strip()
     if not text:
         return _no_match(text, "输入为空 —— 请描述你观察到的异常现象（部位/工况）。")
 
+    anchor = session_anchor or {}
+    anchor_used = False
     sym = match_symptom(m, retriever, text)
     if sym is None:
-        return _no_match(
-            text,
-            "未在症状资产中找到匹配 —— 需要补充：① 哪个部位/设备；② 什么工况下发生；"
-            "③ 是否伴随其它现象或告警。我不会把没把握的描述硬说成某个故障。",
-        )
+        a_sym = anchor.get("symptom")
+        if a_sym and is_follow_up(text):
+            # 追问指代上轮：复用锚点症状（本体仍在症状资产/图谱上），诚实标注
+            sym = dict(a_sym)
+            anchor_used = True
+        else:
+            return _no_match(
+                text,
+                "未在症状资产中找到匹配 —— 需要补充：① 哪个部位/设备；② 什么工况下发生；"
+                "③ 是否伴随其它现象或告警。我不会把没把握的描述硬说成某个故障。",
+            )
 
     sym_id = f"symptom:{sym['key']}"
     walk = graph.causal_chain(sym_id, depth=depth) if sym_id in graph.nodes else {
         "seed": sym_id, "depth": depth, "chains": [], "node_count": 0,
     }
 
-    # 合并候选：同一 fault 保留最浅跳 + 更强依据；chains 汇总溯源
+    # 合并候选：同一 fault 保留最浅跳 + 更强依据；chains 汇总溯源（含出处 refs）
     cand_by_key: dict[str, dict] = {}
+    all_refs: set[str] = set()
     for hops in walk.get("chains", []):
         path_keys: list[str] = []
         path_names: list[str] = []
@@ -202,13 +255,18 @@ def diagnose_symptom(
                     cand["basis"] = basis
                 if h.get("note"):
                     cand.setdefault("notes", []).append(h["note"])
+                hop_refs = _asset_refs([h.get("from", ""), to_id])
+                all_refs.update(hop_refs)
                 cand["chains"].append(
                     {
+                        "from": h.get("from", ""),
+                        "to": to_id,
                         "path": list(path_names),
                         "hop": hop_no,
                         "rel": h.get("rel", ""),
                         "basis": basis,
                         "note": h.get("note", ""),
+                        "refs": hop_refs,  # P2-1：每链可点到资产 file:key
                     }
                 )
                 fd = m.faults_by_key.get(key)
@@ -279,6 +337,20 @@ def diagnose_symptom(
     reply = _rule_reply(text, sym, candidates, plan)
     if llm_used:
         reply += "\n（LLM 已在候选内重排诊断顺序 —— 未引入候选之外的任何故障键。）"
+
+    # P1-2: 可分性不足 → 追问区分性观测，不硬排第一（仍不发明）
+    clar = _ambiguity(candidates) if candidates else None
+    if clar:
+        reply += "\n\n" + _ambiguity_suffix(clar)
+
+    # P1-1: 使用了上一轮锚点 → reply 与 evidence 如实标注（证据引用）
+    if anchor_used:
+        reply += (
+            "\n（本轮回溯上一轮症状锚点「"
+            + str(sym.get("name") or sym.get("key") or "")
+            + "」继续走因果链 —— 记忆只存证据引用，不存摘要。）"
+        )
+
     evidence = {
         "symptom_hit": {
             "doc_id": f"symptom:{sym['key']}",
@@ -288,7 +360,19 @@ def diagnose_symptom(
         },
         "causal_edges_real": sum(1 for c in candidates if not c["derived"]),
         "causal_edges_derived": sum(1 for c in candidates if c["derived"]),
+        "edge_refs": sorted(all_refs),  # P2-1：本诊段全部出处 file:key（可点到资产）
+        "recent_runs": _recent_runs(
+            graph, [f for c in candidates for f in c["scenarios"]]
+        ),  # P2-3：复现场景近期真实执行记录（无则 []）
     }
+    if anchor:
+        evidence["session"] = {
+            "anchor_present": True,
+            "anchor_used": anchor_used,
+            "prior_symptom_key": (anchor.get("symptom") or {}).get("key"),
+            "prior_candidates": [c["fault"] for c in (anchor.get("candidates") or [])],
+            "facts": list((anchor.get("facts") or [])[:2]),
+        }
     return {
         "query": text,
         "matched": True,
@@ -299,6 +383,8 @@ def diagnose_symptom(
         "candidates": candidates,
         "plan": plan,
         "evidence": evidence,
+        "clarification": clar,
+        "session_anchor_used": anchor_used,
         "no_fault_code_invented": True,
         "llm_generated": llm_used,
     }
@@ -445,6 +531,111 @@ def _no_match(query: str, reason: str) -> dict:
         "candidates": [],
         "plan": [],
         "evidence": {},
+        "clarification": None,
         "no_fault_code_invented": True,
         "llm_generated": False,
     }
+
+
+def _asset_refs(node_ids: list[str]) -> list[str]:
+    """图节点 id 列表 → 去重后的资产出处 `file:key`（P2-1：evidence 可点到资产）。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for nid in node_ids:
+        if not nid:
+            continue
+        r = KnowledgeGraph.node_asset_ref(nid)
+        if r and r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out
+
+
+def _recent_runs(graph, scenario_files: list[str], limit: int = 5) -> list[dict]:
+    """P2-3：给定复现场景文件列表 → 该资产近期的真实执行记录（可机器自证）。
+
+    扫描 executed 边（run -executed-> scenario:<file>）；只在相关场景上浮出，
+    无记录时返回 []（诚实：没跑过就是没跑过）。
+    """
+    if not scenario_files:
+        return []
+    wanted = {f"scenario:{f}" for f in scenario_files}
+    out: list[dict] = []
+    for e in graph.edges:
+        if e.kind != "executed":
+            continue
+        rid, nid = (e.src, e.dst) if e.src.startswith("run:") else (e.dst, e.src)
+        if not rid.startswith("run:") or nid not in wanted:
+            continue
+        rn = graph.nodes.get(rid)
+        if rn is None:
+            continue
+        props = rn.props or {}
+        out.append(
+            {
+                "run_id": rid.split(":", 1)[1],
+                "node": rid,
+                "scenario": props.get("scenario", ""),
+                "passed": props.get("passed", 0),
+                "failed": props.get("failed", 0),
+                "all_passed": props.get("all_passed"),
+                "ref": KnowledgeGraph.node_asset_ref(rid),
+            }
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 可分性澄清（P1-2）：top1/top2 不可区分 → 追问"缺哪个观测"，不硬排
+# ---------------------------------------------------------------------------
+
+_AMBIGUITY_CONF_GAP = 0.15  # top1-top2 置信差小于该值视为"接近"
+
+
+def _ambiguity(candidates: list[dict]) -> dict | None:
+    """候选可分性判断：top1/top2 置信接近且同域或同跳 → 返回澄清需求。
+
+    返回 {needs_more, kind, between:[{fault,name}], distinguishing_observations,
+    hint} | None。观测文本全部来自候选真实 check（detect/desc 资产），不发明。
+    """
+    if len(candidates) < 2:
+        return None
+    a, b = candidates[0], candidates[1]
+    gap = float(a["confidence"]) - float(b["confidence"])
+    same_domain = a.get("domain") == b.get("domain")
+    same_hop = a.get("hop") == b.get("hop")
+    if gap >= _AMBIGUITY_CONF_GAP or not (same_domain or same_hop):
+        return None
+    obs: list[str] = []
+    for c in (a, b):
+        check = str(c.get("check") or "").strip()
+        if check and check not in obs:
+            obs.append(check)
+    return {
+        "needs_more": True,
+        "kind": "disambiguate",
+        "between": [
+            {"fault": a["fault"], "name": a["name"]},
+            {"fault": b["fault"], "name": b["name"]},
+        ],
+        "distinguishing_observations": obs[:4],
+        "hint": (
+            f"两个候选置信接近（差 <{_AMBIGUITY_CONF_GAP:.2f}）且同域/同跳，"
+            "不能仅凭描述硬排第一 —— 需补充能区分两者的观测后继续。"
+        ),
+    }
+
+
+def _ambiguity_suffix(clar: dict) -> str:
+    """把澄清需求转成 reply 的追问段落（诚实：承认不可区分，给区分路径）。"""
+    a, b = clar["between"][0], clar["between"][1]
+    lines = [
+        "⚠ 候选不可区分 —— 我不硬排第一。",
+        f"「{a['name']}」与「{b['name']}」置信接近且同域/同跳，请补充区分性观测：",
+    ]
+    for o in clar["distinguishing_observations"] or []:
+        lines.append(f"  · {o}")
+    lines.append("若无法补充，请按各候选的「检查」动作逐一验证，勿把任一候选当已确认结论。")
+    return "\n".join(lines)

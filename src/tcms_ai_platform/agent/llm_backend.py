@@ -146,6 +146,43 @@ def _sort_models(models: list[dict]) -> list[dict]:
     return chat + non_chat
 
 
+def _embedding_model_id() -> str:
+    """embedding 模型 id：env EMBEDDING_MODEL → 本机设置 llm.embedding_model。"""
+    v = (os.environ.get("EMBEDDING_MODEL") or "").strip()
+    if v:
+        return v
+    try:
+        from ..core.settings import llm_config
+
+        v = (llm_config().get("embedding_model") or "").strip()
+    except Exception:  # noqa: BLE001 - 设置层故障不阻塞
+        v = ""
+    return v
+
+
+def make_kb_embedder():
+    """构建知识库向量 embedder（P0-2，诚实降级）：
+
+    - 默认（TCMS_EMBEDDER 未设/非 api）→ HashedEmbedder：与旧版逐字节一致，
+      零网络、离线全绿；
+    - TCMS_EMBEDDER=api 且已有 key → ApiEmbedder(base_url 与对话同源,
+      model 用 EMBEDDING_MODEL/设置，缺省由 /models 自动探测)；无 key 或
+      探测/请求失败 → 自动落回 HashedEmbedder。
+
+    base_url/key 解析与对话 LLM 同一链（env → 设置 → 默认），单一事实源。
+    """
+    from ..knowledge.vector import ApiEmbedder, HashedEmbedder
+
+    if (os.environ.get("TCMS_EMBEDDER") or "").strip().lower() not in ("api", "1", "on", "true"):
+        return HashedEmbedder()
+    base, _ = resolve_llm_config()
+    key = _api_key()
+    if not key or not base:
+        return HashedEmbedder()
+    mdl = _embedding_model_id()
+    return ApiEmbedder(base_url=base, api_key=key, model=mdl or None, fallback=HashedEmbedder())
+
+
 class LLMAgentBackend(AgentBackend):
     """OpenAI 兼容 LLM 决策后端（失败自动落回 Mock）。"""
 
@@ -205,6 +242,59 @@ class LLMAgentBackend(AgentBackend):
         if last_err:
             print(f"[llm-backend] chat failed, fallback to mock: {last_err}")
         return None
+
+    def _chat_tools(
+        self,
+        system: str,
+        user: str,
+        tools: list[dict],
+        extra_messages: list[dict] | None = None,
+    ) -> tuple[str | None, list[dict]]:
+        """OpenAI 兼容 function-calling 单轮调用（P1-a：受约束工具选择）。
+
+        tools = [{type:"function", function:{name, description, parameters}}]。
+        返回 (content, tool_calls)；tool_calls=[{id,name,arguments(str)}]。
+        无 key/请求失败/解析失败 → (None, [])（上层诚实降级，绝不硬编）。
+        """
+        key = _api_key()
+        if not key:
+            return None, []
+        messages: list[dict] = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        if extra_messages:
+            messages.extend(extra_messages)
+        url = self.base_url.rstrip("/") + "/chat/completions"
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "temperature": 0.2,
+            "max_tokens": 900,
+        }
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        try:
+            r = httpx.post(url, json=payload, headers=headers, timeout=TIMEOUT_S)
+            if r.status_code != 200:
+                print(f"[llm-backend] chat_tools HTTP {r.status_code}: {r.text[:200]}")
+                return None, []
+            msg = r.json()["choices"][0]["message"] or {}
+            content = msg.get("content")
+            calls: list[dict] = []
+            for tc in msg.get("tool_calls") or []:
+                fn = tc.get("function") or {}
+                calls.append(
+                    {
+                        "id": tc.get("id") or "",
+                        "name": fn.get("name") or "",
+                        "arguments": fn.get("arguments") or "{}",
+                    }
+                )
+            return (str(content) if content is not None else None), calls
+        except Exception as e:  # noqa: BLE001 - 失败=诚实降级（上层落规则）
+            print(f"[llm-backend] chat_tools failed: {e}")
+            return None, []
 
     @staticmethod
     def _parse_scenario_choice(text: str, scenarios: list[dict]) -> str | None:
