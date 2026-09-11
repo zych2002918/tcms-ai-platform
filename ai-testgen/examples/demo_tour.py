@@ -7,7 +7,7 @@
     python examples/demo_tour.py --llm --llm-model deepseek-v3.2
 
 五幕结构（每幕独立可跑，输出关键指标）：
-    幕1 资产加载   真实 tcms.dbc(8报文/36信号) + 13 场景 + 635 金标索引
+    幕1 资产加载   真实 tcms.dbc(22报文/116信号) + 104 场景 + 636 金标索引
     幕2 生成+编译   mock 生成 → execution DSL 编译率
     幕3 真实执行   生成用例 → 上游真实 pytest → exec_pass_rate
     幕4 变异杀毒   3 个行为翻转 → kill_rate（质量标尺）
@@ -73,7 +73,7 @@ def main() -> int:
           f"{'（--llm 但无 key，跳过）' if args.llm and not key else ''}")
 
     # 幕 1：真实资产（内联精简摘要，避免 demo_assets 全量输出刷屏）
-    print(f"\n{'=' * 62}\n▶ 幕1 资产加载：真实 tcms.dbc + 13 场景 + 635 金标\n{'=' * 62}")
+    print(f"\n{'=' * 62}\n▶ 幕1 资产加载：真实 tcms.dbc + 104 场景 + 636 金标\n{'=' * 62}")
     _run("资产解析摘要", [py, "-X", "utf8", "-c",
          "from tcms_ai_testgen.asset_loader import default_upstream_root, load_assets;"
          "b=load_assets(default_upstream_root()/'tcms', default_upstream_root()/'scenarios');"

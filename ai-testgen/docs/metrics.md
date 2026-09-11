@@ -97,5 +97,5 @@ agreement_rate = |diff|<=15 的用例占比
 | compile_rate / exec_pass_rate（mock→真实） | 1.0 / 1.0（34/34） | 同上 |
 | kill_rate（3 变异，相关口径） | 1.0 / 1.0 / 1.0 | 同上 `--mutation` |
 | 生成源区分度 | mutant_coverage 1/3 vs 3/3 | `python examples/run_p3_comparison.py` |
-| parse_rate（真实资产） | 1.0（1 DBC + 13 场景） | `python examples/demo_assets.py` |
-| 测试门禁 | 106 passed / 90.95% / ruff / selfcheck | `pytest tests --cov=tcms_ai_testgen -q` |
+| parse_rate（真实资产） | 1.0（1 DBC + 104 场景） | `python examples/demo_assets.py` |
+| 测试门禁 | 165 passed / 91.45% / ruff / selfcheck | `pytest tests --cov=tcms_ai_testgen -q` |

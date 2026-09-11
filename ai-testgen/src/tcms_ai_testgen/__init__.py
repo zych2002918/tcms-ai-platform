@@ -7,6 +7,7 @@
 真实 LLM 通过 ``llm`` extra 启用（DeepSeek/OpenAI 兼容接口）。
 """
 
+from tcms_ai_testgen._version import __version__
 from tcms_ai_testgen.models import GeneratedCase, GenReport, GenRequest
 
-__all__ = ["GeneratedCase", "GenRequest", "GenReport"]
+__all__ = ["GeneratedCase", "GenReport", "GenRequest", "__version__"]

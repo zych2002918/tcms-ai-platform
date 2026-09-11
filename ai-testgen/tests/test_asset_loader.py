@@ -1,4 +1,4 @@
-"""P1 真实资产加载器测试：真实 tcms.dbc + 13 个场景 + 合成坏文件。
+"""P1 真实资产加载器测试：真实 tcms.dbc + 全量场景 + 合成坏文件。
 
 覆盖目标（每新模块必带单测；坏文件路径用 tmp_path 合成，CI 不依赖外部）。
 """
@@ -24,6 +24,33 @@ from tcms_ai_testgen.asset_models import (
     DbcFile,
     DbcSignal,
 )
+
+# ---------------------------------------------------------------------------
+# 上游引擎资产基线（tcms-can-test 实测快照）
+# ---------------------------------------------------------------------------
+# 取数来源：tcms-can-test v1.12.0（E:\DSHworkplace\objects\tcms-can-test）
+#   tcms/tcms.dbc      -> 22 报文 / 116 信号 / 11 节点
+#   scenarios/*.yaml   -> 104 场景
+# 说明：can-test 会持续增补资产，本块是"当前应解析到的口径"而非上限。
+#       引擎扩资产后只在此单点更新，测试用例按语义断言，不再散落魔法数字。
+UPSTREAM_DBC_VERSION = "1.0.0"
+UPSTREAM_DBC_NODE_COUNT = 11
+UPSTREAM_DBC_MESSAGE_COUNT = 22
+UPSTREAM_DBC_SIGNAL_COUNT = 116
+UPSTREAM_SCENARIO_COUNT = 104
+
+# 首版 5 节点 / 8 报文：引擎后续只做增补，按子集断言防"增长时静默丢失"
+UPSTREAM_DBC_CORE_NODES = ("TCMS", "VCU", "BMS", "BOGIE", "BCU")
+UPSTREAM_DBC_CORE_MESSAGES = frozenset({
+    "TCMS_Heartbeat",
+    "VehicleSpeed",
+    "TractionBrakeHandle",
+    "DoorControl",
+    "AlarmEvent",
+    "PantographStatus",
+    "BrakeSystem",
+    "EnergyStatus",
+})
 
 # ---------------------------------------------------------------------------
 # 真实资产定位（与 examples/demo_assets.py 同一策略；找不到则 skip，不硬崩）
@@ -53,26 +80,23 @@ class TestRealDbc:
         return load_dbc(_real_dbc_path())
 
     def test_version_and_nodes(self, dbc: DbcFile) -> None:
-        assert dbc.version == "1.0.0"
-        assert dbc.nodes == ["TCMS", "VCU", "BMS", "BOGIE", "BCU"]
+        assert dbc.version == UPSTREAM_DBC_VERSION
+        assert len(dbc.nodes) == UPSTREAM_DBC_NODE_COUNT
+        # 首版节点必须仍在（引擎只增不删）
+        assert set(UPSTREAM_DBC_CORE_NODES) <= set(dbc.nodes)
 
     def test_message_inventory(self, dbc: DbcFile) -> None:
-        assert dbc.message_count == 8
+        assert dbc.message_count == UPSTREAM_DBC_MESSAGE_COUNT
         names = {m.name for m in dbc.messages}
-        assert names == {
-            "TCMS_Heartbeat",
-            "VehicleSpeed",
-            "TractionBrakeHandle",
-            "DoorControl",
-            "AlarmEvent",
-            "PantographStatus",
-            "BrakeSystem",
-            "EnergyStatus",
-        }
+        # 首版 8 报文必须仍在——防引擎扩报文时静默丢失老报文
+        assert UPSTREAM_DBC_CORE_MESSAGES <= names
 
     def test_signal_total(self, dbc: DbcFile) -> None:
-        # 3+3+4+6+7+4+4+5
-        assert dbc.signal_count == 36
+        assert dbc.signal_count == UPSTREAM_DBC_SIGNAL_COUNT
+        # 自洽：总数 == 各报文信号数之和（不依赖上游涨落，永久有效）
+        assert dbc.signal_count == sum(len(m.signal_names) for m in dbc.messages)
+        # 自洽：报文数 == 报文列表长度
+        assert dbc.message_count == len(dbc.messages)
 
     def test_heartbeat_message(self, dbc: DbcFile) -> None:
         m = dbc.find_message("TCMS_Heartbeat")
@@ -117,7 +141,7 @@ class TestRealDbc:
         b = AssetBundle(dbc=[dbc], scenarios=[], stats=AssetIndexStats(yaml_count=0, parsed_yaml=0, bad_yaml=0))
         assert b.find_message("Nope") is None
         assert b.find_message("VehicleSpeed") is not None
-        assert b.signal_total == 36
+        assert b.signal_total == UPSTREAM_DBC_SIGNAL_COUNT
 
     def test_no_raw_line_errors(self, dbc: DbcFile) -> None:
         assert dbc.raw_line_errors == []
@@ -144,23 +168,31 @@ class TestRealScenarios:
         root = _real_repo_root()
         return load_assets(root / "tcms", root / "scenarios")
 
-    def test_all_thirteen_scenarios_parsed(self, assets: AssetBundle) -> None:
-        assert assets.stats.parsed_yaml == 13
+    def test_all_scenarios_parsed(self, assets: AssetBundle) -> None:
+        assert assets.stats.parsed_yaml == UPSTREAM_SCENARIO_COUNT
         assert assets.stats.bad_yaml == 0
-        assert len(assets.scenarios) == 13
+        assert len(assets.scenarios) == UPSTREAM_SCENARIO_COUNT
+        # 自洽：全部 YAML 都解析成功，无遗漏（不依赖上游涨落，永久有效）
+        assert assets.stats.parsed_yaml == assets.stats.yaml_count
 
     def test_scenario_inject_recover_counts(self, assets: AssetBundle) -> None:
-        # eb_failure_eb: 1 inject + 1 recover
-        eb = [s for s in assets.scenarios if "紧急制动" in (s.name or "")]
-        assert len(eb) == 1
-        assert len(eb[0].steps) == 2
-        assert len(eb[0].inject_steps) == 1
-        assert len(eb[0].recover_steps) == 1
-        inj = eb[0].inject_steps[0]
+        # 按精确名取（"紧急制动" 子串另有多条级联/变体场景，不能用子串匹配）
+        eb = assets.find_scenario("紧急制动场景")
+        assert eb is not None
+        assert len(eb.steps) == 2
+        assert len(eb.inject_steps) == 1
+        assert len(eb.recover_steps) == 1
+        inj = eb.inject_steps[0]
         assert inj.fault == "eb_failure"
         assert inj.node == "vcu"
         assert inj.level == "critical"
         assert inj.expect == "emergency_brake"
+
+    def test_emergency_brake_name_is_ambiguous_by_substring(self, assets: AssetBundle) -> None:
+        # 记录口径：含"紧急制动"的场景不止一条，故上面的用例必须按精确名定位
+        hits = [s for s in assets.scenarios if "紧急制动" in (s.name or "")]
+        assert len(hits) > 1
+        assert any(s.name == "紧急制动场景" for s in hits)
 
     def test_scenario_door_cascade_event_style(self, assets: AssetBundle) -> None:
         # door_cascade 用事件式 action: 写法，应归一化为 inject/recover
@@ -178,15 +210,15 @@ class TestRealScenarios:
 
     def test_all_faults_extracted(self, assets: AssetBundle) -> None:
         faults = sorted({st.fault for sc in assets.scenarios for st in sc.steps if st.fault})
-        # 13 场景覆盖的关键故障键（F-TCMS 语义），保证抽取没漏
+        # 全量场景覆盖的关键故障键（F-TCMS 语义），保证抽取没漏
         for key in ("overspeed", "door_fault", "eb_failure", "crc_error_frame"):
             assert key in faults
 
     def test_stats_dbc(self, assets: AssetBundle) -> None:
         assert assets.stats.parsed_dbc == 1
         assert assets.stats.bad_dbc == 0
-        assert assets.message_total == 8
-        assert assets.signal_total == 36
+        assert assets.message_total == UPSTREAM_DBC_MESSAGE_COUNT
+        assert assets.signal_total == UPSTREAM_DBC_SIGNAL_COUNT
 
     def test_parse_rate_full(self, assets: AssetBundle) -> None:
         assert assets.stats.parse_rate == pytest.approx(1.0)

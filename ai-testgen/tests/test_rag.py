@@ -87,7 +87,7 @@ class TestRealUpstream:
         if not (root / "tests").is_dir():
             pytest.skip(f"上游仓库不可用: {root}")
         idx = GoldenIndex.from_tests_dir(root / "tests")
-        assert idx.size > 500  # 上游 635 个用例
+        assert idx.size > 500  # 上游 636 个用例
         hits = idx.retrieve("车门 Door2State Fault", top_k=3)
         assert hits
         assert any("door" in h.name for h in hits)

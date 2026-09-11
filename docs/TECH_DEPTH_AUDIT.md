@@ -110,7 +110,7 @@
 | P1 | 平台暴露 MCP server | ✅ 已落地（mcp_server 零依赖 stdio + 7 测试 + 子进程冒烟） |
 | P2 | 语义通道端到端验证脚本 | ✅ 已落地（scripts/verify_semantic_channel.py：配 key 输出近义增益，离线 exit=2 诚实引导） |
 | P2 | 记忆分层：run 文本向量化 + 经验检索 | 留档（当前 run 以 recent_runs 邻接参与证据，够用即止，不追加向量化以免越界） |
-| P2 | 检索加 cross-encoder 重排（可选） | 留档（小语料 640 条 + golden 门禁已够；10^5 量级再上） |
+| P2 | 检索加 cross-encoder 重排（可选） | 留档（小语料 644 条 + golden 门禁已够；10^5 量级再上） |
 | P3 | 多 agent 编排（captain+角色成员） | 留档（本项目以多角色管线呈现，不引入多 agent 以免超出展示边界） |
 
 ---

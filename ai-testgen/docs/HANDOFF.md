@@ -13,7 +13,7 @@ tcms-ai-testgen 二期已从「LLM 生成测试用例的 demo」推进到**带�
 ## 2. 技术栈与关键路径
 
 - 仓库：`E:\DSHworkplace\objects\tcms-ai-testgen`（venv: `.venv\Scripts\python.exe`）
-- 上游被测平台：`E:\DSHworkplace\objects\tcms-can-test`（真实 DBC + 777 pytest + 仿真器）
+- 上游被测平台：`E:\DSHworkplace\objects\tcms-can-test`（真实 DBC + 960 pytest + 仿真器）
 - 真 LLM：阿里云百炼兼容端点 `https://dashscope.aliyuncs.com/compatible-mode/v1`，
   key 走环境变量 **DASH_API_KEY**（用户持有，未入库）
 - 演示：`python examples\demo_tour.py`（离线）/ `--llm`（含真 LLM 反思幕，已实测全绿）
@@ -22,13 +22,13 @@ tcms-ai-testgen 二期已从「LLM 生成测试用例的 demo」推进到**带�
 
 | 模块 | 能力 |
 |---|---|
-| `asset_loader/models` | 真实 DBC(8报文/36信号) + 13 场景 YAML 解析，坏文件诚实统计 |
+| `asset_loader/models` | 真实 DBC(22报文/116信号) + 104 场景 YAML 解析，坏文件诚实统计 |
 | `execution.py` | 白名单 execution DSL（setup/expect 原语，pydantic 校验）|
 | `oracle.py` | 10 故障键 level→action 镜像（与上游 faultlevel 对拍测试防漂移）|
 | `llm.py` | MockLLMClient（DSL 一致性套件）/ OpenAICompatClient（百炼）|
 | `executor_real.py` | DSL → 真实 pytest → 上游执行（含枚举往返断言、编译期语义拦截）|
 | `mutation.py` | 变异杀毒：3 行为翻转 × kill_rate（相关用例分母）|
-| `rag.py` | 上游 635 手写用例金标索引 + 检索（生成/修正证据）|
+| `rag.py` | 上游 636 手写用例金标索引 + 检索（生成/修正证据）|
 | `agent.py` | 反思 harness：失败分类 + diff 门禁 + reflect_loop（self-heal_rate）|
 | `judge_llm.py` | LLM-as-judge 与规则 judge 交叉验证（agreement/diff）|
 | `baseline_rule.py` | 规则基线生成源（对照臂）|

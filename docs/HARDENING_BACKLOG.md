@@ -22,7 +22,7 @@
 - `GraphSink.record_run` 已接线 4 处（`app.py:937/1171/1264/1295`），run 节点进图，**当前不参与召回/查询**。
 - 13 域单一真源 `domain/data/domain_systems.json`（`vector.py:178`）。
 - 平台**无 `.github/workflows`（零 CI）**；上游 tcms-can-test 有 CI 先例可抄。
-- 量级：640 检索文档 / ~651 图节点 / 检索 O(N) 线性扫；接口已抽象，10^5+ 才需 ANN。
+- 量级：644 检索文档 / ~655 图节点 / 检索 O(N) 线性扫；接口已抽象，10^5+ 才需 ANN。
 
 ---
 

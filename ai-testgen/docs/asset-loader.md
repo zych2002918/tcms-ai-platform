@@ -7,8 +7,8 @@
 
 | 资产 | 路径 | 规模（实测） |
 |---|---|---|
-| DBC 信号表 | `<upstream>/tcms/tcms.dbc` | 8 报文 / 36 信号 / 5 节点 / VERSION 1.0.0 |
-| 场景库 | `<upstream>/scenarios/*.yaml` | 13 个场景 |
+| DBC 信号表 | `<upstream>/tcms/tcms.dbc` | 22 报文 / 116 信号 / 11 节点 / VERSION 1.0.0 |
+| 场景库 | `<upstream>/scenarios/*.yaml` | 104 个场景 |
 
 上游仓库默认定位：`<本仓库>/../tcms-can-test`（与 CHARTER 一致），可用环境变量
 `TCMS_UPSTREAM_ROOT` 覆盖（见 `default_upstream_root()`）。

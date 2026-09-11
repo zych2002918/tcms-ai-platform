@@ -103,28 +103,29 @@
 | 向量文档 | 234 | 资产 + 领域(离线 HashedEmbedder) |
 | Agent 内置任务 | 8 | 真实故障锚定防漂移 |
 
-### 5.1b Q2-P-A 资产真实化第一增量（2026-09-08 实测）
+### 5.1b Q2-P-A 资产真实化第一增量（2026-09-12 实测，当前态）
 
 > 见 `docs/NEXT_PHASE_BLUEPRINT.md` P-A 落地：资产从"教学演示级"推进到
 > "13 系统域代表性子集"，图谱/向量/Agent 命中空间同步放大。全链数字机器自证。
+> **本节为当前实测态，数字随上游 tcms-can-test 增长同步刷新；§5.1 保留为起点快照。**
 
 | 资产 | 数量 | 来源 |
 |---|---|---|
 | 报文 / 信号 | 22 / 116 | DBC（+14 帧：HVAC/PIS/照明/烟火/辅助变流/ATO/走行部/后门/网关/防滑/牵引变流/司控台/充电机；周期分级 25–500ms） |
-| 故障(FMEA) / 场景 | 202 / 103 | faults.yaml（13 系统域 × 16 子系统）/ scenarios/（剧本族） |
+| 故障(FMEA) / 场景 | 203 / 104 | faults.yaml（13 系统域 × 16 子系统）/ scenarios/（剧本族） |
 | 需求(RTM) / 功能 / 设备 | 52 / 11 / 11 | rtm.csv（SR-01~52）/ 手工锚定 / DBC 节点 |
-| 图谱节点 / 边 | 基础 517 / 743；服务态(含 enrich+症状/因果) 651 / 1167 | 资产 + 领域知识(EBM/网络/安全/13 系统域) + 症状 12 + 因果边 54 |
-| 向量文档 | 基础 506；服务态 640 | 资产 + 领域(离线 HashedEmbedder) + 12 症状文档 |
+| 图谱节点 / 边 | 基础 519 / 748；服务态(含 enrich+症状/因果) 655 / 1176 | 资产 + 领域知识(EBM/网络/安全/13 系统域) + 症状 12 + 因果边 54 |
+| 向量文档 | 基础 508；服务态 644 | 资产 + 领域(离线 HashedEmbedder) + 12 症状文档 |
 | 症状资产（无码） | 12 | symptoms.yaml（hints 全锚真实故障键/13 系统域；annotation real 7/mixed 5） |
 | 因果边（诊断） | 54（indicates 41 / causes 13） | causal_edges.yaml（real_mechanism 41 / derived 13，逐条 basis+note） |
 | 图谱默认骨架（overview） | 56 节点 / 65 边 | GET /api/kb/overview：13 system + 11 function + 每功能代表故障 |
-| 场景中文名 / desc | 103 name 唯一；44 个 wave_* 模板名已改短并补 desc | scenarios/*.yaml + Scenarios/Agent 结果标题映射 |
+| 场景中文名 / desc | 104 name 唯一；44 个 wave_* 模板名已改短并补 desc | scenarios/*.yaml + Scenarios/Agent 结果标题映射 |
 | Agent 内置任务 | 8 | 真实故障锚定防漂移（自由目标规则 + RAG 澄清，见 freeform/advisor） |
 
 ### 5.2 工程与验证
 
-- 平台 v0.5.0：`164 passed` / ruff clean（浏览器 e2e 走查列为 UI 迭代清单）；`ai-testgen/`：`136 passed / 28 skipped`（独立 venv）；上游 tcms-can-test v1.12.0：`957 passed + 1 skip`。
-- GitHub：`tcms-ai-platform` 43 commits(含并入)、`tcms-ai-testgen` 迁移指引 28 commits、`tcms-can-test` v1.11.0。
+- 平台 v0.5.0：`221 passed + 1 skipped` / ruff clean；`ai-testgen/`：`165 passed`（离线 mock 模式）；上游 tcms-can-test v1.12.0：`959 passed + 1 skip`。
+- GitHub：`tcms-ai-platform` 43 commits(含并入)、`tcms-ai-testgen` 迁移指引 28 commits、`tcms-can-test` v1.12.0。
 - 双仓库合一：独立包结构保留(`pip install -e "./ai-testgen[test]"`)，README 一体叙事。
 
 ### 5.3 简历可主张（三句话叙事，附追问弹药）
@@ -138,10 +139,10 @@
 
 > **Iteration A/B/C 症状多跳诊断（v0.5.0，2026-09，工作树未提交）**：12 症状资产 +
 > 54 条因果边（indicates 41 / causes 13；real_mechanism 41 / derived 13）注入图谱；
-> 服务态 **651 节点 / 1167 边 / 640 向量文档**（基础图仍 517/743/506）；多跳遍历 ≤3 跳
+> 服务态 **655 节点 / 1176 边 / 644 向量文档**（基础图仍 519/748/508）；多跳遍历 ≤3 跳
 > （症状→嫌疑故障→causes 反查根因，逐跳 basis/note）+ `POST /api/agent/diagnose`；
 > 「仪表盘闪烁但无故障码」专项回归通过（非空/可溯源/不编造故障码/含 aux+network 域候选）；
-> 平台 **164 passed** / ruff clean；上游 957 passed + 1 skip（本迭代未改上游）。
+> 平台 **221 passed + 1 skipped** / ruff clean；上游 959 passed + 1 skip（本迭代未改上游）。
 
 ## 6. 文件层次索引（File Index：在哪里找什么）
 

@@ -1,14 +1,14 @@
-"""组合增量分析：手写 777 例（上游）vs 生成 DSL 族的语义覆盖对照。
+"""组合增量分析：手写 960 例（上游）vs 生成 DSL 族的语义覆盖对照。
 
-回答面试追问「你的生成器和 777 手写用例比，增量在哪？」——不空谈，
+回答面试追问「你的生成器和 960 手写用例比，增量在哪？」——不空谈，
 用主题指纹量化：
-    * 上游 777 例的函数名主题分布（按 fault/door/speed/heartbeat/... 关键词）；
+    * 上游 960 例的函数名主题分布（按 fault/door/speed/heartbeat/... 关键词）；
     * 生成 DSL 族的主题（encode_bound / simulate_inject / fault_scenario × 10 键）；
     * 输出「手写已覆盖 vs 生成可组合」的对照 JSON，标出生成器可做的
       组合维度增量（fault 键 × 处置动作 × 模式/时序的笛卡尔空间）。
 
-口径说明：上游 777 = pytest collect 的 nodeid 数（含参数化展开，实测
-`pytest --collect-only` = 777）；函数 def 数为 635。本工具以函数名做主题
+口径说明：上游 960 = pytest collect 的 nodeid 数（含参数化展开，实测
+`pytest --collect-only` = 960）；函数 def 数为 635。本工具以函数名做主题
 指纹，数字仅用于分布对比，不用于绝对计数。
 """
 

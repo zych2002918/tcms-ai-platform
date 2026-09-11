@@ -72,4 +72,4 @@ EB 环线失电导致的牵引切除是**预期联锁动作**，不是"牵引丢
 
 ## 4. 门禁
 - 上游 `tcms-can-test`：`pytest -q` = 959 passed + 1 skipped（含新场景全过 + 无孤儿：新键有场景引用）。
-- 平台 `tcms-ai-platform`：`pytest -q` = 220 passed + 1 skipped；ruff clean；tsc 0；vitest 16/16。
+- 平台 `tcms-ai-platform`：`pytest -q` = 221 passed + 1 skipped；ruff clean；tsc 0；vitest 16/16。
