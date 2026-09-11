@@ -1,4 +1,4 @@
-﻿tcms-ai-testgen 全流程演示
+tcms-ai-testgen 全流程演示
 python: D:\DSHworkplace\objects\tcms-ai-testgen\.venv\Scripts\python.exe
 LLM 幕: 关
 
@@ -59,7 +59,7 @@ test_fault_injection.py :: test_door_fault_blocks_closed_flag | 车门故障安�
       "overall_kill_rate": 0.05
     }
   ],
-  "upstream": "D:\\DSHworkplace\\objects\\tcms-can-test"
+  "upstream": "../tcms-can-test"
 }
 
 ==============================================================

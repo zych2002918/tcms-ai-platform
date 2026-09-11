@@ -36,5 +36,5 @@
       "overall_kill_rate": 0.029
     }
   ],
-  "upstream": "D:\\DSHworkplace\\objects\\tcms-can-test"
+  "upstream": "../tcms-can-test"
 }
