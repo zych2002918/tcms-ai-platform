@@ -12,8 +12,8 @@ tcms-ai-testgen 二期已从「LLM 生成测试用例的 demo」推进到**带�
 
 ## 2. 技术栈与关键路径
 
-- 仓库：`D:\DSHworkplace\objects\tcms-ai-testgen`（venv: `.venv\Scripts\python.exe`）
-- 上游被测平台：`D:\DSHworkplace\objects\tcms-can-test`（真实 DBC + 777 pytest + 仿真器）
+- 仓库：`E:\DSHworkplace\objects\tcms-ai-testgen`（venv: `.venv\Scripts\python.exe`）
+- 上游被测平台：`E:\DSHworkplace\objects\tcms-can-test`（真实 DBC + 777 pytest + 仿真器）
 - 真 LLM：阿里云百炼兼容端点 `https://dashscope.aliyuncs.com/compatible-mode/v1`，
   key 走环境变量 **DASH_API_KEY**（用户持有，未入库）
 - 演示：`python examples\demo_tour.py`（离线）/ `--llm`（含真 LLM 反思幕，已实测全绿）

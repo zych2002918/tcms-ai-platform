@@ -376,7 +376,7 @@ def default_upstream_root() -> Path:
     """返回上游仓库根目录的默认猜测。
 
     优先环境变量 ``TCMS_UPSTREAM_ROOT``，其次 ``REPO_ROOT / tcms-can-test``
-    （D:/DSHworkplace/objects/ 平级布局）。供 examples / 后续 P2 使用，
+    （E:/DSHworkplace/objects/ 平级布局）。供 examples / 后续 P2 使用，
     不存在时由调用方决定是否降级（demo 打印提示，不崩溃）。
     """
     env = os.environ.get("TCMS_UPSTREAM_ROOT")

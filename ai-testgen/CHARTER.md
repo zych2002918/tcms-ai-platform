@@ -1,7 +1,7 @@
 # tcms-ai-testgen 二期 · 项目章程（CHARTER）
 
 > 本文件是「新工作区对话」的完整开启指令 = 项目章程 + 底座状态机 + 执行纪律。
-> 在 DSH 新建以 `D:\DSHworkplace\objects\tcms-ai-testgen` 为工作区的对话，把本文件全文作为第一条消息发出。
+> 在 DSH 新建以 `E:\DSHworkplace\objects\tcms-ai-testgen` 为工作区的对话，把本文件全文作为第一条消息发出。
 > 配套：仓库内 `README.md`（面向读者/HR）、`docs/`（面向工程记录）。
 
 ---
@@ -97,7 +97,7 @@
 
 ## 6. 底座状态机（已建成，勿重复造 — 2026-09-04 实测）
 
-- **路径**：`D:\DSHworkplace\objects\tcms-ai-testgen`（git 首提 f4bfb2f）
+- **路径**：`E:\DSHworkplace\objects\tcms-ai-testgen`（git 首提 f4bfb2f）
 - **venv**：`.venv\Scripts\python.exe`（Python 3.11）
 - **模块**：models / prompt / llm / executor / judge / pipeline / cli
 - **验证命令**（全离线）：
