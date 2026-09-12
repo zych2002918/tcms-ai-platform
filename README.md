@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-2dd4a0)](#快速开始)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Web_UI-4ca6ff)](#)
 [![React](https://img.shields.io/badge/React-18+-8b7cf6)](#)
-[![pytest](https://img.shields.io/badge/pytest-220%20passed-2dd4a0)](#测试--门禁)
+[![pytest](https://img.shields.io/badge/pytest-221%20passed-2dd4a0)](#测试--门禁)
 [![CI](https://github.com/zych2002918/tcms-ai-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/zych2002918/tcms-ai-platform/actions)
 [![license](https://img.shields.io/badge/license-MIT-8ca0c0)](#license)
 
@@ -53,7 +53,7 @@ Agent(Harness · 8 类真实任务 / 自由目标 / 症状多跳诊断)
 - 节点可直达动作：详情侧栏一键"以它为中心扩展 / ▶ 去 FaultLab 演示"；
 - 图谱内可看到该资产近期真实执行记录（`recent_runs`）与关联证据。
 
-![图谱工作台(dark)](e2e/shots-theme-graph-2d-dark.png)
+![知识图谱工作台](docs/graph-2d-preview.png)
 
 ### 🩺 症状多跳诊断（无码故障 → 建议链）
 - 输入"仪表盘闪烁但无故障码"这类现象 → 12 个症状资产 + 54 条带依据因果边 ≤3 跳取候选；
@@ -78,7 +78,7 @@ Agent(Harness · 8 类真实任务 / 自由目标 / 症状多跳诊断)
 - 真实场景逐帧播放：故障注入→检测→处置→恢复，每事件可溯源到 场景/故障字典/引擎断言/示意模型 四级来源；
 - 手动编排 + AI 顾问多轮对话，建议可一键采纳并真实执行。
 
-![FaultLab 故障演示](e2e/shots-theme-faultlab-light.png)
+![FaultLab 故障演示](docs/faultlab-preview.png)
 
 ---
 
@@ -173,4 +173,4 @@ tcms-ai-platform/
 
 ## License
 
-MIT —— 平台与生成器均 MIT；上游 `tcms-can-test` 亦 MIT。
+MIT —— 平台与生成器均 MIT（见 [LICENSE](LICENSE)、[ai-testgen/LICENSE](ai-testgen/LICENSE)）；上游 `tcms-can-test` 亦 MIT。
