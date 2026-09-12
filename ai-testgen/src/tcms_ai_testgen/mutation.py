@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -260,8 +261,14 @@ def run_mutation(
     gen_path = tests_dir / "test_ai_generated_mutant.py"
     gen_path.write_text(code, encoding="utf-8")
 
+    # 解释器解析：优先上游仓自带的 venv（本地 Windows 布局），
+    # 不存在时退回当前解释器——CI/Linux 下上游是干净 checkout，没有 .venv。
+    # 注意：不能写成 `str(py) if py else ...`——Path 对象恒为真，回退永不生效。
     py = root / ".venv" / "Scripts" / "python.exe"
-    cmd = [str(py) if py else "python", "-m", "pytest", str(gen_path), "-q", "--no-header"]
+    if not py.is_file():
+        py = None
+    cmd = [str(py) if py else sys.executable, "-m", "pytest", str(gen_path),
+           "-q", "--no-header"]
     proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True, encoding="utf-8",
                           errors="replace", timeout=180)  # pragma: no cover - subprocess
     stdout = proc.stdout  # pragma: no cover

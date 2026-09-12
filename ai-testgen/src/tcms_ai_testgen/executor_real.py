@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -321,10 +322,12 @@ def run_real(
     gen_path = tests_dir / "test_ai_generated_p2.py"
     gen_path.write_text(code, encoding="utf-8")
 
+    # 解释器：优先上游仓自带 venv（本地布局），否则用当前解释器
+    # （CI/Linux 上游是干净 checkout，无 .venv；不依赖 PATH 上的 python）
     py = root / ".venv" / "Scripts" / "python.exe"
-    if not py.is_file():  # 环境探测失败就退回 PATH python
+    if not py.is_file():  # 环境探测失败就退回当前解释器
         py = None
-    cmd = [str(py) if py else "python", "-m", "pytest", str(gen_path), "-q", "--no-header"]
+    cmd = [str(py) if py else sys.executable, "-m", "pytest", str(gen_path), "-q", "--no-header"]
     proc = subprocess.run(  # pragma: no cover - subprocess 需上游环境
         cmd,
         cwd=root,
