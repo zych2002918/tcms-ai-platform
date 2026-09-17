@@ -1,5 +1,13 @@
 # TCMS × AI — 列车软件测试平台
 
+> ## 📦 本仓库已整合 → [`tcms-agent`](https://github.com/zych2002918/tcms-agent)
+>
+> 本仓库已作为 **`packages/platform`** 并入三仓合一的 monorepo
+> [**zych2002918/tcms-agent**](https://github.com/zych2002918/tcms-agent)
+> （领域引擎 + 平台 + 生成器 + AI 测试工程师 Agent），**完整 git 历史已保留**。
+> 原独立生成器 `tcms-ai-testgen` 亦已并入该仓的 `packages/testgen`。
+> 后续开发与 issue 请到新仓库。以下为原 README 存档。
+
 > **让 AI 测试工程师"能干活、能自证、看得见"** —— 面向列车网络控制系统（TCMS / CAN）的本地测试平台：
 > 真实资产 → 知识底座 → Agent 查证 → 真实执行 → 机器自证。全部可离线运行。
 
